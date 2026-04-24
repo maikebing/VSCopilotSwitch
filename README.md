@@ -1,0 +1,2 @@
+# VSCopilotSwitch
+VSCopilotSwitch
