@@ -1,2 +1,95 @@
-# VSCopilotSwitch
-VSCopilotSwitch
+﻿# VSCopilotSwitch
+
+VSCopilotSwitch 是一个面向 VS Code / GitHub Copilot Chat 体验的本地模型供应商切换与协议转换工具。项目目标是把多个第三方模型供应商统一转换为 Ollama 兼容接口，并自动维护 VS Code 用户配置，让编辑器中的模型入口可以像使用 Ollama 一样调用不同供应商的模型。
+
+## 项目目标
+
+- 支持多种模型供应商协议接入：sub2api 中转站协议、OpenAI Official、Claude Official、DeepSeek、NVIDIA NIM / build.nvidia.com、Moark 等。
+- 将上游模型统一暴露为 Ollama 兼容协议，降低 VS Code 与本地工具链的接入成本。
+- 自动修改 VS Code 用户目录中的 Ollama 相关配置，包括 `chatLanguageModels.json` 和 `settings.json`。
+- 提供熔断、重试、健康检查、限流、故障降级等稳定性能力。
+- 基于 [OmniHost](https://github.com/maikebing/OmniHost) 实现 Windows、macOS、Linux、WSL 四端可运行界面。
+- 界面使用 Vue 3，以 SPA 方式在项目内调试、构建和发布。
+- 最终发布支持 AOT，并将 SPA 构建产物作为嵌入式资源打包进单体应用。
+- 支持系统托盘图标，可从托盘打开主界面、快速选择当前提供商并退出程序。
+- UI 参考 `cc switch` 的快速切换体验，强调模型供应商、模型、密钥、代理和 VS Code 配置的一站式管理。
+
+## 核心能力
+
+### 协议转换
+
+VSCopilotSwitch 计划维护一个统一的 Provider Adapter 层，将不同供应商的认证、模型列表、聊天补全、流式输出、错误结构和限流语义转换为 Ollama 兼容接口。
+
+首批计划支持：
+
+| 供应商 | 目标能力 | 备注 |
+| --- | --- | --- |
+| sub2api | 中转站模型统一接入 | 兼容 OpenAI 风格接口和站点自定义字段 |
+| OpenAI Official | 模型列表、chat/completions、responses 兼容策略 | 以官方 API 为基线 |
+| Claude Official | Messages API 到 Ollama chat 语义转换 | 处理 system、tool use、stream delta |
+| DeepSeek | OpenAI 兼容接口接入 | 保留推理模型字段映射 |
+| NVIDIA NIM | build.nvidia.com 模型接入 | 兼容 NVIDIA 推理服务模型命名 |
+| Moark | 平台协议适配 | 根据实际 API 文档补齐 |
+
+### VS Code 配置管理
+
+工具会检测并维护以下文件：
+
+- `C:\Users\mysti\AppData\Roaming\Code\User\chatLanguageModels.json`
+- `C:\Users\mysti\AppData\Roaming\Code\User\settings.json`
+
+后续会扩展为跨平台路径解析：
+
+| 平台 | VS Code User 配置目录 |
+| --- | --- |
+| Windows | `%APPDATA%\Code\User` |
+| macOS | `~/Library/Application Support/Code/User` |
+| Linux | `~/.config/Code/User` |
+| WSL | Windows 侧 VS Code Server / Remote 配置与 Linux 用户配置并存检测 |
+
+配置写入必须具备备份、差异预览、回滚和幂等更新能力，避免破坏用户现有设置。
+
+### 稳定性
+
+计划提供以下运行时保护：
+
+- 熔断：供应商连续失败后短时间停止路由到该供应商。
+- 重试：对短暂网络错误、429、5xx 做可配置重试。
+- 超时：按供应商和模型配置请求超时。
+- 降级：主供应商不可用时切换到备用供应商或备用模型。
+- 健康检查：周期性检测 API Key、模型列表和聊天接口可用性。
+- 观测：记录请求耗时、失败原因、熔断状态和当前路由。
+
+## 技术方向
+
+项目界面和宿主能力基于 OmniHost，前端界面使用 Vue 3 SPA。开发阶段通过项目内 npm 脚本启动 SPA 调试服务；发布阶段先构建 SPA 静态产物，再作为嵌入式资源打包进 AOT 单体应用，由宿主在运行时加载内置 SPA 资源。实现上建议分层：
+
+- `host`：OmniHost 桌面宿主、系统托盘、窗口生命周期、SPA 资源加载、跨平台能力。
+- `core`：协议转换、路由、熔断、配置模型、加密存储。
+- `providers`：各供应商 Adapter。
+- `vscode-config`：VS Code 配置发现、备份、写入、回滚。
+- `ui`：Vue 3 SPA，负责供应商配置、模型切换、状态面板、日志和向导。
+
+
+### 托盘能力
+
+桌面端需要提供系统托盘图标，降低日常切换成本：
+
+- 点击托盘图标可打开或聚焦主界面。
+- 托盘菜单可显示当前提供商和当前模型。
+- 托盘菜单可快速切换当前提供商。
+- 托盘菜单可查看代理服务运行状态。
+- 托盘菜单提供退出程序入口，并在退出前安全停止本地代理。
+
+## 文档
+
+- [路线图](ROADMAP.md)
+- [智能体协作要求](AGENTS.md)
+- [变更日志](CHANGELOG.md)
+
+## 当前状态
+
+项目处于规划与文档基线阶段。下一步会基于 OmniHost 初始化工程结构，并逐步实现配置管理、Ollama 兼容服务和首批 Provider Adapter。
+
+
+
