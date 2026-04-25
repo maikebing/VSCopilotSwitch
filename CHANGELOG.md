@@ -11,6 +11,11 @@
 - ✅️ 配置预览结果新增字段级差异，展示 `settings.json` 和 `chatLanguageModels.json` 中本项目托管字段的原值与新值。
 - ✅️ 新增 VS Code 配置回滚入口，可列出最近 VSCopilotSwitch 备份并恢复指定备份；恢复前会为当前文件再创建安全备份。
 - ✅️ 为 VS Code 配置写入和备份恢复加入二次确认提示，降低误触修改用户配置的风险。
+- ✅️ 新增失败修复建议面板，针对权限不足、JSON 无效、文件占用和端口冲突给出可执行处理步骤。
+- ✅️ 新增默认折叠的高级选项面板，集中放置代理地址、熔断阈值、重试次数和备用路由。
+- ✅️ 新增 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份。
+- ✅️ 新增本地端口占用检测 API 与高级选项中的端口检测提示。
+- ✅️ 新增 Windows 托盘菜单最小增强，支持打开或聚焦主界面、查看当前提供商和代理状态、退出并停止本地代理。
 - ✅️ 重新设计 VSCopilotSwitch 专属 SVG logo，并替换首页左上角 `CC Switch` 品牌展示。
 - ✅️ 首页右上角快速入口从 `Claude` / `Codex` 调整为 `VS2026` / `VSCode`，并替换为对应 IDE 风格图标。
 - ✅️ 接入 OmniHost Windows 原生宿主：`src/VSCopilotSwitch` 直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.WebView2`，启动本地 ASP.NET Core 服务后由 Win32 + WebView2 窗口承载 Vue 管理界面。

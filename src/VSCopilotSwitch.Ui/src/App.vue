@@ -72,6 +72,17 @@ type RestoreResult = {
   Restored: boolean;
 };
 
+type PortStatus = {
+  Port: number;
+  Available: boolean;
+  Message: string;
+};
+
+type RecoveryAdvice = {
+  title: string;
+  steps: string[];
+};
+
 type ProviderCard = {
   id: string;
   name: string;
@@ -94,16 +105,20 @@ const applyResult = ref<ApplyResult | null>(null);
 const backups = ref<ConfigBackup[]>([]);
 const selectedBackupPath = ref('');
 const restoreResult = ref<RestoreResult | null>(null);
+const portStatus = ref<PortStatus | null>(null);
 const loading = ref(false);
 const previewLoading = ref(false);
 const applyLoading = ref(false);
 const backupsLoading = ref(false);
 const restoreLoading = ref(false);
+const portChecking = ref(false);
 const applyConfirmationArmed = ref(false);
 const restoreConfirmationArmed = ref(false);
 const errorMessage = ref('');
+const recoveryAdvice = ref<RecoveryAdvice | null>(null);
 const currentView = ref<'list' | 'edit'>('list');
 const showApiKey = ref(false);
+const showAdvancedOptions = ref(false);
 
 const providers = ref<ProviderCard[]>([
   {
@@ -163,6 +178,10 @@ const providerWebsite = ref('https://2030.wujixian.fun');
 const providerApiKey = ref('sk-demo-placeholder-c087');
 const providerApiUrl = ref('https://2030.wujixian.fun');
 const providerModel = ref('gpt-5.5');
+const proxyAddress = ref('http://127.0.0.1:11434');
+const circuitBreakerThreshold = ref(5);
+const retryCount = ref(2);
+const fallbackRoute = ref('暂不启用备用路由');
 const authJson = computed(
   () => `{
   "OPENAI_API_KEY": "${providerApiKey.value}"
@@ -184,9 +203,80 @@ const selectedBackup = computed(() => backups.value.find((backup) => backup.Back
 const applyConfirmText = computed(() => (applyConfirmationArmed.value ? '已预览风险，再次点击写入' : '确认写入 VS Code Ollama 配置'));
 const restoreConfirmText = computed(() => (restoreConfirmationArmed.value ? '已确认风险，再次点击恢复' : '恢复选中备份'));
 
+function clearError() {
+  errorMessage.value = '';
+  recoveryAdvice.value = null;
+}
+
+function setError(message: string, advice?: RecoveryAdvice) {
+  errorMessage.value = message;
+  recoveryAdvice.value = advice ?? buildRecoveryAdvice(message);
+}
+
+function messageFromError(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function buildRecoveryAdvice(message: string): RecoveryAdvice {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes('json')) {
+    return {
+      title: 'JSON 文件格式异常',
+      steps: [
+        '先不要写入配置，手动打开对应的 settings.json 或 chatLanguageModels.json。',
+        '检查是否存在多余逗号、未闭合引号或注释；当前阶段暂不支持 JSON with comments。',
+        '修复后重新点击“生成差异预览”。'
+      ]
+    };
+  }
+
+  if (normalized.includes('权限') || normalized.includes('access') || normalized.includes('unauthorized')) {
+    return {
+      title: '目录或文件权限不足',
+      steps: [
+        '确认 VS Code User 目录属于当前 Windows 用户。',
+        '检查文件是否为只读，或被安全软件拦截写入。',
+        '必要时关闭 VS Code 后重试，避免配置文件被占用。'
+      ]
+    };
+  }
+
+  if (normalized.includes('占用') || normalized.includes('being used') || normalized.includes('locked')) {
+    return {
+      title: '配置文件可能被占用',
+      steps: [
+        '关闭正在编辑 settings.json 或 chatLanguageModels.json 的窗口。',
+        '退出 VS Code 后重新打开 VSCopilotSwitch 再试一次。',
+        '如果仍失败，先复制备份路径，手动恢复配置。'
+      ]
+    };
+  }
+
+  if (normalized.includes('端口') || normalized.includes('port') || normalized.includes('listen')) {
+    return {
+      title: '本地端口不可用',
+      steps: [
+        '确认 127.0.0.1 本地代理没有被防火墙拦截。',
+        '如果手动指定了 11434，请关闭其他 Ollama 或代理进程后重试。',
+        '可在高级选项中使用“检测端口占用”确认目标端口状态。'
+      ]
+    };
+  }
+
+  return {
+    title: '可以尝试的修复步骤',
+    steps: [
+      '确认本地代理窗口仍在运行。',
+      '点击刷新后重新选择 Windows VS Code User 目录。',
+      '如果涉及配置写入，先生成 dry-run 预览再执行确认操作。'
+    ]
+  };
+}
+
 async function loadDashboard() {
   loading.value = true;
-  errorMessage.value = '';
+  clearError();
 
   try {
     const [healthResponse, tagsResponse, directoriesResponse] = await Promise.all([
@@ -210,7 +300,7 @@ async function loadDashboard() {
     selectedBackupPath.value = '';
     restoreResult.value = null;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '加载状态失败。';
+    setError(messageFromError(error, '加载状态失败。'));
   } finally {
     loading.value = false;
   }
@@ -218,12 +308,12 @@ async function loadDashboard() {
 
 async function previewVsCodeConfig() {
   if (!selectedDirectory.value) {
-    errorMessage.value = '没有可用的 VS Code User 配置目录，无法生成预览。';
+    setError('没有可用的 VS Code User 配置目录，无法生成预览。');
     return;
   }
 
   previewLoading.value = true;
-  errorMessage.value = '';
+  clearError();
   preview.value = null;
   applyResult.value = null;
 
@@ -246,7 +336,7 @@ async function previewVsCodeConfig() {
 
     preview.value = await response.json();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'VS Code 配置预览失败。';
+    setError(messageFromError(error, 'VS Code 配置预览失败。'));
   } finally {
     previewLoading.value = false;
   }
@@ -254,18 +344,18 @@ async function previewVsCodeConfig() {
 
 async function applyVsCodeConfig() {
   if (!selectedDirectory.value || !preview.value) {
-    errorMessage.value = '请先生成差异预览，再确认写入 VS Code 配置。';
+    setError('请先生成差异预览，再确认写入 VS Code 配置。');
     return;
   }
 
   if (!applyConfirmationArmed.value) {
     applyConfirmationArmed.value = true;
-    errorMessage.value = '';
+    clearError();
     return;
   }
 
   applyLoading.value = true;
-  errorMessage.value = '';
+  clearError();
   applyResult.value = null;
 
   try {
@@ -290,7 +380,7 @@ async function applyVsCodeConfig() {
     applyConfirmationArmed.value = false;
     await loadBackups();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'VS Code 配置写入失败。';
+    setError(messageFromError(error, 'VS Code 配置写入失败。'));
   } finally {
     applyLoading.value = false;
   }
@@ -298,12 +388,12 @@ async function applyVsCodeConfig() {
 
 async function loadBackups() {
   if (!selectedDirectory.value) {
-    errorMessage.value = '请先选择 VS Code User 配置目录，再查看备份。';
+    setError('请先选择 VS Code User 配置目录，再查看备份。');
     return;
   }
 
   backupsLoading.value = true;
-  errorMessage.value = '';
+  clearError();
 
   try {
     const response = await fetch('/internal/vscode/backups', {
@@ -323,7 +413,7 @@ async function loadBackups() {
     backups.value = await response.json();
     selectedBackupPath.value = backups.value[0]?.BackupPath ?? '';
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '读取 VS Code 配置备份失败。';
+    setError(messageFromError(error, '读取 VS Code 配置备份失败。'));
   } finally {
     backupsLoading.value = false;
   }
@@ -331,18 +421,18 @@ async function loadBackups() {
 
 async function restoreBackup() {
   if (!selectedDirectory.value || !selectedBackupPath.value) {
-    errorMessage.value = '请选择一个可恢复的备份。';
+    setError('请选择一个可恢复的备份。');
     return;
   }
 
   if (!restoreConfirmationArmed.value) {
     restoreConfirmationArmed.value = true;
-    errorMessage.value = '';
+    clearError();
     return;
   }
 
   restoreLoading.value = true;
-  errorMessage.value = '';
+  clearError();
   restoreResult.value = null;
 
   try {
@@ -367,9 +457,30 @@ async function restoreBackup() {
     restoreConfirmationArmed.value = false;
     await loadBackups();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '恢复备份失败。';
+    setError(messageFromError(error, '恢复备份失败。'));
   } finally {
     restoreLoading.value = false;
+  }
+}
+
+async function checkProxyPort() {
+  const parsedUrl = new URL(proxyAddress.value);
+  const port = Number(parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80));
+
+  portChecking.value = true;
+  clearError();
+
+  try {
+    const response = await fetch(`/internal/network/port-status?port=${encodeURIComponent(port)}`);
+    if (!response.ok) {
+      throw new Error('端口检测失败，请确认端口号在 1 到 65535 之间。');
+    }
+
+    portStatus.value = await response.json();
+  } catch (error) {
+    setError(messageFromError(error, '端口检测失败。'));
+  } finally {
+    portChecking.value = false;
   }
 }
 
@@ -378,7 +489,7 @@ function resetVsCodeWizard() {
   applyResult.value = null;
   restoreResult.value = null;
   applyConfirmationArmed.value = false;
-  errorMessage.value = '';
+  clearError();
 }
 
 function openEdit(provider?: ProviderCard) {
@@ -450,6 +561,12 @@ onMounted(loadDashboard);
 
     <main class="page-surface">
       <p v-if="errorMessage" class="notice error">{{ errorMessage }}</p>
+      <section v-if="recoveryAdvice" class="recovery-advice" aria-label="失败修复建议">
+        <strong>{{ recoveryAdvice.title }}</strong>
+        <ol>
+          <li v-for="step in recoveryAdvice.steps" :key="step">{{ step }}</li>
+        </ol>
+      </section>
 
       <section v-if="currentView === 'list'" class="provider-page">
         <div class="status-strip">
@@ -559,6 +676,40 @@ onMounted(loadDashboard);
             <input v-model="providerModel" type="text" autocomplete="off" />
           </label>
           <p class="helper">指定使用的模型，将自动更新到 config.toml 中</p>
+
+          <section class="advanced-options" :class="{ open: showAdvancedOptions }" aria-label="高级选项">
+            <button class="advanced-toggle" type="button" @click="showAdvancedOptions = !showAdvancedOptions">
+              <span>高级选项</span>
+              <strong>{{ showAdvancedOptions ? '收起' : '展开' }}</strong>
+            </button>
+            <p class="helper">代理、熔断、重试和备用路由默认折叠，避免干扰日常供应商切换。</p>
+
+            <div v-if="showAdvancedOptions" class="advanced-grid">
+              <label class="form-field">
+                <span>本地代理地址</span>
+                <input v-model="proxyAddress" type="url" autocomplete="off" />
+              </label>
+              <div class="port-check-card">
+                <button class="secondary-button" type="button" :disabled="portChecking" @click="checkProxyPort">
+                  {{ portChecking ? '检测中...' : '检测端口占用' }}
+                </button>
+                <small v-if="portStatus" :class="portStatus.Available ? 'ok' : 'danger'">{{ portStatus.Message }}</small>
+                <small v-else>默认检查代理 URL 中的本地端口，避免和 Ollama 或其他代理冲突。</small>
+              </div>
+              <label class="form-field">
+                <span>熔断失败阈值</span>
+                <input v-model.number="circuitBreakerThreshold" type="number" min="1" max="20" />
+              </label>
+              <label class="form-field">
+                <span>重试次数</span>
+                <input v-model.number="retryCount" type="number" min="0" max="10" />
+              </label>
+              <label class="form-field">
+                <span>备用路由</span>
+                <input v-model="fallbackRoute" type="text" autocomplete="off" />
+              </label>
+            </div>
+          </section>
 
           <section class="json-editor" aria-label="auth.json 编辑器">
             <div class="json-title">auth.json (JSON) *</div>

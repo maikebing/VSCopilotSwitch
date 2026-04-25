@@ -225,6 +225,32 @@ a {
   color: var(--cc-red);
 }
 
+.recovery-advice {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  border: 1px solid #ffd768;
+  border-radius: 14px;
+  background: #fffdf0;
+  color: #6f4b00;
+  padding: 14px 16px;
+}
+
+.recovery-advice strong {
+  color: #8a5600;
+}
+
+.recovery-advice ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.recovery-advice li {
+  line-height: 1.45;
+}
+
 .status-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -479,6 +505,71 @@ a {
 
 .helper {
   margin: -16px 0 6px;
+}
+
+.advanced-options {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #e4e8ef;
+  border-radius: 16px;
+  background: #fbfcff;
+  padding: 14px;
+}
+
+.advanced-options.open {
+  background: #f7fbff;
+}
+
+.advanced-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--cc-text);
+  padding: 0;
+  font-weight: 800;
+  text-align: left;
+}
+
+.advanced-toggle strong {
+  border-radius: 999px;
+  background: #eef3fb;
+  color: #4d647f;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  border-top: 1px solid #e4e8ef;
+  padding-top: 14px;
+}
+
+.port-check-card {
+  display: grid;
+  gap: 8px;
+  align-content: end;
+  border: 1px dashed #d8e0eb;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.port-check-card small {
+  color: var(--cc-muted);
+  line-height: 1.4;
+}
+
+.port-check-card small.ok {
+  color: #16745a;
+}
+
+.port-check-card small.danger {
+  color: var(--cc-red);
 }
 
 .secondary-button,
@@ -821,7 +912,8 @@ a {
   }
 
   .status-strip,
-  .form-grid.two {
+  .form-grid.two,
+  .advanced-grid {
     grid-template-columns: 1fr;
   }
 

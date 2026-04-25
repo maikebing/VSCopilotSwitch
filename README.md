@@ -119,6 +119,18 @@ npm --prefix src/VSCopilotSwitch.Ui run dev
 - `POST /internal/vscode/apply-ollama`：对 `settings.json` 和 `chatLanguageModels.json` 做干运行预览或安全写入，写入前会备份已有文件。
 
 当前管理界面已提供 VS Code Ollama 配置写入向导骨架：用户需要先选择 Windows VS Code User 目录并生成 dry-run 差异预览，确认目标文件和托管字段变更后才能二次确认写入；写入结果会展示备份路径、文件状态和字段级变化。回滚入口会列出最近的 VSCopilotSwitch 备份，并在恢复指定备份前要求二次确认，同时为当前文件再创建安全备份。
+
+当配置预览、写入、备份读取或恢复失败时，界面会按权限不足、JSON 无效、文件占用、端口冲突等类型展示可执行修复建议，帮助用户在不覆盖原配置的前提下处理问题。
+
+代理地址、熔断失败阈值、重试次数和备用路由等高级选项默认折叠，日常切换供应商时不会干扰主流程。
+
+高级选项中的本地代理地址支持端口占用检测，可提示 `127.0.0.1` 上的目标端口是否已被 Ollama 或其他代理占用。Windows 桌面端已提供最小托盘菜单，可打开或聚焦主界面、查看当前提供商和代理状态，并通过退出菜单触发宿主关闭流程以停止本地代理。
+
+仓库包含一个无外部测试框架依赖的 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份：
+
+```powershell
+dotnet run --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.VsCodeConfig.Tests.csproj --no-restore
+```
 ## 文档
 
 - [路线图](ROADMAP.md)

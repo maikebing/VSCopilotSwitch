@@ -8,6 +8,9 @@
     <Project Path="src/VSCopilotSwitch/VSCopilotSwitch.csproj" />
     <Project Path="src/VSCopilotSwitch.VsCodeConfig/VSCopilotSwitch.VsCodeConfig.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.VsCodeConfig.Tests.csproj" />
+  </Folder>
   <Folder Name="/external/OmniHost/src/">
     <Project Path="external/OmniHost/src/OmniHost.Abstractions/OmniHost.Abstractions.csproj" />
     <Project Path="external/OmniHost/src/OmniHost.Core/OmniHost.Core.csproj" />
@@ -16,4 +19,3 @@
     <Project Path="external/OmniHost/src/OmniHost.WebView2/OmniHost.WebView2.csproj" />
   </Folder>
 </Solution>
-

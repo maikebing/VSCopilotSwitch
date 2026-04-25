@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Windows.Forms;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
@@ -15,6 +16,7 @@ using VSCopilotSwitch.Core.Ollama;
 using VSCopilotSwitch.Core.Providers;
 using VSCopilotSwitch.VsCodeConfig.Models;
 using VSCopilotSwitch.VsCodeConfig.Services;
+using Application = System.Windows.Forms.Application;
 
 var port = GetFreeTcpPort();
 var builder = WebApplication.CreateBuilder(args);
@@ -41,6 +43,20 @@ webApp.MapGet("/health", () => Results.Ok(new
     status = "ok",
     mode = webApp.Environment.EnvironmentName
 }));
+
+webApp.MapGet("/internal/network/port-status", (int port = 11434) =>
+{
+    if (port is < 1 or > 65535)
+    {
+        return Results.BadRequest(new PortStatusResponse(port, false, "端口必须在 1 到 65535 之间。"));
+    }
+
+    var available = IsTcpPortAvailable(port);
+    var message = available
+        ? $"127.0.0.1:{port} 当前可用。"
+        : $"127.0.0.1:{port} 已被占用，请关闭其他 Ollama 或代理进程，或改用其他端口。";
+    return Results.Ok(new PortStatusResponse(port, available, message));
+});
 
 webApp.MapGet("/api/tags", async (IOllamaProxyService ollama, CancellationToken cancellationToken) =>
 {
@@ -135,6 +151,22 @@ static int GetFreeTcpPort()
     return ((IPEndPoint)listener.LocalEndpoint).Port;
 }
 
+static bool IsTcpPortAvailable(int targetPort)
+{
+    try
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, targetPort);
+        listener.Start();
+        return true;
+    }
+    catch (SocketException)
+    {
+        return false;
+    }
+}
+
+public sealed record PortStatusResponse(int Port, bool Available, string Message);
+
 public sealed record ApplyVsCodeOllamaConfigRequest(
     string UserDirectory,
     ManagedOllamaConfig? Config,
@@ -144,8 +176,12 @@ public sealed record ListVsCodeConfigBackupsRequest(string UserDirectory);
 
 public sealed record RestoreVsCodeConfigBackupRequest(string UserDirectory, string BackupPath);
 
-sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IDesktopApp
+sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IWindowAwareDesktopApp, IDisposable
 {
+    private NotifyIcon? _trayIcon;
+    private IOmniWindowManager? _windowManager;
+    private string? _mainWindowId;
+
     public Task OnStartAsync(IWebViewAdapter adapter, CancellationToken cancellationToken = default)
     {
         // 暴露最小宿主信息，前端后续可据此判断是否运行在 OmniHost 桌面壳内。
@@ -159,4 +195,81 @@ sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IDesktopApp
 
     public Task OnClosingAsync(CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+
+    public Task OnWindowStartAsync(OmniWindowContext window, CancellationToken cancellationToken = default)
+    {
+        if (!window.IsMainWindow)
+        {
+            return Task.CompletedTask;
+        }
+
+        _windowManager = window.WindowManager;
+        _mainWindowId = window.WindowId;
+        EnsureTrayIcon();
+        return Task.CompletedTask;
+    }
+
+    public Task OnWindowClosingAsync(OmniWindowContext window, CancellationToken cancellationToken = default)
+    {
+        Dispose();
+        return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        if (_trayIcon is null)
+        {
+            return;
+        }
+
+        _trayIcon.Visible = false;
+        _trayIcon.Dispose();
+        _trayIcon = null;
+    }
+
+    private void EnsureTrayIcon()
+    {
+        if (_trayIcon is not null)
+        {
+            return;
+        }
+
+        var openMenuItem = new ToolStripMenuItem("打开 VSCopilotSwitch", null, (_, _) => ActivateMainWindow());
+        var providerMenuItem = new ToolStripMenuItem("当前提供商：My Codex") { Enabled = false };
+        var statusMenuItem = new ToolStripMenuItem("代理状态：运行中") { Enabled = false };
+        var exitMenuItem = new ToolStripMenuItem("退出并停止本地代理", null, (_, _) => ExitApplication());
+
+        _trayIcon = new NotifyIcon
+        {
+            Icon = System.Drawing.SystemIcons.Application,
+            Text = "VSCopilotSwitch - My Codex",
+            Visible = true,
+            ContextMenuStrip = new ContextMenuStrip()
+        };
+        _trayIcon.ContextMenuStrip.Items.Add(openMenuItem);
+        _trayIcon.ContextMenuStrip.Items.Add(providerMenuItem);
+        _trayIcon.ContextMenuStrip.Items.Add(statusMenuItem);
+        _trayIcon.ContextMenuStrip.Items.Add(new ToolStripSeparator());
+        _trayIcon.ContextMenuStrip.Items.Add(exitMenuItem);
+        _trayIcon.DoubleClick += (_, _) => ActivateMainWindow();
+    }
+
+    private void ActivateMainWindow()
+    {
+        if (_windowManager is not null && !string.IsNullOrWhiteSpace(_mainWindowId))
+        {
+            _windowManager.TryActivateWindow(_mainWindowId);
+        }
+    }
+
+    private void ExitApplication()
+    {
+        if (_windowManager is not null && !string.IsNullOrWhiteSpace(_mainWindowId))
+        {
+            _windowManager.TryCloseWindow(_mainWindowId);
+            return;
+        }
+
+        Application.Exit();
+    }
 }
