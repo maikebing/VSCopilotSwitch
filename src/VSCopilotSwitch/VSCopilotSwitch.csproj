@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\VSCopilotSwitch.Core\VSCopilotSwitch.Core.csproj" />
+    <ProjectReference Include="..\VSCopilotSwitch.VsCodeConfig\VSCopilotSwitch.VsCodeConfig.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\src\VSCopilotSwitch.Ui\dist\**\*" Condition="Exists('..\..\src\VSCopilotSwitch.Ui\dist')" LogicalName="Spa\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>VSCopilotSwitch</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+
+</Project>

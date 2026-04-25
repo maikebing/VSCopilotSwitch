@@ -416,3 +416,11 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+.dotnet-home
+
+# VSCopilotSwitch local build state
+.dotnet-home/
+src/VSCopilotSwitch.Ui/node_modules/
+src/VSCopilotSwitch.Ui/dist/
+**/bin/
+**/obj/

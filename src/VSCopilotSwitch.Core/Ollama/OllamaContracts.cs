@@ -1,0 +1,38 @@
+﻿using System.Text.Json.Serialization;
+
+namespace VSCopilotSwitch.Core.Ollama;
+
+public sealed record OllamaTagsResponse(
+    [property: JsonPropertyName("models")] IReadOnlyList<OllamaModelInfo> Models);
+
+public sealed record OllamaModelInfo(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("modified_at")] DateTimeOffset ModifiedAt,
+    [property: JsonPropertyName("size")] long Size,
+    [property: JsonPropertyName("digest")] string Digest,
+    [property: JsonPropertyName("details")] OllamaModelDetails Details);
+
+public sealed record OllamaModelDetails(
+    [property: JsonPropertyName("parent_model")] string ParentModel,
+    [property: JsonPropertyName("format")] string Format,
+    [property: JsonPropertyName("family")] string Family,
+    [property: JsonPropertyName("families")] IReadOnlyList<string> Families,
+    [property: JsonPropertyName("parameter_size")] string ParameterSize,
+    [property: JsonPropertyName("quantization_level")] string QuantizationLevel);
+
+public sealed record OllamaChatRequest(
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("messages")] IReadOnlyList<OllamaChatMessage>? Messages,
+    [property: JsonPropertyName("stream")] bool? Stream);
+
+public sealed record OllamaChatMessage(
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("content")] string Content);
+
+public sealed record OllamaChatResponse(
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("created_at")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("message")] OllamaChatMessage Message,
+    [property: JsonPropertyName("done_reason")] string DoneReason,
+    [property: JsonPropertyName("done")] bool Done);

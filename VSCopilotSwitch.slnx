@@ -1,0 +1,8 @@
+﻿<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VSCopilotSwitch.Core/VSCopilotSwitch.Core.csproj" />
+    <Project Path="src/VSCopilotSwitch/VSCopilotSwitch.csproj" />
+    <Project Path="src/VSCopilotSwitch.VsCodeConfig/VSCopilotSwitch.VsCodeConfig.csproj" />
+  </Folder>
+</Solution>
+
