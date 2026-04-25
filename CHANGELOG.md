@@ -17,6 +17,7 @@
 - 新增 `VSCopilotSwitch.Ui.esproj`，并按 Visual Studio SPA 模式加入解决方案构建和部署。
 - ✅️ 将前端切换为 VueApp2 同款 Vue 3 + TypeScript + Vite + ESLint + Oxlint 技术栈，并保留本项目 `/health`、`/api`、`/internal` 后端代理关系。
 - ✅️ 将默认 Vue 欢迎页替换为 VSCopilotSwitch 首版管理首页，展示代理状态、模型列表和 VS Code 配置 dry-run 预览入口。
+- ✅️ 按 `cc switch` 截图重设计 Vue 管理界面，新增浅色供应商卡片列表、顶部快速切换区、添加/编辑供应商表单和 VS Code 配置预览入口。
 
 - 建立项目 README，明确 VSCopilotSwitch 的目标和核心能力。
 - 新增路线图，覆盖项目基线、VS Code 配置管理、Ollama 兼容代理、Provider Adapter、稳定性、OmniHost 四端界面和发布安全。
@@ -32,6 +33,7 @@
 
 - 将宿主项目从 src/VSCopilotSwitch.Host 改名为 src/VSCopilotSwitch，只调整项目名称和输出文件名，命名空间与代码职责保持不变。
 - 完善 Vue 3 SPA 管理界面，加入供应商切换、代理状态、模型列表、VS Code 配置 dry-run 和托盘菜单规划。
+- ✅️ 将首页从 VS Code Workbench 深色布局调整为更接近 `cc switch` 的轻量卡片式布局，降低供应商启用、编辑和查询状态的识别成本。
 - 将宿主项目切换为 Web SDK，增加 `SpaRoot`、`SpaProxyLaunchCommand`、`SpaProxyServerUrl` 和前端项目引用，支持后端启动时联动 Vue 调试服务。
 - ✅️ 修复开发模式根路径 404：在 launch profile 和 Development 配置中启用 `Microsoft.AspNetCore.SpaProxy` Hosting Startup，并补充宿主 `wwwroot` 约定目录。
 - ✅️ 将开发模式 SpaProxy 和 Vite 调试服务统一切换为 HTTP，不再生成或使用本地 HTTPS 开发证书。
@@ -45,15 +47,3 @@
 ### Security
 
 - 明确 API Key 脱敏、本地代理默认监听 `127.0.0.1`、VS Code 配置写入前备份和回滚等安全基线。
-
-
-
-
-
-
-
-
-
-
-
-
