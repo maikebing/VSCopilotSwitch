@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 本项目遵循“面向用户可见变化”的变更日志记录方式。版本号在进入可运行版本后再正式启用。
 
@@ -30,6 +30,7 @@
 - 将宿主项目切换为 Web SDK，增加 `SpaRoot`、`SpaProxyLaunchCommand`、`SpaProxyServerUrl` 和前端项目引用，支持后端启动时联动 Vue 调试服务。
 - ✅️ 修复开发模式根路径 404：在 launch profile 和 Development 配置中启用 `Microsoft.AspNetCore.SpaProxy` Hosting Startup，并补充宿主 `wwwroot` 约定目录。
 - ✅️ 将开发模式 SpaProxy 和 Vite 调试服务统一切换为 HTTP，不再生成或使用本地 HTTPS 开发证书。
+- ✅️ 清理前端 JSON 配置文件的 UTF-8 BOM，修复 Vite 加载 PostCSS 配置时报 `Unexpected token` 的问题。
 - 按 AGENTS 工作原则中的跨平台差异和 UI 防误操作要求重新整理路线图。
 
 
@@ -38,6 +39,7 @@
 ### Security
 
 - 明确 API Key 脱敏、本地代理默认监听 `127.0.0.1`、VS Code 配置写入前备份和回滚等安全基线。
+
 
 
 
