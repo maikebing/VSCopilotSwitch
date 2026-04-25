@@ -100,13 +100,13 @@ $env:DOTNET_CLI_HOME = "$PWD/.dotnet-home"
 $env:MSBuildEnableWorkloadResolver = "false"
 dotnet build src/VSCopilotSwitch/VSCopilotSwitch.csproj -m:1 /p:RestoreUseStaticGraphEvaluation=false
 
-# 启动 Web 宿主和 Visual Studio SPA Proxy，访问 http://localhost:5124/
+# 启动 HTTP Web 宿主和 Visual Studio SPA Proxy，访问 http://localhost:5124/
 dotnet run --project src/VSCopilotSwitch --launch-profile http
 
 # 仅调试 Ollama 兼容代理端口时，可显式监听 127.0.0.1:11434
 dotnet run --project src/VSCopilotSwitch --urls http://127.0.0.1:11434
 
-# SpaProxy 会自动调用此脚本；也可单独启动 Vue 调试服务
+# SpaProxy 会自动以 HTTP 调用此脚本；也可单独启动 Vue 调试服务
 npm --prefix src/VSCopilotSwitch.Ui run dev
 ```
 
@@ -126,6 +126,7 @@ npm --prefix src/VSCopilotSwitch.Ui run dev
 ## 当前状态
 
 项目已具备 OmniHost-ready 的初始工程骨架、Visual Studio SPA 模式的 Vue 3 + TypeScript 管理首页、VS Code 配置管理模块和 Ollama 兼容代理 MVP。下一步会接入真实 Provider Adapter、系统托盘和 OmniHost 桌面宿主。
+
 
 
 

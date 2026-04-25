@@ -1,11 +1,12 @@
 ﻿{
-    "name":  "vscopilotswitch-workspace",
-    "private":  true,
-    "scripts":  {
-                    "ui:dev":  "npm --prefix src/VSCopilotSwitch.Ui run dev",
-                    "ui:build":  "npm --prefix src/VSCopilotSwitch.Ui run build",
-                    "host:dev":  "dotnet run --project src/VSCopilotSwitch --urls http://127.0.0.1:11434",
-                    "build":  "dotnet build VSCopilotSwitch.slnx -m:1 /p:RestoreUseStaticGraphEvaluation=false",
-                    "publish:aot":  "dotnet publish src/VSCopilotSwitch -c Release -r win-x64 --self-contained true /p:PublishAot=true /p:PublishSingleFile=true"
-                }
+  "name": "vscopilotswitch-workspace",
+  "private": true,
+  "scripts": {
+    "ui:dev": "npm --prefix src/VSCopilotSwitch.Ui run dev",
+    "ui:build": "npm --prefix src/VSCopilotSwitch.Ui run build",
+    "host:dev": "dotnet run --project src/VSCopilotSwitch --launch-profile http",
+    "proxy:dev": "dotnet run --project src/VSCopilotSwitch --urls http://127.0.0.1:11434",
+    "build": "dotnet build VSCopilotSwitch.slnx -m:1 /p:RestoreUseStaticGraphEvaluation=false",
+    "publish:aot": "dotnet publish src/VSCopilotSwitch -c Release -r win-x64 --self-contained true /p:PublishAot=true /p:PublishSingleFile=true"
+  }
 }
