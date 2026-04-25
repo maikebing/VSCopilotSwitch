@@ -1,0 +1,3 @@
+[submodule "external/OmniHost"]
+	path = external/OmniHost
+	url = https://github.com/maikebing/OmniHost
