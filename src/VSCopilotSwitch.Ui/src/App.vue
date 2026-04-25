@@ -99,6 +99,8 @@ const previewLoading = ref(false);
 const applyLoading = ref(false);
 const backupsLoading = ref(false);
 const restoreLoading = ref(false);
+const applyConfirmationArmed = ref(false);
+const restoreConfirmationArmed = ref(false);
 const errorMessage = ref('');
 const currentView = ref<'list' | 'edit'>('list');
 const showApiKey = ref(false);
@@ -179,6 +181,8 @@ const providerCountText = computed(() => `${providers.value.length} 个供应商
 const previewChangedCount = computed(() => preview.value?.Changes.filter((change) => change.Changed).length ?? 0);
 const canApplyVsCodeConfig = computed(() => Boolean(preview.value?.DryRun && selectedDirectory.value && !applyResult.value));
 const selectedBackup = computed(() => backups.value.find((backup) => backup.BackupPath === selectedBackupPath.value));
+const applyConfirmText = computed(() => (applyConfirmationArmed.value ? '已预览风险，再次点击写入' : '确认写入 VS Code Ollama 配置'));
+const restoreConfirmText = computed(() => (restoreConfirmationArmed.value ? '已确认风险，再次点击恢复' : '恢复选中备份'));
 
 async function loadDashboard() {
   loading.value = true;
@@ -254,6 +258,12 @@ async function applyVsCodeConfig() {
     return;
   }
 
+  if (!applyConfirmationArmed.value) {
+    applyConfirmationArmed.value = true;
+    errorMessage.value = '';
+    return;
+  }
+
   applyLoading.value = true;
   errorMessage.value = '';
   applyResult.value = null;
@@ -277,6 +287,7 @@ async function applyVsCodeConfig() {
 
     applyResult.value = await response.json();
     preview.value = applyResult.value;
+    applyConfirmationArmed.value = false;
     await loadBackups();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'VS Code 配置写入失败。';
@@ -324,6 +335,12 @@ async function restoreBackup() {
     return;
   }
 
+  if (!restoreConfirmationArmed.value) {
+    restoreConfirmationArmed.value = true;
+    errorMessage.value = '';
+    return;
+  }
+
   restoreLoading.value = true;
   errorMessage.value = '';
   restoreResult.value = null;
@@ -347,6 +364,7 @@ async function restoreBackup() {
     const result = (await response.json()) as RestoreResult;
     resetVsCodeWizard();
     restoreResult.value = result;
+    restoreConfirmationArmed.value = false;
     await loadBackups();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '恢复备份失败。';
@@ -359,6 +377,7 @@ function resetVsCodeWizard() {
   preview.value = null;
   applyResult.value = null;
   restoreResult.value = null;
+  applyConfirmationArmed.value = false;
   errorMessage.value = '';
 }
 
@@ -391,6 +410,12 @@ function handleDirectoryChanged() {
   resetVsCodeWizard();
   backups.value = [];
   selectedBackupPath.value = '';
+  restoreConfirmationArmed.value = false;
+}
+
+function handleBackupChanged() {
+  restoreConfirmationArmed.value = false;
+  restoreResult.value = null;
 }
 
 onMounted(loadDashboard);
@@ -586,8 +611,13 @@ onMounted(loadDashboard);
                 {{ previewLoading ? '生成预览中...' : '生成差异预览' }}
               </button>
               <button class="save-button" type="button" :disabled="applyLoading || !canApplyVsCodeConfig" @click="applyVsCodeConfig">
-                {{ applyLoading ? '写入中...' : '确认写入 VS Code Ollama 配置' }}
+                {{ applyLoading ? '写入中...' : applyConfirmText }}
               </button>
+            </div>
+
+            <div v-if="applyConfirmationArmed" class="risk-confirmation">
+              <strong>请再次确认写入</strong>
+              <span>将修改所选 VS Code User 目录中的 Ollama 相关字段；已存在文件会先创建备份，未知字段会保留。</span>
             </div>
 
             <div v-if="preview" class="wizard-summary">
@@ -629,7 +659,7 @@ onMounted(loadDashboard);
 
             <div v-if="backups.length" class="rollback-list">
               <label v-for="backup in backups" :key="backup.BackupPath" class="rollback-item">
-                <input v-model="selectedBackupPath" type="radio" name="vscode-backup" :value="backup.BackupPath" />
+                <input v-model="selectedBackupPath" type="radio" name="vscode-backup" :value="backup.BackupPath" @change="handleBackupChanged" />
                 <span>
                   <strong>{{ backup.FileName }}</strong>
                   <small>{{ new Date(backup.CreatedAt).toLocaleString() }} · {{ Math.max(1, Math.round(backup.SizeBytes / 1024)) }} KB</small>
@@ -641,8 +671,13 @@ onMounted(loadDashboard);
 
             <div class="wizard-actions">
               <button class="save-button danger" type="button" :disabled="restoreLoading || !selectedBackup" @click="restoreBackup">
-                {{ restoreLoading ? '恢复中...' : '恢复选中备份' }}
+                {{ restoreLoading ? '恢复中...' : restoreConfirmText }}
               </button>
+            </div>
+
+            <div v-if="restoreConfirmationArmed" class="risk-confirmation danger">
+              <strong>请再次确认恢复</strong>
+              <span>将用选中备份覆盖当前 {{ selectedBackup?.FileName }}；恢复前会为当前文件创建一份安全备份。</span>
             </div>
 
             <div v-if="restoreResult" class="wizard-summary rollback-result">

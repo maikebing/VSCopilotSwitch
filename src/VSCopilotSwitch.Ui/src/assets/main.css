@@ -635,6 +635,30 @@ a {
   flex-wrap: wrap;
 }
 
+.risk-confirmation {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #ffd768;
+  border-radius: 12px;
+  background: #fffdf0;
+  color: #9a6200;
+  padding: 12px;
+}
+
+.risk-confirmation strong {
+  color: #8a5600;
+}
+
+.risk-confirmation.danger {
+  border-color: #f0b7aa;
+  background: #fff6f3;
+  color: #9b3d2a;
+}
+
+.risk-confirmation.danger strong {
+  color: #852f1e;
+}
+
 .save-button.danger {
   border-color: #e26b4f;
   background: #e26b4f;
