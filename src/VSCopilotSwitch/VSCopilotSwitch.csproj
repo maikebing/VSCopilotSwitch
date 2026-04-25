@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.SpaProxy">
@@ -6,6 +6,9 @@
     </PackageReference>
     <ProjectReference Include="..\VSCopilotSwitch.Core\VSCopilotSwitch.Core.csproj" />
     <ProjectReference Include="..\VSCopilotSwitch.VsCodeConfig\VSCopilotSwitch.VsCodeConfig.csproj" />
+    <ProjectReference Include="..\..\external\OmniHost\src\OmniHost\OmniHost.csproj" />
+    <ProjectReference Include="..\..\external\OmniHost\src\OmniHost.Windows\OmniHost.Windows.csproj" />
+    <ProjectReference Include="..\..\external\OmniHost\src\OmniHost.WebView2\OmniHost.WebView2.csproj" />
     <ProjectReference Include="..\VSCopilotSwitch.Ui\VSCopilotSwitch.Ui.esproj">
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
@@ -18,10 +21,12 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>VSCopilotSwitch</AssemblyName>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <NoWarn>MSB3277</NoWarn>
     <SpaRoot>..\VSCopilotSwitch.Ui</SpaRoot>
     <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
     <SpaProxyServerUrl>http://localhost:5173</SpaProxyServerUrl>

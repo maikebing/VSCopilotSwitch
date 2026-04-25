@@ -127,15 +127,8 @@ npm --prefix src/VSCopilotSwitch.Ui run dev
 
 项目已具备 OmniHost-ready 的初始工程骨架、Visual Studio SPA 模式的 Vue 3 + TypeScript 管理首页、VS Code 配置管理模块和 Ollama 兼容代理 MVP。下一步会接入真实 Provider Adapter、系统托盘和 OmniHost 桌面宿主。
 
+## 当前 OmniHost 接入状态
 
+Windows 端已进入源码集成阶段：宿主项目直接引用 `external/OmniHost/src/OmniHost`、`external/OmniHost/src/OmniHost.Windows` 和 `external/OmniHost/src/OmniHost.WebView2`。运行时会先在 `127.0.0.1` 随机可用端口启动 ASP.NET Core API / SPA 服务，再使用 OmniHost 的 `Win32Runtime` 与 `WebView2AdapterFactory` 打开原生窗口承载管理界面。
 
-
-
-
-
-
-
-
-
-
-
+当前阶段仍保留本地 HTTP 服务边界，便于 VS Code 配置 API、Ollama 兼容代理和 Vue SPA 继续复用现有开发链路；后续托盘菜单、窗口聚焦、快速切换供应商和退出代理会在 OmniHost 宿主层继续补齐。

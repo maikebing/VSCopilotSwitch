@@ -16,7 +16,7 @@
 - [x] 初始化 Vue 3 SPA 工程文件和项目内 npm 脚本。
 - [x] ✅️ 按 Visual Studio SPA 模式加入前端 `.esproj`，并让后端通过 `SpaProxy` 关联 Vue 调试服务。
 - [x] ✅️ 将前端工程切换为 VueApp2 同款 Vue 3 + TypeScript 技术栈。
-- [ ] 🔧 确认 OmniHost 正式集成方式：优先 NuGet 包；如果需要跟踪源码，再评估 git submodule。
+- [x] ✅️ 确认 OmniHost 正式集成方式：当前阶段通过 `external/OmniHost` 源码项目引用接入，便于同步修改 Win32/WebView2 宿主能力。
 - [ ] 明确许可证、贡献方式和安全边界。
 
 验收标准：
@@ -37,7 +37,7 @@
 - [ ] 默认只监听 `127.0.0.1`。
 - [ ] 设计后台代理生命周期：启动、停止、崩溃恢复、退出清理。
 - [ ] 设计托盘能力抽象，兼容不同平台托盘限制。
-- [ ] 确认 OmniHost 窗口和托盘 API 的落地方式。
+- [x] ✅️ 确认 OmniHost 窗口 API 的落地方式：Windows 端先采用 `Win32Runtime` + `WebView2AdapterFactory`，托盘 API 后续单独抽象。
 
 验收标准：
 
@@ -149,7 +149,7 @@
 
 目标：提供 Windows、macOS、Linux、WSL 可运行的桌面体验，并用 Vue 3 SPA 承载主要 UI。
 
-- [ ] 集成 OmniHost 工程结构。
+- [x] ✅️ 集成 OmniHost 工程结构，宿主项目直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.WebView2` 三个源码项目。
 - [ ] 实现主窗口生命周期。
 - [ ] 实现托盘图标：打开或聚焦主界面。
 - [ ] 实现托盘菜单：显示当前提供商、当前模型和代理服务状态。
