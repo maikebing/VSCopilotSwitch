@@ -16,7 +16,7 @@
 - [x] 初始化 Vue 3 SPA 工程文件和项目内 npm 脚本。
 - [x] ✅️ 按 Visual Studio SPA 模式加入前端 `.esproj`，并让后端通过 `SpaProxy` 关联 Vue 调试服务。
 - [x] ✅️ 将前端工程切换为 VueApp2 同款 Vue 3 + TypeScript 技术栈。
-- [ ] 确认 OmniHost 正式集成方式。
+- [ ] 🔧 确认 OmniHost 正式集成方式：优先 NuGet 包；如果需要跟踪源码，再评估 git submodule。
 - [ ] 明确许可证、贡献方式和安全边界。
 
 验收标准：
@@ -159,6 +159,7 @@
 - [ ] 将 Vue 3 SPA 构建产物作为嵌入式资源打包到单体应用。
 - [x] ✅️ 开发模式下可通过 HTTP Visual Studio SPA Proxy 连接 npm 调试服务。
 - [x] ✅️ 前端 JSON 配置文件使用无 BOM UTF-8，避免 Vite/PostCSS 解析失败。
+- [x] ✅️ 接入 VS Code Workbench 风格主题层，预留 OmniHost 宿主主题变量注入接口。
 - [ ] 🔧 运行时优先从嵌入式资源加载 SPA。
 - [ ] 支持 AOT 发布。
 

@@ -31,6 +31,7 @@
 - ✅️ 修复开发模式根路径 404：在 launch profile 和 Development 配置中启用 `Microsoft.AspNetCore.SpaProxy` Hosting Startup，并补充宿主 `wwwroot` 约定目录。
 - ✅️ 将开发模式 SpaProxy 和 Vite 调试服务统一切换为 HTTP，不再生成或使用本地 HTTPS 开发证书。
 - ✅️ 清理前端 JSON 配置文件的 UTF-8 BOM，修复 Vite 加载 PostCSS 配置时报 `Unexpected token` 的问题。
+- ✅️ 接入 VS Code Workbench 风格主题层，使用 `--vscode-*` 语义变量组织标题栏、活动栏、侧边栏、编辑器区域、状态栏和表单控件，便于后续对接 OmniHost 注入主题。
 - 按 AGENTS 工作原则中的跨平台差异和 UI 防误操作要求重新整理路线图。
 
 
