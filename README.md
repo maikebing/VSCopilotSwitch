@@ -9,7 +9,7 @@ VSCopilotSwitch 是一个面向 VS Code / GitHub Copilot Chat 体验的本地模
 - 自动修改 VS Code 用户目录中的 Ollama 相关配置，包括 `chatLanguageModels.json` 和 `settings.json`。
 - 提供熔断、重试、健康检查、限流、故障降级等稳定性能力。
 - 基于 [OmniHost](https://github.com/maikebing/OmniHost) 实现 Windows、macOS、Linux、WSL 四端可运行界面。
-- 界面使用 Vue 3，以 SPA 方式在项目内调试、构建和发布。
+- 界面使用 Vue 3 + TypeScript，以 Visual Studio SPA 模式在项目内调试、构建和发布。
 - 最终发布支持 AOT，并将 SPA 构建产物作为嵌入式资源打包进单体应用。
 - 支持系统托盘图标，可从托盘打开主界面、快速选择当前提供商并退出程序。
 - UI 参考 `cc switch` 的快速切换体验，强调模型供应商、模型、密钥、代理和 VS Code 配置的一站式管理。
@@ -89,7 +89,7 @@ src/
   VSCopilotSwitch/               # 本地宿主与 HTTP API，最终可执行文件名为 VSCopilotSwitch
   VSCopilotSwitch.Core/          # Ollama 协议模型、代理服务和 Provider 抽象
   VSCopilotSwitch.VsCodeConfig/  # VS Code 配置目录发现、安全读写、备份和干运行预览
-  VSCopilotSwitch.Ui/            # Vue 3 + Vite SPA
+  VSCopilotSwitch.Ui/            # Vue 3 + TypeScript + Vite SPA，包含 Visual Studio JavaScript .esproj
 ```
 
 ## 开发命令
@@ -122,7 +122,10 @@ npm --prefix src/VSCopilotSwitch.Ui run dev
 
 ## 当前状态
 
-项目已具备 OmniHost-ready 的初始工程骨架、Vue 3 SPA 目录、VS Code 配置管理模块和 Ollama 兼容代理 MVP。下一步会接入真实 Provider Adapter、系统托盘和 OmniHost 桌面宿主。
+项目已具备 OmniHost-ready 的初始工程骨架、Visual Studio SPA 模式的 Vue 3 + TypeScript 前端项目、VS Code 配置管理模块和 Ollama 兼容代理 MVP。下一步会接入真实 Provider Adapter、系统托盘和 OmniHost 桌面宿主。
+
+
+
 
 
 

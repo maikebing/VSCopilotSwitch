@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.VisualStudio.JavaScript.Sdk/1.0.4902498">
+  <PropertyGroup>
+    <StartupCommand>npm run dev</StartupCommand>
+    <JavaScriptTestRoot>.\</JavaScriptTestRoot>
+    <JavaScriptTestFramework>Vitest</JavaScriptTestFramework>
+    <!-- 控制构建时是否运行 package.json 中的 build 或 compile 脚本。 -->
+    <ShouldRunBuildScript>false</ShouldRunBuildScript>
+    <!-- 生产构建产物输出目录，供宿主发布流程收集。 -->
+    <BuildOutputFolder>$(MSBuildProjectDirectory)\dist</BuildOutputFolder>
+  </PropertyGroup>
+</Project>
+
+

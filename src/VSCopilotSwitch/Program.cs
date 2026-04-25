@@ -21,6 +21,9 @@ builder.Services.AddSingleton<IVsCodeConfigService, VsCodeConfigService>();
 
 var app = builder.Build();
 
+app.UseDefaultFiles();
+app.MapStaticAssets();
+
 app.MapGet("/health", () => Results.Ok(new
 {
     name = "VSCopilotSwitch",
@@ -55,7 +58,7 @@ app.MapPost("/internal/vscode/apply-ollama", async (
     return Results.Ok(result);
 });
 
-app.MapFallback(() => Results.Text("VSCopilotSwitch host is running. Build the Vue 3 SPA to serve the desktop UI.", "text/plain"));
+app.MapFallbackToFile("/index.html");
 
 app.Run();
 
@@ -63,5 +66,6 @@ public sealed record ApplyVsCodeOllamaConfigRequest(
     string UserDirectory,
     ManagedOllamaConfig? Config,
     bool DryRun = true);
+
 
 
