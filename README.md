@@ -122,7 +122,8 @@ npm --prefix src/VSCopilotSwitch.Ui run dev
 
 ## 当前状态
 
-项目已具备 OmniHost-ready 的初始工程骨架、Visual Studio SPA 模式的 Vue 3 + TypeScript 前端项目、VS Code 配置管理模块和 Ollama 兼容代理 MVP。下一步会接入真实 Provider Adapter、系统托盘和 OmniHost 桌面宿主。
+项目已具备 OmniHost-ready 的初始工程骨架、Visual Studio SPA 模式的 Vue 3 + TypeScript 管理首页、VS Code 配置管理模块和 Ollama 兼容代理 MVP。下一步会接入真实 Provider Adapter、系统托盘和 OmniHost 桌面宿主。
+
 
 
 

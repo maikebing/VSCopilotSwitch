@@ -13,6 +13,7 @@
 - 新增 VSCopilotSwitch.Ui Vue 3 + Vite SPA 工程骨架。
 - 新增 `VSCopilotSwitch.Ui.esproj`，并按 Visual Studio SPA 模式加入解决方案构建和部署。
 - ✅️ 将前端切换为 VueApp2 同款 Vue 3 + TypeScript + Vite + ESLint + Oxlint 技术栈，并保留本项目 `/health`、`/api`、`/internal` 后端代理关系。
+- ✅️ 将默认 Vue 欢迎页替换为 VSCopilotSwitch 首版管理首页，展示代理状态、模型列表和 VS Code 配置 dry-run 预览入口。
 
 - 建立项目 README，明确 VSCopilotSwitch 的目标和核心能力。
 - 新增路线图，覆盖项目基线、VS Code 配置管理、Ollama 兼容代理、Provider Adapter、稳定性、OmniHost 四端界面和发布安全。
@@ -35,6 +36,7 @@
 ### Security
 
 - 明确 API Key 脱敏、本地代理默认监听 `127.0.0.1`、VS Code 配置写入前备份和回滚等安全基线。
+
 
 
 
