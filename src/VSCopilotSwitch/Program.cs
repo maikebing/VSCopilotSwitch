@@ -88,8 +88,9 @@ var desktopApp = OmniApp.CreateBuilder(args)
         options.Width = 1280;
         options.Height = 820;
         options.EnableDevTools = webApp.Environment.IsDevelopment();
-        options.WindowStyle = OmniWindowStyle.VsCode;
-        options.BuiltInTitleBarStyle = OmniBuiltInTitleBarStyle.VsCode;
+        // 使用系统原生标题栏，避免自绘 Chrome 与当前页面视觉割裂，并自动跟随操作系统主题。
+        options.WindowStyle = OmniWindowStyle.Normal;
+        options.BuiltInTitleBarStyle = OmniBuiltInTitleBarStyle.None;
         options.ScrollBarMode = OmniScrollBarMode.Auto;
         options.UserDataFolder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -139,5 +140,4 @@ sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IDesktopApp
     public Task OnClosingAsync(CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 }
-
 

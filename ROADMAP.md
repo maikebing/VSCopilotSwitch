@@ -54,6 +54,7 @@
 - [x] ✅️ 展示当前代理状态、模型列表和供应商切换入口。
 - [x] ✅️ 展示 VS Code 配置 dry-run 预览入口。
 - [x] ✅️ 完成 `cc switch` 风格主界面布局：顶部快速切换、供应商卡片列表、启用/编辑/查询状态操作区。
+- [x] ✅️ 将主界面品牌替换为 VSCopilotSwitch 专属名称与 logo，并将顶部入口调整为 `VS2026` / `VSCode`。
 - [x] ✅️ 完成添加/编辑供应商表单布局：名称、备注、官网、API Key、API 请求地址、模型名称和 auth.json 预览。
 - [ ] 实现配置写入向导：选择 VS Code 配置目录、预览差异、确认写入、显示结果。
 - [ ] 实现差异视图：展示 `settings.json` 和 `chatLanguageModels.json` 的字段级变化。
@@ -162,6 +163,7 @@
 - [x] ✅️ 开发模式下可通过 HTTP Visual Studio SPA Proxy 连接 npm 调试服务。
 - [x] ✅️ 前端 JSON 配置文件使用无 BOM UTF-8，避免 Vite/PostCSS 解析失败。
 - [x] ✅️ 接入 VS Code Workbench 风格主题层，预留 OmniHost 宿主主题变量注入接口。
+- [x] ✅️ 宿主标题栏切换为系统原生样式，页面配色默认跟随操作系统深浅色偏好。
 - [ ] 🔧 运行时优先从嵌入式资源加载 SPA。
 - [ ] 支持 AOT 发布。
 

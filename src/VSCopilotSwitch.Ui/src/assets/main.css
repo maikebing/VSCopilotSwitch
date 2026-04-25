@@ -1,7 +1,7 @@
 @import './base.css';
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   --cc-bg: #ffffff;
   --cc-soft: #f6f6f8;
   --cc-panel: #ffffff;
@@ -15,6 +15,20 @@
   --cc-blue: #006eff;
   --cc-red: #ff3737;
   --cc-shadow: 0 14px 38px rgb(25 33 52 / 8%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cc-bg: #1f1f23;
+    --cc-soft: #2a2b31;
+    --cc-panel: #25262c;
+    --cc-text: #f2f3f5;
+    --cc-muted: #a6aab4;
+    --cc-line: #383a42;
+    --cc-line-strong: #4a4d57;
+    --cc-green-soft: rgb(18 185 129 / 13%);
+    --cc-shadow: 0 14px 38px rgb(0 0 0 / 22%);
+  }
 }
 
 body {
@@ -65,8 +79,10 @@ a {
 }
 
 .brand-mark {
-  color: var(--cc-orange);
-  font-size: 24px;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  box-shadow: 0 10px 26px rgb(31 143 255 / 22%);
 }
 
 .brand-area h1,
@@ -77,7 +93,7 @@ a {
 }
 
 .brand-area h1 {
-  color: var(--cc-green);
+  color: var(--cc-text);
   font-size: 28px;
   font-weight: 750;
 }
@@ -132,7 +148,7 @@ a {
 .quick-switch,
 .toolbar {
   border-radius: 22px;
-  background: #f1f1f3;
+  background: var(--cc-soft);
   padding: 6px;
 }
 
@@ -149,13 +165,30 @@ a {
 }
 
 .pill.selected {
-  background: #ffffff;
-  color: #111111;
+  background: var(--cc-panel);
+  color: var(--cc-text);
   box-shadow: 0 3px 14px rgb(20 26 40 / 9%);
 }
 
-.pill span {
-  color: var(--cc-orange);
+.ide-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.vs-icon {
+  background: linear-gradient(135deg, #7f3cff, #4d83ff);
+}
+
+.vscode-icon {
+  background: linear-gradient(135deg, #0078d4, #20a7ff);
+  font-size: 18px;
 }
 
 .toolbar {

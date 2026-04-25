@@ -238,9 +238,9 @@ onMounted(loadDashboard);
   <div class="cc-shell">
     <header class="app-bar">
       <section class="brand-area" aria-label="应用状态">
-        <div class="brand-mark">✳</div>
+        <img class="brand-mark" src="./assets/logo.svg" alt="VSCopilotSwitch logo" />
         <div>
-          <h1>CC Switch</h1>
+          <h1>VSCopilotSwitch</h1>
           <p>{{ providerCountText }}</p>
         </div>
         <button class="icon-button" type="button" title="设置">⚙</button>
@@ -248,8 +248,8 @@ onMounted(loadDashboard);
       </section>
 
       <section class="quick-switch" aria-label="快速切换">
-        <button class="pill active" type="button"><span>✳</span> Claude</button>
-        <button class="pill selected" type="button"><span>◎</span> Codex</button>
+        <button class="pill active" type="button"><span class="ide-icon vs-icon">VS</span> VS2026</button>
+        <button class="pill selected" type="button"><span class="ide-icon vscode-icon">⌁</span> VSCode</button>
       </section>
 
       <section class="toolbar" aria-label="工具栏">
