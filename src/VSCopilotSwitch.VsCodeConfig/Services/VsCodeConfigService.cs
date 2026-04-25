@@ -11,6 +11,13 @@ public interface IVsCodeConfigService
         ManagedOllamaConfig config,
         bool dryRun,
         CancellationToken cancellationToken = default);
+
+    IReadOnlyList<VsCodeConfigBackup> ListBackups(string userDirectory);
+
+    Task<VsCodeConfigRestoreResult> RestoreBackupAsync(
+        string userDirectory,
+        string backupPath,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class VsCodeConfigService : IVsCodeConfigService
@@ -56,6 +63,46 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         }
 
         return new VsCodeConfigApplyResult(fullUserDirectory, dryRun, changes);
+    }
+
+    public IReadOnlyList<VsCodeConfigBackup> ListBackups(string userDirectory)
+    {
+        var fullUserDirectory = ResolveUserDirectory(userDirectory);
+        if (!Directory.Exists(fullUserDirectory))
+        {
+            return Array.Empty<VsCodeConfigBackup>();
+        }
+
+        return Directory.EnumerateFiles(fullUserDirectory, "*.vscopilotswitch.*.bak", SearchOption.TopDirectoryOnly)
+            .Select(CreateBackupInfo)
+            .Where(backup => backup is not null)
+            .Cast<VsCodeConfigBackup>()
+            .OrderByDescending(backup => backup.CreatedAt)
+            .Take(20)
+            .ToArray();
+    }
+
+    public async Task<VsCodeConfigRestoreResult> RestoreBackupAsync(
+        string userDirectory,
+        string backupPath,
+        CancellationToken cancellationToken = default)
+    {
+        var fullUserDirectory = ResolveUserDirectory(userDirectory);
+        var fullBackupPath = ResolveBackupPath(fullUserDirectory, backupPath);
+        var targetPath = GetTargetPathFromBackup(fullBackupPath);
+        var safetyBackupPath = File.Exists(targetPath) ? CreateRestoreSafetyBackupPath(targetPath) : null;
+
+        Directory.CreateDirectory(fullUserDirectory);
+        if (safetyBackupPath is not null)
+        {
+            File.Copy(targetPath, safetyBackupPath, overwrite: false);
+        }
+
+        await using var source = File.OpenRead(fullBackupPath);
+        await using var destination = File.Create(targetPath);
+        await source.CopyToAsync(destination, cancellationToken);
+
+        return new VsCodeConfigRestoreResult(fullUserDirectory, targetPath, fullBackupPath, safetyBackupPath, Restored: true);
     }
 
     private static async Task<VsCodeConfigFileChange> BuildSettingsChangeAsync(
@@ -200,6 +247,73 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
     {
         var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmssfff");
         return $"{filePath}.vscopilotswitch.{timestamp}.bak";
+    }
+
+    private static VsCodeConfigBackup? CreateBackupInfo(string backupPath)
+    {
+        var targetPath = GetTargetPathFromBackup(backupPath);
+        if (!IsManagedFileName(Path.GetFileName(targetPath)))
+        {
+            return null;
+        }
+
+        var fileInfo = new FileInfo(backupPath);
+        return new VsCodeConfigBackup(targetPath, fileInfo.FullName, Path.GetFileName(targetPath), fileInfo.CreationTimeUtc, fileInfo.Length);
+    }
+
+    private static string ResolveUserDirectory(string userDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(userDirectory))
+        {
+            throw new ArgumentException("VS Code user directory is required.", nameof(userDirectory));
+        }
+
+        return Path.GetFullPath(userDirectory);
+    }
+
+    private static string ResolveBackupPath(string userDirectory, string backupPath)
+    {
+        if (string.IsNullOrWhiteSpace(backupPath))
+        {
+            throw new ArgumentException("Backup path is required.", nameof(backupPath));
+        }
+
+        var fullBackupPath = Path.GetFullPath(backupPath);
+        var fullUserDirectory = Path.GetFullPath(userDirectory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (!fullBackupPath.StartsWith(fullUserDirectory, StringComparison.OrdinalIgnoreCase) || !File.Exists(fullBackupPath))
+        {
+            throw new InvalidOperationException("The selected backup does not belong to the selected VS Code user directory.");
+        }
+
+        var targetPath = GetTargetPathFromBackup(fullBackupPath);
+        if (!IsManagedFileName(Path.GetFileName(targetPath)))
+        {
+            throw new InvalidOperationException("Only VSCopilotSwitch backups for settings.json and chatLanguageModels.json can be restored.");
+        }
+
+        return fullBackupPath;
+    }
+
+    private static string GetTargetPathFromBackup(string backupPath)
+    {
+        const string marker = ".vscopilotswitch.";
+        var markerIndex = backupPath.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex <= 0 || !backupPath.EndsWith(".bak", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The selected file is not a VSCopilotSwitch backup.");
+        }
+
+        return backupPath[..markerIndex];
+    }
+
+    private static bool IsManagedFileName(string fileName)
+        => string.Equals(fileName, "settings.json", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(fileName, "chatLanguageModels.json", StringComparison.OrdinalIgnoreCase);
+
+    private static string CreateRestoreSafetyBackupPath(string filePath)
+    {
+        var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmssfff");
+        return $"{filePath}.vscopilotswitch.restore-safety.{timestamp}.bak";
     }
 
     private static string ToJson(JsonObject root) => JsonSerializer.Serialize(root, WriteOptions) + Environment.NewLine;

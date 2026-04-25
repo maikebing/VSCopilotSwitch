@@ -56,6 +56,22 @@ type ApplyResult = {
   Changes: FileChange[];
 };
 
+type ConfigBackup = {
+  FilePath: string;
+  BackupPath: string;
+  FileName: string;
+  CreatedAt: string;
+  SizeBytes: number;
+};
+
+type RestoreResult = {
+  UserDirectory: string;
+  FilePath: string;
+  BackupPath: string;
+  SafetyBackupPath: string | null;
+  Restored: boolean;
+};
+
 type ProviderCard = {
   id: string;
   name: string;
@@ -75,9 +91,14 @@ const directories = ref<VsCodeUserDirectory[]>([]);
 const selectedDirectory = ref('');
 const preview = ref<ApplyResult | null>(null);
 const applyResult = ref<ApplyResult | null>(null);
+const backups = ref<ConfigBackup[]>([]);
+const selectedBackupPath = ref('');
+const restoreResult = ref<RestoreResult | null>(null);
 const loading = ref(false);
 const previewLoading = ref(false);
 const applyLoading = ref(false);
+const backupsLoading = ref(false);
+const restoreLoading = ref(false);
 const errorMessage = ref('');
 const currentView = ref<'list' | 'edit'>('list');
 const showApiKey = ref(false);
@@ -157,6 +178,7 @@ const activeProvider = computed(() => providers.value.find((provider) => provide
 const providerCountText = computed(() => `${providers.value.length} 个供应商 · ${existingDirectories.value.length} 个 VS Code 配置目录`);
 const previewChangedCount = computed(() => preview.value?.Changes.filter((change) => change.Changed).length ?? 0);
 const canApplyVsCodeConfig = computed(() => Boolean(preview.value?.DryRun && selectedDirectory.value && !applyResult.value));
+const selectedBackup = computed(() => backups.value.find((backup) => backup.BackupPath === selectedBackupPath.value));
 
 async function loadDashboard() {
   loading.value = true;
@@ -180,6 +202,9 @@ async function loadDashboard() {
     selectedDirectory.value = existingDirectories.value[0]?.Path ?? directories.value[0]?.Path ?? '';
     preview.value = null;
     applyResult.value = null;
+    backups.value = [];
+    selectedBackupPath.value = '';
+    restoreResult.value = null;
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '加载状态失败。';
   } finally {
@@ -252,6 +277,7 @@ async function applyVsCodeConfig() {
 
     applyResult.value = await response.json();
     preview.value = applyResult.value;
+    await loadBackups();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'VS Code 配置写入失败。';
   } finally {
@@ -259,9 +285,80 @@ async function applyVsCodeConfig() {
   }
 }
 
+async function loadBackups() {
+  if (!selectedDirectory.value) {
+    errorMessage.value = '请先选择 VS Code User 配置目录，再查看备份。';
+    return;
+  }
+
+  backupsLoading.value = true;
+  errorMessage.value = '';
+
+  try {
+    const response = await fetch('/internal/vscode/backups', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        UserDirectory: selectedDirectory.value
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('读取 VS Code 配置备份失败，请检查目录权限。');
+    }
+
+    backups.value = await response.json();
+    selectedBackupPath.value = backups.value[0]?.BackupPath ?? '';
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '读取 VS Code 配置备份失败。';
+  } finally {
+    backupsLoading.value = false;
+  }
+}
+
+async function restoreBackup() {
+  if (!selectedDirectory.value || !selectedBackupPath.value) {
+    errorMessage.value = '请选择一个可恢复的备份。';
+    return;
+  }
+
+  restoreLoading.value = true;
+  errorMessage.value = '';
+  restoreResult.value = null;
+
+  try {
+    const response = await fetch('/internal/vscode/restore-backup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        UserDirectory: selectedDirectory.value,
+        BackupPath: selectedBackupPath.value
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('恢复备份失败，当前文件已保留，请确认备份属于所选目录。');
+    }
+
+    const result = (await response.json()) as RestoreResult;
+    resetVsCodeWizard();
+    restoreResult.value = result;
+    await loadBackups();
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '恢复备份失败。';
+  } finally {
+    restoreLoading.value = false;
+  }
+}
+
 function resetVsCodeWizard() {
   preview.value = null;
   applyResult.value = null;
+  restoreResult.value = null;
   errorMessage.value = '';
 }
 
@@ -292,6 +389,8 @@ function activateProvider(providerId: string) {
 
 function handleDirectoryChanged() {
   resetVsCodeWizard();
+  backups.value = [];
+  selectedBackupPath.value = '';
 }
 
 onMounted(loadDashboard);
@@ -512,6 +611,45 @@ onMounted(loadDashboard);
                   </div>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <section class="rollback-panel" aria-label="VS Code 配置回滚">
+            <div class="wizard-title">
+              <div>
+                <span>回滚入口</span>
+                <h3>从最近备份恢复配置</h3>
+              </div>
+              <button class="secondary-button" type="button" :disabled="backupsLoading || !selectedDirectory" @click="loadBackups">
+                {{ backupsLoading ? '读取中...' : '刷新备份' }}
+              </button>
+            </div>
+
+            <p class="helper">只显示 VSCopilotSwitch 为 `settings.json` 和 `chatLanguageModels.json` 创建的备份，恢复前会先为当前文件创建安全备份。</p>
+
+            <div v-if="backups.length" class="rollback-list">
+              <label v-for="backup in backups" :key="backup.BackupPath" class="rollback-item">
+                <input v-model="selectedBackupPath" type="radio" name="vscode-backup" :value="backup.BackupPath" />
+                <span>
+                  <strong>{{ backup.FileName }}</strong>
+                  <small>{{ new Date(backup.CreatedAt).toLocaleString() }} · {{ Math.max(1, Math.round(backup.SizeBytes / 1024)) }} KB</small>
+                  <small>{{ backup.BackupPath }}</small>
+                </span>
+              </label>
+            </div>
+            <p v-else class="empty-backups">当前目录还没有可回滚的 VSCopilotSwitch 备份。</p>
+
+            <div class="wizard-actions">
+              <button class="save-button danger" type="button" :disabled="restoreLoading || !selectedBackup" @click="restoreBackup">
+                {{ restoreLoading ? '恢复中...' : '恢复选中备份' }}
+              </button>
+            </div>
+
+            <div v-if="restoreResult" class="wizard-summary rollback-result">
+              <strong>恢复完成</strong>
+              <span>{{ restoreResult.FilePath }}</span>
+              <small>使用备份：{{ restoreResult.BackupPath }}</small>
+              <small v-if="restoreResult.SafetyBackupPath">恢复前安全备份：{{ restoreResult.SafetyBackupPath }}</small>
             </div>
           </section>
 

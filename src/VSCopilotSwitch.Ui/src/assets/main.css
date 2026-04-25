@@ -543,6 +543,15 @@ a {
   padding: 18px;
 }
 
+.rollback-panel {
+  display: grid;
+  gap: 16px;
+  border: 1px solid #f0dfc9;
+  border-radius: 18px;
+  background: #fffaf3;
+  padding: 18px;
+}
+
 .wizard-title,
 .wizard-actions,
 .wizard-summary {
@@ -624,6 +633,58 @@ a {
 .wizard-actions {
   justify-content: flex-start;
   flex-wrap: wrap;
+}
+
+.save-button.danger {
+  border-color: #e26b4f;
+  background: #e26b4f;
+  box-shadow: 0 10px 22px rgb(226 107 79 / 22%);
+}
+
+.rollback-list {
+  display: grid;
+  gap: 10px;
+}
+
+.rollback-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  border: 1px solid #f0dfc9;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.rollback-item input {
+  margin-top: 3px;
+}
+
+.rollback-item span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rollback-item small {
+  overflow-wrap: anywhere;
+  color: var(--cc-muted);
+}
+
+.empty-backups {
+  margin: 0;
+  border: 1px dashed #e7d8c3;
+  border-radius: 12px;
+  background: #fffdf9;
+  color: #8a6b42;
+  padding: 14px;
+}
+
+.rollback-result {
+  border-color: #f0dfc9;
+  background: #fffdf8;
+  color: #7a5530;
 }
 
 .preview-list {

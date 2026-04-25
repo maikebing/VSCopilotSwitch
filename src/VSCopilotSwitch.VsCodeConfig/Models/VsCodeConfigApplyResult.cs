@@ -19,3 +19,17 @@ public sealed record VsCodeConfigFieldChange(
     string BeforeValue,
     string AfterValue,
     bool Changed);
+
+public sealed record VsCodeConfigBackup(
+    string FilePath,
+    string BackupPath,
+    string FileName,
+    DateTimeOffset CreatedAt,
+    long SizeBytes);
+
+public sealed record VsCodeConfigRestoreResult(
+    string UserDirectory,
+    string FilePath,
+    string BackupPath,
+    string? SafetyBackupPath,
+    bool Restored);

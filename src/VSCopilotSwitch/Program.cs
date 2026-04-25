@@ -69,6 +69,22 @@ webApp.MapPost("/internal/vscode/apply-ollama", async (
     return Results.Ok(result);
 });
 
+webApp.MapPost("/internal/vscode/backups", (
+    ListVsCodeConfigBackupsRequest request,
+    IVsCodeConfigService service) =>
+{
+    return Results.Ok(service.ListBackups(request.UserDirectory));
+});
+
+webApp.MapPost("/internal/vscode/restore-backup", async (
+    RestoreVsCodeConfigBackupRequest request,
+    IVsCodeConfigService service,
+    CancellationToken cancellationToken) =>
+{
+    var result = await service.RestoreBackupAsync(request.UserDirectory, request.BackupPath, cancellationToken);
+    return Results.Ok(result);
+});
+
 webApp.MapFallbackToFile("/index.html");
 
 await webApp.StartAsync();
@@ -124,6 +140,10 @@ public sealed record ApplyVsCodeOllamaConfigRequest(
     ManagedOllamaConfig? Config,
     bool DryRun = true);
 
+public sealed record ListVsCodeConfigBackupsRequest(string UserDirectory);
+
+public sealed record RestoreVsCodeConfigBackupRequest(string UserDirectory, string BackupPath);
+
 sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IDesktopApp
 {
     public Task OnStartAsync(IWebViewAdapter adapter, CancellationToken cancellationToken = default)
@@ -140,4 +160,3 @@ sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IDesktopApp
     public Task OnClosingAsync(CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 }
-
