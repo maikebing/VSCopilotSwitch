@@ -11,4 +11,11 @@ public sealed record VsCodeConfigFileChange(
     bool Changed,
     string? BackupPath,
     string BeforeContent,
-    string AfterContent);
+    string AfterContent,
+    IReadOnlyList<VsCodeConfigFieldChange> FieldChanges);
+
+public sealed record VsCodeConfigFieldChange(
+    string Path,
+    string BeforeValue,
+    string AfterValue,
+    bool Changed);

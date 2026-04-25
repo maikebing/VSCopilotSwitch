@@ -73,7 +73,13 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         root["vscopilotswitch.ollama.enabled"] = true;
 
         var after = ToJson(root);
-        return CreateChange(filePath, before, after, dryRun);
+        var fieldChanges = new[]
+        {
+            CreateFieldChange("vscopilotswitch.managedBy", before, after),
+            CreateFieldChange("vscopilotswitch.ollama.baseUrl", before, after),
+            CreateFieldChange("vscopilotswitch.ollama.enabled", before, after)
+        };
+        return CreateChange(filePath, before, after, dryRun, fieldChanges);
     }
 
     private static async Task<VsCodeConfigFileChange> BuildChatLanguageModelsChangeAsync(
@@ -91,7 +97,6 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
             ["managedBy"] = ManagedBy,
             ["provider"] = "ollama",
             ["baseUrl"] = config.BaseUrl,
-            ["updatedAt"] = DateTimeOffset.UtcNow.ToString("O"),
             ["models"] = new JsonArray(config.Models.Select(model => new JsonObject
             {
                 ["id"] = model.Id,
@@ -102,7 +107,14 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
 
         root["vscopilotswitch"] = managed;
         var after = ToJson(root);
-        return CreateChange(filePath, before, after, dryRun);
+        var fieldChanges = new[]
+        {
+            CreateFieldChange("vscopilotswitch.managedBy", before, after),
+            CreateFieldChange("vscopilotswitch.provider", before, after),
+            CreateFieldChange("vscopilotswitch.baseUrl", before, after),
+            CreateFieldChange("vscopilotswitch.models", before, after)
+        };
+        return CreateChange(filePath, before, after, dryRun, fieldChanges);
     }
 
     private static async Task<string> ReadOrDefaultAsync(string filePath, string defaultContent, CancellationToken cancellationToken)
@@ -127,12 +139,47 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         }
     }
 
-    private static VsCodeConfigFileChange CreateChange(string filePath, string before, string after, bool dryRun)
+    private static VsCodeConfigFileChange CreateChange(
+        string filePath,
+        string before,
+        string after,
+        bool dryRun,
+        IReadOnlyList<VsCodeConfigFieldChange> fieldChanges)
     {
         var existedBefore = File.Exists(filePath);
         var changed = !JsonEquivalent(before, after);
         var backupPath = changed && existedBefore && !dryRun ? CreateBackupPath(filePath) : null;
-        return new VsCodeConfigFileChange(filePath, existedBefore, changed, backupPath, before, after);
+        return new VsCodeConfigFileChange(filePath, existedBefore, changed, backupPath, before, after, fieldChanges);
+    }
+
+    private static VsCodeConfigFieldChange CreateFieldChange(string path, string before, string after)
+    {
+        var beforeValue = ReadJsonPath(before, path);
+        var afterValue = ReadJsonPath(after, path);
+        return new VsCodeConfigFieldChange(path, beforeValue, afterValue, beforeValue != afterValue);
+    }
+
+    private static string ReadJsonPath(string content, string path)
+    {
+        try
+        {
+            var node = JsonNode.Parse(string.IsNullOrWhiteSpace(content) ? "{}" : content);
+            if (node is JsonObject root && root.TryGetPropertyValue(path, out var directValue))
+            {
+                return directValue is null ? "未设置" : JsonSerializer.Serialize(directValue);
+            }
+
+            foreach (var segment in path.Split('.', StringSplitOptions.RemoveEmptyEntries))
+            {
+                node = node?[segment];
+            }
+
+            return node is null ? "未设置" : JsonSerializer.Serialize(node);
+        }
+        catch
+        {
+            return "无法解析";
+        }
     }
 
     private static bool JsonEquivalent(string left, string right)

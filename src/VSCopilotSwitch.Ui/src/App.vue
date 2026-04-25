@@ -40,6 +40,14 @@ type FileChange = {
   BackupPath: string | null;
   BeforeContent: string;
   AfterContent: string;
+  FieldChanges: FieldChange[];
+};
+
+type FieldChange = {
+  Path: string;
+  BeforeValue: string;
+  AfterValue: string;
+  Changed: boolean;
 };
 
 type ApplyResult = {
@@ -66,8 +74,10 @@ const models = ref<ModelInfo[]>([]);
 const directories = ref<VsCodeUserDirectory[]>([]);
 const selectedDirectory = ref('');
 const preview = ref<ApplyResult | null>(null);
+const applyResult = ref<ApplyResult | null>(null);
 const loading = ref(false);
 const previewLoading = ref(false);
+const applyLoading = ref(false);
 const errorMessage = ref('');
 const currentView = ref<'list' | 'edit'>('list');
 const showApiKey = ref(false);
@@ -145,6 +155,8 @@ const healthState = computed(() => health.value?.status ?? 'unknown');
 const activeModel = computed(() => models.value[0]?.name ?? providerModel.value);
 const activeProvider = computed(() => providers.value.find((provider) => provider.active));
 const providerCountText = computed(() => `${providers.value.length} 个供应商 · ${existingDirectories.value.length} 个 VS Code 配置目录`);
+const previewChangedCount = computed(() => preview.value?.Changes.filter((change) => change.Changed).length ?? 0);
+const canApplyVsCodeConfig = computed(() => Boolean(preview.value?.DryRun && selectedDirectory.value && !applyResult.value));
 
 async function loadDashboard() {
   loading.value = true;
@@ -166,6 +178,8 @@ async function loadDashboard() {
     models.value = tagResult.models;
     directories.value = await directoriesResponse.json();
     selectedDirectory.value = existingDirectories.value[0]?.Path ?? directories.value[0]?.Path ?? '';
+    preview.value = null;
+    applyResult.value = null;
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '加载状态失败。';
   } finally {
@@ -182,6 +196,7 @@ async function previewVsCodeConfig() {
   previewLoading.value = true;
   errorMessage.value = '';
   preview.value = null;
+  applyResult.value = null;
 
   try {
     const response = await fetch('/internal/vscode/apply-ollama', {
@@ -208,7 +223,51 @@ async function previewVsCodeConfig() {
   }
 }
 
+async function applyVsCodeConfig() {
+  if (!selectedDirectory.value || !preview.value) {
+    errorMessage.value = '请先生成差异预览，再确认写入 VS Code 配置。';
+    return;
+  }
+
+  applyLoading.value = true;
+  errorMessage.value = '';
+  applyResult.value = null;
+
+  try {
+    const response = await fetch('/internal/vscode/apply-ollama', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        UserDirectory: selectedDirectory.value,
+        Config: null,
+        DryRun: false
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('VS Code 配置写入失败，原文件已保留，请检查权限或文件占用。');
+    }
+
+    applyResult.value = await response.json();
+    preview.value = applyResult.value;
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'VS Code 配置写入失败。';
+  } finally {
+    applyLoading.value = false;
+  }
+}
+
+function resetVsCodeWizard() {
+  preview.value = null;
+  applyResult.value = null;
+  errorMessage.value = '';
+}
+
 function openEdit(provider?: ProviderCard) {
+  resetVsCodeWizard();
+
   if (provider) {
     providerName.value = provider.name;
     providerWebsite.value = provider.url;
@@ -229,6 +288,10 @@ function activateProvider(providerId: string) {
     active: provider.id === providerId,
     selected: provider.id === providerId
   }));
+}
+
+function handleDirectoryChanged() {
+  resetVsCodeWizard();
 }
 
 onMounted(loadDashboard);
@@ -254,7 +317,7 @@ onMounted(loadDashboard);
 
       <section class="toolbar" aria-label="工具栏">
         <button class="icon-button" type="button" title="代理设置">🔧</button>
-        <button class="icon-button" type="button" title="配置预览" @click="previewVsCodeConfig">▣</button>
+        <button class="icon-button" type="button" title="配置预览" @click="openEdit()">▣</button>
         <button class="icon-button" type="button" :disabled="loading" title="刷新" @click="loadDashboard">↻</button>
         <button class="icon-button" type="button" title="附件">⌁</button>
         <button class="add-button" type="button" title="添加供应商" @click="openEdit()">＋</button>
@@ -381,18 +444,76 @@ onMounted(loadDashboard);
             <button class="link-button format" type="button">✣ 格式化</button>
           </section>
 
-          <div class="config-preview">
-            <button class="secondary-button" type="button" :disabled="previewLoading || !selectedDirectory" @click="previewVsCodeConfig">
-              {{ previewLoading ? '生成预览中...' : '预览 VS Code Ollama 配置' }}
-            </button>
+          <section class="config-wizard" aria-label="VS Code Ollama 配置写入向导">
+            <div class="wizard-title">
+              <div>
+                <span>VS Code 配置向导</span>
+                <h3>写入前必须先预览差异</h3>
+              </div>
+              <button class="link-button" type="button" @click="resetVsCodeWizard">重置</button>
+            </div>
+
+            <ol class="wizard-steps">
+              <li :class="{ done: selectedDirectory }">
+                <strong>1</strong>
+                <span>选择目录</span>
+              </li>
+              <li :class="{ done: preview }">
+                <strong>2</strong>
+                <span>预览差异</span>
+              </li>
+              <li :class="{ done: applyResult }">
+                <strong>3</strong>
+                <span>确认写入</span>
+              </li>
+              <li :class="{ done: applyResult }">
+                <strong>4</strong>
+                <span>查看结果</span>
+              </li>
+            </ol>
+
+            <label class="form-field">
+              <span>目标 VS Code User 目录</span>
+              <select v-model="selectedDirectory" @change="handleDirectoryChanged">
+                <option v-for="directory in directories" :key="directory.Path" :value="directory.Path">
+                  {{ directory.Description }} · {{ directory.Exists ? '已存在' : '将创建' }}
+                </option>
+              </select>
+            </label>
+            <p class="helper">{{ selectedDirectory || '当前没有发现 Windows VS Code User 配置目录。' }}</p>
+
+            <div class="wizard-actions">
+              <button class="secondary-button" type="button" :disabled="previewLoading || !selectedDirectory" @click="previewVsCodeConfig">
+                {{ previewLoading ? '生成预览中...' : '生成差异预览' }}
+              </button>
+              <button class="save-button" type="button" :disabled="applyLoading || !canApplyVsCodeConfig" @click="applyVsCodeConfig">
+                {{ applyLoading ? '写入中...' : '确认写入 VS Code Ollama 配置' }}
+              </button>
+            </div>
+
+            <div v-if="preview" class="wizard-summary">
+              <strong>{{ applyResult ? '写入完成' : '预览完成' }}</strong>
+              <span>{{ previewChangedCount }} 个文件需要更新，{{ preview.Changes.length - previewChangedCount }} 个文件无需变更。</span>
+              <small>写入前会备份已存在文件；未变更文件不会重复写入，避免配置漂移。</small>
+            </div>
+
             <div v-if="preview" class="preview-list">
               <div v-for="change in preview.Changes" :key="change.FilePath" class="preview-item">
-                <strong>{{ change.Changed ? '将更新' : '无需变更' }}</strong>
+                <strong>{{ change.Changed ? (applyResult ? '已更新' : '将更新') : '无需变更' }}</strong>
                 <span>{{ change.FilePath }}</span>
-                <small>{{ change.ExistedBefore ? '保留现有文件并只调整托管字段' : '文件不存在，将在确认写入时创建' }}</small>
+                <small>{{ change.ExistedBefore ? '保留未知字段，只调整本项目托管的 Ollama 字段' : '文件不存在，确认写入时会创建' }}</small>
+                <small v-if="change.BackupPath">备份位置：{{ change.BackupPath }}</small>
+                <div class="field-diff-list" aria-label="字段级差异">
+                  <div v-for="field in change.FieldChanges" :key="field.Path" class="field-diff" :class="{ changed: field.Changed }">
+                    <code>{{ field.Path }}</code>
+                    <span>{{ field.Changed ? '将变更' : '不变' }}</span>
+                    <small>原值：{{ field.BeforeValue }}</small>
+                    <small>新值：{{ field.AfterValue }}</small>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          </section>
 
           <footer class="form-footer">
             <button class="secondary-button" type="button" @click="openList">取消</button>

@@ -117,6 +117,8 @@ npm --prefix src/VSCopilotSwitch.Ui run dev
 - `POST /api/chat`：Ollama 兼容非流式聊天，当前走内置 `InMemoryModelProvider` 回显，用于验证协议链路。
 - `GET /internal/vscode/user-directories`：发现本机可能的 VS Code User 配置目录。
 - `POST /internal/vscode/apply-ollama`：对 `settings.json` 和 `chatLanguageModels.json` 做干运行预览或安全写入，写入前会备份已有文件。
+
+当前管理界面已提供 VS Code Ollama 配置写入向导骨架：用户需要先选择 Windows VS Code User 目录并生成 dry-run 差异预览，确认目标文件和托管字段变更后才能执行写入；写入结果会展示备份路径、文件状态和字段级变化。
 ## 文档
 
 - [路线图](ROADMAP.md)
