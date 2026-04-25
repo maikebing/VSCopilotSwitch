@@ -7,6 +7,7 @@
 ### Added
 
 - ✅️ 接入 OmniHost Windows 原生宿主：`src/VSCopilotSwitch` 直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.WebView2`，启动本地 ASP.NET Core 服务后由 Win32 + WebView2 窗口承载 Vue 管理界面。
+- ✅️ 将 OmniHost 直接依赖和传递依赖加入 `VSCopilotSwitch.slnx`，修复 Visual Studio 生成主项目时未先生成 `OmniHost.Abstractions` / `OmniHost.Core` 等外部项目导致的 `CS0006`。
 
 - 初始化 .NET 解决方案和 OmniHost-ready 宿主骨架。
 - 新增 VSCopilotSwitch.Core，包含 Ollama 协议模型、Provider 抽象和内置占位 Provider。
