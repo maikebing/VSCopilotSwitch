@@ -6,6 +6,7 @@
 
 ### Added
 
+- ✅️ 收尾阶段 0 和阶段 1：明确当前阶段只实现 Windows 桌面端，macOS、Linux、WSL 顺延到后续跨平台阶段。
 - ✅️ 重新设计 VSCopilotSwitch 专属 SVG logo，并替换首页左上角 `CC Switch` 品牌展示。
 - ✅️ 首页右上角快速入口从 `Claude` / `Codex` 调整为 `VS2026` / `VSCode`，并替换为对应 IDE 风格图标。
 - ✅️ 接入 OmniHost Windows 原生宿主：`src/VSCopilotSwitch` 直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.WebView2`，启动本地 ASP.NET Core 服务后由 Win32 + WebView2 窗口承载 Vue 管理界面。
