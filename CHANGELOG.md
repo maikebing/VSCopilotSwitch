@@ -6,6 +6,9 @@
 
 ### Added
 
+- ✅️ 阶段 5 启动首个真实 Provider Adapter：新增 sub2api 中转站协议接入，支持 `/v1/models` 模型列表获取、OpenAI Chat Completions 非流式请求转换和 SSE 流式响应转换。
+- ✅️ 宿主支持通过 `Providers:Sub2Api` 配置启用 sub2api；未配置 `BaseUrl` / `ApiKey` 时继续使用内置占位 Provider，便于本地开发安全启动。
+- ✅️ 新增 sub2api 最小集成测试，覆盖模型列表、上游模型名转换、流式分块解析和 HTTP 错误映射。
 - ✅️ 收尾阶段 0 和阶段 1：明确当前阶段只实现 Windows 桌面端，macOS、Linux、WSL 顺延到后续跨平台阶段。
 - ✅️ 新增 VS Code Ollama 配置写入向导骨架，要求先选择目录并生成 dry-run 差异预览，再允许确认写入和查看备份结果。
 - ✅️ 配置预览结果新增字段级差异，展示 `settings.json` 和 `chatLanguageModels.json` 中本项目托管字段的原值与新值。
@@ -20,6 +23,10 @@
 - ✅️ 首页右上角快速入口从 `Claude` / `Codex` 调整为 `VS2026` / `VSCode`，并替换为对应 IDE 风格图标。
 - ✅️ 接入 OmniHost Windows 原生宿主：`src/VSCopilotSwitch` 直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.WebView2`，启动本地 ASP.NET Core 服务后由 Win32 + WebView2 窗口承载 Vue 管理界面。
 - ✅️ 将 OmniHost 直接依赖和传递依赖加入 `VSCopilotSwitch.slnx`，修复 Visual Studio 生成主项目时未先生成 `OmniHost.Abstractions` / `OmniHost.Core` 等外部项目导致的 `CS0006`。
+- ✅️ `/api/chat` 支持 Ollama 兼容流式 NDJSON 响应，`stream: true` 时按分块返回并追加最终 `done` 分块。
+- ✅️ Ollama 代理新增 Provider 路由和模型别名解析，支持按完整模型名、上游模型名或别名定位目标 Provider。
+- ✅️ Ollama 代理新增基础错误映射，未知模型、重复别名、Provider 鉴权、限流、超时和上游错误会返回脱敏后的 `{ error, code }`。
+- ✅️ 新增 Ollama 代理核心测试项目，覆盖别名路由、流式分块、未知模型、重复别名和 Provider 错误映射。
 
 - 初始化 .NET 解决方案和 OmniHost-ready 宿主骨架。
 - 新增 VSCopilotSwitch.Core，包含 Ollama 协议模型、Provider 抽象和内置占位 Provider。
@@ -41,6 +48,7 @@
 
 ### Changed
 
+- ✅️ 统一 `ROADMAP.md` 任务状态标记：使用 `✅️`、`🔧`、`⬜`、`🔴 现在做`、`🟡 可并行`、`🔵 后做` 六类状态，并明确当前主线。
 - ✅️ 桌面宿主标题栏改为系统原生标题栏，默认跟随操作系统窗口风格和深浅色偏好；页面配色同步支持系统主题。
 - ✅️ 开发启动配置关闭自动浏览器打开，避免 OmniHost 原生窗口和系统浏览器重复打开同一个管理界面。
 
@@ -59,4 +67,5 @@
 
 ### Security
 
+- ✅️ sub2api 上游错误消息会在返回给 Ollama 代理前脱敏当前 API Key，避免鉴权失败详情泄露密钥原文。
 - 明确 API Key 脱敏、本地代理默认监听 `127.0.0.1`、VS Code 配置写入前备份和回滚等安全基线。

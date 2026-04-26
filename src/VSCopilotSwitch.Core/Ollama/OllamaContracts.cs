@@ -34,5 +34,11 @@ public sealed record OllamaChatResponse(
     [property: JsonPropertyName("model")] string Model,
     [property: JsonPropertyName("created_at")] DateTimeOffset CreatedAt,
     [property: JsonPropertyName("message")] OllamaChatMessage Message,
-    [property: JsonPropertyName("done_reason")] string DoneReason,
+    [property: JsonPropertyName("done_reason")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? DoneReason,
     [property: JsonPropertyName("done")] bool Done);
+
+public sealed record OllamaErrorResponse(
+    [property: JsonPropertyName("error")] string Error,
+    [property: JsonPropertyName("code")] string Code);

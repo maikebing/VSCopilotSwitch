@@ -9,6 +9,7 @@
     <Project Path="src/VSCopilotSwitch.VsCodeConfig/VSCopilotSwitch.VsCodeConfig.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/VSCopilotSwitch.Core.Tests/VSCopilotSwitch.Core.Tests.csproj" />
     <Project Path="tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.VsCodeConfig.Tests.csproj" />
   </Folder>
   <Folder Name="/external/OmniHost/src/">

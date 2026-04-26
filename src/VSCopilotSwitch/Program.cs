@@ -1,19 +1,24 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows.Forms;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using OmniHost;
 using OmniHost.WebView2;
 using OmniHost.Windows;
 using VSCopilotSwitch.Core.Ollama;
 using VSCopilotSwitch.Core.Providers;
+using VSCopilotSwitch.Core.Providers.Sub2Api;
 using VSCopilotSwitch.VsCodeConfig.Models;
 using VSCopilotSwitch.VsCodeConfig.Services;
 using Application = System.Windows.Forms.Application;
@@ -25,9 +30,19 @@ builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = null;
+    options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 });
 
-builder.Services.AddSingleton<IModelProvider, InMemoryModelProvider>();
+var sub2ApiOptions = LoadSub2ApiOptions(builder.Configuration);
+if (sub2ApiOptions is null)
+{
+    builder.Services.AddSingleton<IModelProvider, InMemoryModelProvider>();
+}
+else
+{
+    builder.Services.AddSingleton<IModelProvider>(_ => new Sub2ApiModelProvider(new HttpClient(), sub2ApiOptions));
+}
+
 builder.Services.AddSingleton<IOllamaProxyService, OllamaProxyService>();
 builder.Services.AddSingleton<IVsCodeConfigLocator, VsCodeConfigLocator>();
 builder.Services.AddSingleton<IVsCodeConfigService, VsCodeConfigService>();
@@ -60,14 +75,49 @@ webApp.MapGet("/internal/network/port-status", (int port = 11434) =>
 
 webApp.MapGet("/api/tags", async (IOllamaProxyService ollama, CancellationToken cancellationToken) =>
 {
-    var response = await ollama.ListTagsAsync(cancellationToken);
-    return Results.Ok(response);
+    try
+    {
+        var response = await ollama.ListTagsAsync(cancellationToken);
+        return Results.Ok(response);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex)
+    {
+        return ToOllamaErrorResult(ex);
+    }
 });
 
-webApp.MapPost("/api/chat", async (OllamaChatRequest request, IOllamaProxyService ollama, CancellationToken cancellationToken) =>
+webApp.MapPost("/api/chat", async (
+    OllamaChatRequest request,
+    IOllamaProxyService ollama,
+    HttpContext httpContext,
+    IOptions<JsonOptions> jsonOptions,
+    CancellationToken cancellationToken) =>
 {
-    var response = await ollama.ChatAsync(request, cancellationToken);
-    return Results.Ok(response);
+    try
+    {
+        if (request.Stream == true)
+        {
+            await WriteOllamaStreamAsync(httpContext, ollama.ChatStreamAsync(request, cancellationToken), jsonOptions.Value.SerializerOptions, cancellationToken);
+            return;
+        }
+
+        var response = await ollama.ChatAsync(request, cancellationToken);
+        httpContext.Response.StatusCode = StatusCodes.Status200OK;
+        httpContext.Response.ContentType = "application/json; charset=utf-8";
+        await JsonSerializer.SerializeAsync(httpContext.Response.Body, response, jsonOptions.Value.SerializerOptions, cancellationToken);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex)
+    {
+        await WriteOllamaErrorAsync(httpContext, ex, jsonOptions.Value.SerializerOptions, cancellationToken);
+    }
 });
 
 webApp.MapGet("/internal/vscode/user-directories", (IVsCodeConfigLocator locator) =>
@@ -163,6 +213,138 @@ static bool IsTcpPortAvailable(int targetPort)
     {
         return false;
     }
+}
+
+static Sub2ApiProviderOptions? LoadSub2ApiOptions(IConfiguration configuration)
+{
+    var section = configuration.GetSection("Providers:Sub2Api");
+    var baseUrl = section["BaseUrl"];
+    var apiKey = section["ApiKey"];
+    if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(apiKey))
+    {
+        return null;
+    }
+
+    var timeout = TimeSpan.FromSeconds(120);
+    if (double.TryParse(section["TimeoutSeconds"], NumberStyles.Float, CultureInfo.InvariantCulture, out var timeoutSeconds)
+        && timeoutSeconds > 0)
+    {
+        timeout = TimeSpan.FromSeconds(timeoutSeconds);
+    }
+
+    return new Sub2ApiProviderOptions
+    {
+        ProviderName = string.IsNullOrWhiteSpace(section["ProviderName"]) ? "sub2api" : section["ProviderName"]!,
+        BaseUrl = baseUrl,
+        ApiKey = apiKey,
+        Timeout = timeout,
+        Models = LoadSub2ApiModels(section.GetSection("Models"))
+    };
+}
+
+static IReadOnlyList<Sub2ApiModelOptions> LoadSub2ApiModels(IConfigurationSection section)
+{
+    return section.GetChildren()
+        .Select(modelSection =>
+        {
+            var upstreamModel = modelSection["UpstreamModel"] ?? modelSection["Model"] ?? modelSection["Id"];
+            if (string.IsNullOrWhiteSpace(upstreamModel))
+            {
+                return null;
+            }
+
+            var aliases = modelSection.GetSection("Aliases")
+                .GetChildren()
+                .Select(alias => alias.Value)
+                .Where(alias => !string.IsNullOrWhiteSpace(alias))
+                .Select(alias => alias!.Trim())
+                .ToArray();
+
+            return new Sub2ApiModelOptions(
+                upstreamModel.Trim(),
+                modelSection["Name"],
+                modelSection["DisplayName"],
+                aliases.Length > 0 ? aliases : null);
+        })
+        .Where(model => model is not null)
+        .Cast<Sub2ApiModelOptions>()
+        .ToArray();
+}
+
+static IResult ToOllamaErrorResult(Exception exception)
+{
+    var (statusCode, response) = MapOllamaException(exception);
+    return Results.Json(response, statusCode: statusCode);
+}
+
+static async Task WriteOllamaStreamAsync(
+    HttpContext httpContext,
+    IAsyncEnumerable<OllamaChatResponse> stream,
+    JsonSerializerOptions jsonOptions,
+    CancellationToken cancellationToken)
+{
+    httpContext.Response.StatusCode = StatusCodes.Status200OK;
+    httpContext.Response.ContentType = "application/x-ndjson; charset=utf-8";
+
+    try
+    {
+        await foreach (var chunk in stream.WithCancellation(cancellationToken))
+        {
+            await JsonSerializer.SerializeAsync(httpContext.Response.Body, chunk, jsonOptions, cancellationToken);
+            await httpContext.Response.WriteAsync("\n", cancellationToken);
+            await httpContext.Response.Body.FlushAsync(cancellationToken);
+        }
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex) when (httpContext.Response.HasStarted)
+    {
+        var (_, response) = MapOllamaException(ex);
+        await JsonSerializer.SerializeAsync(httpContext.Response.Body, response, jsonOptions, cancellationToken);
+        await httpContext.Response.WriteAsync("\n", cancellationToken);
+        await httpContext.Response.Body.FlushAsync(cancellationToken);
+    }
+}
+
+static async Task WriteOllamaErrorAsync(
+    HttpContext httpContext,
+    Exception exception,
+    JsonSerializerOptions jsonOptions,
+    CancellationToken cancellationToken)
+{
+    if (httpContext.Response.HasStarted)
+    {
+        return;
+    }
+
+    var (statusCode, response) = MapOllamaException(exception);
+    httpContext.Response.StatusCode = statusCode;
+    httpContext.Response.ContentType = "application/json; charset=utf-8";
+    await JsonSerializer.SerializeAsync(httpContext.Response.Body, response, jsonOptions, cancellationToken);
+}
+
+static (int StatusCode, OllamaErrorResponse Response) MapOllamaException(Exception exception)
+{
+    if (exception is OllamaProxyException proxyException)
+    {
+        var statusCode = proxyException.Kind switch
+        {
+            OllamaProxyErrorKind.InvalidRequest => StatusCodes.Status400BadRequest,
+            OllamaProxyErrorKind.ModelNotFound => StatusCodes.Status404NotFound,
+            OllamaProxyErrorKind.AmbiguousModel => StatusCodes.Status409Conflict,
+            OllamaProxyErrorKind.ProviderUnauthorized => StatusCodes.Status401Unauthorized,
+            OllamaProxyErrorKind.ProviderRateLimited => StatusCodes.Status429TooManyRequests,
+            OllamaProxyErrorKind.ProviderTimeout => StatusCodes.Status504GatewayTimeout,
+            OllamaProxyErrorKind.ProviderUnavailable => StatusCodes.Status503ServiceUnavailable,
+            _ => StatusCodes.Status502BadGateway
+        };
+
+        return (statusCode, new OllamaErrorResponse(proxyException.PublicMessage, proxyException.Code));
+    }
+
+    return (StatusCodes.Status500InternalServerError, new OllamaErrorResponse("请求处理失败，请稍后重试。", "internal_error"));
 }
 
 public sealed record PortStatusResponse(int Port, bool Available, string Message);
