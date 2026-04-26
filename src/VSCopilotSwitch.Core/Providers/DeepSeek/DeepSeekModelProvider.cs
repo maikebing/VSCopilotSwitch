@@ -1,20 +1,21 @@
 using VSCopilotSwitch.Core.Providers.OpenAiCompatible;
 
-namespace VSCopilotSwitch.Core.Providers.Sub2Api;
+namespace VSCopilotSwitch.Core.Providers.DeepSeek;
 
-public sealed class Sub2ApiModelProvider : IModelProvider
+public sealed class DeepSeekModelProvider : IModelProvider
 {
     private readonly OpenAiCompatibleModelProvider _inner;
 
-    public Sub2ApiModelProvider(HttpClient httpClient, Sub2ApiProviderOptions options)
+    public DeepSeekModelProvider(HttpClient httpClient, DeepSeekProviderOptions options)
     {
         _inner = new OpenAiCompatibleModelProvider(httpClient, new OpenAiCompatibleProviderOptions
         {
-            ProviderName = string.IsNullOrWhiteSpace(options.ProviderName) ? "sub2api" : options.ProviderName,
-            PublicProviderName = "sub2api",
-            BaseUrl = options.BaseUrl,
+            ProviderName = string.IsNullOrWhiteSpace(options.ProviderName) ? "deepseek" : options.ProviderName,
+            PublicProviderName = "DeepSeek",
+            BaseUrl = string.IsNullOrWhiteSpace(options.BaseUrl) ? "https://api.deepseek.com" : options.BaseUrl,
             ApiKey = options.ApiKey,
             Timeout = options.Timeout,
+            ApiPathPrefix = null,
             Models = options.Models.Select(ToOpenAiCompatibleModel).ToArray()
         });
     }
@@ -30,6 +31,6 @@ public sealed class Sub2ApiModelProvider : IModelProvider
     public IAsyncEnumerable<ChatStreamChunk> ChatStreamAsync(ChatRequest request, CancellationToken cancellationToken = default)
         => _inner.ChatStreamAsync(request, cancellationToken);
 
-    private static OpenAiCompatibleModelOptions ToOpenAiCompatibleModel(Sub2ApiModelOptions model)
+    private static OpenAiCompatibleModelOptions ToOpenAiCompatibleModel(DeepSeekModelOptions model)
         => new(model.UpstreamModel, model.Name, model.DisplayName, model.Aliases);
 }

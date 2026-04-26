@@ -1,18 +1,18 @@
 using VSCopilotSwitch.Core.Providers.OpenAiCompatible;
 
-namespace VSCopilotSwitch.Core.Providers.Sub2Api;
+namespace VSCopilotSwitch.Core.Providers.Nvidia;
 
-public sealed class Sub2ApiModelProvider : IModelProvider
+public sealed class NvidiaNimModelProvider : IModelProvider
 {
     private readonly OpenAiCompatibleModelProvider _inner;
 
-    public Sub2ApiModelProvider(HttpClient httpClient, Sub2ApiProviderOptions options)
+    public NvidiaNimModelProvider(HttpClient httpClient, NvidiaNimProviderOptions options)
     {
         _inner = new OpenAiCompatibleModelProvider(httpClient, new OpenAiCompatibleProviderOptions
         {
-            ProviderName = string.IsNullOrWhiteSpace(options.ProviderName) ? "sub2api" : options.ProviderName,
-            PublicProviderName = "sub2api",
-            BaseUrl = options.BaseUrl,
+            ProviderName = string.IsNullOrWhiteSpace(options.ProviderName) ? "nvidia-nim" : options.ProviderName,
+            PublicProviderName = "NVIDIA NIM",
+            BaseUrl = string.IsNullOrWhiteSpace(options.BaseUrl) ? "https://integrate.api.nvidia.com" : options.BaseUrl,
             ApiKey = options.ApiKey,
             Timeout = options.Timeout,
             Models = options.Models.Select(ToOpenAiCompatibleModel).ToArray()
@@ -30,6 +30,6 @@ public sealed class Sub2ApiModelProvider : IModelProvider
     public IAsyncEnumerable<ChatStreamChunk> ChatStreamAsync(ChatRequest request, CancellationToken cancellationToken = default)
         => _inner.ChatStreamAsync(request, cancellationToken);
 
-    private static OpenAiCompatibleModelOptions ToOpenAiCompatibleModel(Sub2ApiModelOptions model)
+    private static OpenAiCompatibleModelOptions ToOpenAiCompatibleModel(NvidiaNimModelOptions model)
         => new(model.UpstreamModel, model.Name, model.DisplayName, model.Aliases);
 }

@@ -1,18 +1,18 @@
 using VSCopilotSwitch.Core.Providers.OpenAiCompatible;
 
-namespace VSCopilotSwitch.Core.Providers.Sub2Api;
+namespace VSCopilotSwitch.Core.Providers.Moark;
 
-public sealed class Sub2ApiModelProvider : IModelProvider
+public sealed class MoarkModelProvider : IModelProvider
 {
     private readonly OpenAiCompatibleModelProvider _inner;
 
-    public Sub2ApiModelProvider(HttpClient httpClient, Sub2ApiProviderOptions options)
+    public MoarkModelProvider(HttpClient httpClient, MoarkProviderOptions options)
     {
         _inner = new OpenAiCompatibleModelProvider(httpClient, new OpenAiCompatibleProviderOptions
         {
-            ProviderName = string.IsNullOrWhiteSpace(options.ProviderName) ? "sub2api" : options.ProviderName,
-            PublicProviderName = "sub2api",
-            BaseUrl = options.BaseUrl,
+            ProviderName = string.IsNullOrWhiteSpace(options.ProviderName) ? "moark" : options.ProviderName,
+            PublicProviderName = "MoArk",
+            BaseUrl = string.IsNullOrWhiteSpace(options.BaseUrl) ? "https://moark.ai/v1" : options.BaseUrl,
             ApiKey = options.ApiKey,
             Timeout = options.Timeout,
             Models = options.Models.Select(ToOpenAiCompatibleModel).ToArray()
@@ -30,6 +30,6 @@ public sealed class Sub2ApiModelProvider : IModelProvider
     public IAsyncEnumerable<ChatStreamChunk> ChatStreamAsync(ChatRequest request, CancellationToken cancellationToken = default)
         => _inner.ChatStreamAsync(request, cancellationToken);
 
-    private static OpenAiCompatibleModelOptions ToOpenAiCompatibleModel(Sub2ApiModelOptions model)
+    private static OpenAiCompatibleModelOptions ToOpenAiCompatibleModel(MoarkModelOptions model)
         => new(model.UpstreamModel, model.Name, model.DisplayName, model.Aliases);
 }

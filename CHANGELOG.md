@@ -9,6 +9,19 @@
 - ✅️ 阶段 5 启动首个真实 Provider Adapter：新增 sub2api 中转站协议接入，支持 `/v1/models` 模型列表获取、OpenAI Chat Completions 非流式请求转换和 SSE 流式响应转换。
 - ✅️ 宿主支持通过 `Providers:Sub2Api` 配置启用 sub2api；未配置 `BaseUrl` / `ApiKey` 时继续使用内置占位 Provider，便于本地开发安全启动。
 - ✅️ 新增 sub2api 最小集成测试，覆盖模型列表、上游模型名转换、流式分块解析和 HTTP 错误映射。
+- ✅️ 新增 OpenAI Official Provider Adapter，支持官方 `/v1/models`、`/v1/chat/completions`、SSE 流式响应、OpenAI 组织/项目请求头和错误脱敏。
+- ✅️ 抽取 OpenAI-compatible Provider 共享层，供 sub2api、OpenAI Official 以及后续 DeepSeek / NVIDIA NIM 等 Adapter 复用通用 HTTP、SSE 和错误映射逻辑。
+- ✅️ 宿主支持同时配置 `Providers:Sub2Api` 与 `Providers:OpenAI`，未配置任何真实 Provider 时继续回退到内置占位 Provider。
+- ✅️ 新增 OpenAI Official 最小集成测试，覆盖官方端点路径、鉴权头、组织/项目头、上游模型名转换、流式分块解析和 API Key 脱敏。
+- ✅️ 新增 DeepSeek Provider Adapter，支持官方 `/models`、`/chat/completions`、SSE 流式响应、Bearer 鉴权和错误脱敏。
+- ✅️ OpenAI-compatible 共享层新增可选 API 路径前缀，OpenAI/sub2api 保持 `/v1` 路径，DeepSeek 默认使用无 `/v1` 的官方路径。
+- ✅️ 宿主支持通过 `Providers:DeepSeek` 配置启用 DeepSeek，并可与 sub2api / OpenAI Official 同时注册。
+- ✅️ 新增 DeepSeek 最小集成测试，覆盖官方端点路径、上游模型名转换、流式分块解析和 API Key 脱敏。
+- ✅️ 新增 NVIDIA NIM Provider Adapter，支持 OpenAI-compatible `/v1/models`、`/v1/chat/completions`、SSE 流式响应、Bearer 鉴权和错误脱敏。
+- ✅️ 新增 MoArk Provider Adapter，支持 OpenAI-compatible `/v1/models`、`/v1/chat/completions`、SSE 流式响应、Bearer 鉴权和错误脱敏。
+- ✅️ 新增 Claude Official Provider Adapter，支持 Anthropic `/v1/models`、`/v1/messages`、SSE 流式事件、`x-api-key` 鉴权、`anthropic-version` 请求头、system 消息提升和错误脱敏。
+- ✅️ 宿主支持通过 `Providers:NvidiaNim`、`Providers:Moark`、`Providers:Claude` 配置启用对应 Provider，并可与已实现 Provider 同时注册。
+- ✅️ 新增 NVIDIA NIM、MoArk、Claude Official 最小集成测试，覆盖端点路径、鉴权头、请求转换、流式分块解析和 API Key 脱敏。
 - ✅️ 收尾阶段 0 和阶段 1：明确当前阶段只实现 Windows 桌面端，macOS、Linux、WSL 顺延到后续跨平台阶段。
 - ✅️ 新增 VS Code Ollama 配置写入向导骨架，要求先选择目录并生成 dry-run 差异预览，再允许确认写入和查看备份结果。
 - ✅️ 配置预览结果新增字段级差异，展示 `settings.json` 和 `chatLanguageModels.json` 中本项目托管字段的原值与新值。
@@ -68,4 +81,7 @@
 ### Security
 
 - ✅️ sub2api 上游错误消息会在返回给 Ollama 代理前脱敏当前 API Key，避免鉴权失败详情泄露密钥原文。
+- ✅️ OpenAI Official 上游错误消息会在返回给 Ollama 代理前脱敏当前 API Key，避免鉴权失败详情泄露密钥原文。
+- ✅️ DeepSeek 上游错误消息会在返回给 Ollama 代理前脱敏当前 API Key，避免鉴权失败详情泄露密钥原文。
+- ✅️ NVIDIA NIM、MoArk 和 Claude Official 上游错误消息会在返回给 Ollama 代理前脱敏当前 API Key，避免鉴权失败详情泄露密钥原文。
 - 明确 API Key 脱敏、本地代理默认监听 `127.0.0.1`、VS Code 配置写入前备份和回滚等安全基线。

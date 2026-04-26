@@ -15,7 +15,7 @@
 | 0.5 | 🟡 可并行 | 可以和当前主线同时推进，不应阻塞主线 |
 | 0.6 | 🔵 后做 | 依赖前置能力，等主线跑通后再做 |
 
-当前主线：🔧 阶段 5 首批 Provider Adapter 正在推进；sub2api 首版真实 Adapter 已接入，下一步继续扩展 OpenAI Official、DeepSeek 和 NVIDIA NIM 等可并行 Provider，同时后续仍需把 API Key 从临时配置迁入受保护存储。
+当前主线：✅️ 阶段 5 首批 Provider Adapter 首版已完成；下一步进入阶段 6 稳定性与路由，优先补超时控制、健康检查和脱敏日志，同时后续仍需把 API Key 从临时配置迁入受保护存储。
 
 ## 阶段 0：项目基线
 
@@ -128,14 +128,14 @@
 
 目标：支持主流模型供应商和中转协议。
 
-阶段状态：🔧 首批 Provider Adapter 扩展进行中，当前已完成 sub2api 首版接入。
+阶段状态：✅️ 首批 Provider Adapter 首版已完成。
 
 - ✅️ sub2api 中转站协议首版 Adapter：支持 `/v1/models`、`/v1/chat/completions` 非流式/流式转换、Bearer 鉴权、HTTP 错误映射和 API Key 脱敏。
-- 🟡 可并行 OpenAI Official。
-- 🔵 后做 Claude Official。
-- 🟡 可并行 DeepSeek。
-- 🟡 可并行 NVIDIA NIM / build.nvidia.com。
-- 🔵 后做 Moark。
+- ✅️ OpenAI Official 首版 Adapter：支持官方 `/v1/models`、`/v1/chat/completions` 非流式/流式转换、Bearer 鉴权、OpenAI 组织/项目请求头和 API Key 脱敏。
+- ✅️ Claude Official 首版 Adapter：支持官方 `/v1/models`、`/v1/messages` 非流式/流式转换、`x-api-key` 鉴权、`anthropic-version` 请求头、system 消息提升和 API Key 脱敏。
+- ✅️ DeepSeek 首版 Adapter：支持官方 `/models`、`/chat/completions` 非流式/流式转换、Bearer 鉴权、HTTP 错误映射和 API Key 脱敏。
+- ✅️ NVIDIA NIM / build.nvidia.com 首版 Adapter：支持 `/v1/models`、`/v1/chat/completions` 非流式/流式转换、Bearer 鉴权、HTTP 错误映射和 API Key 脱敏。
+- ✅️ Moark 首版 Adapter：支持 OpenAI-compatible `/v1/models`、`/v1/chat/completions` 非流式/流式转换、Bearer 鉴权、HTTP 错误映射和 API Key 脱敏。
 
 每个 Adapter 需要包含：
 

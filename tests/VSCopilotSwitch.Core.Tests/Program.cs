@@ -4,6 +4,11 @@ using System.Text;
 using System.Text.Json;
 using VSCopilotSwitch.Core.Ollama;
 using VSCopilotSwitch.Core.Providers;
+using VSCopilotSwitch.Core.Providers.Claude;
+using VSCopilotSwitch.Core.Providers.DeepSeek;
+using VSCopilotSwitch.Core.Providers.Moark;
+using VSCopilotSwitch.Core.Providers.Nvidia;
+using VSCopilotSwitch.Core.Providers.OpenAI;
 using VSCopilotSwitch.Core.Providers.Sub2Api;
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -16,7 +21,23 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Sub2Api ListModelsAsync fetches OpenAI-compatible models", Sub2Api_ListModelsAsync_FetchesOpenAiCompatibleModels),
     ("Sub2Api ChatAsync sends upstream model", Sub2Api_ChatAsync_SendsUpstreamModel),
     ("Sub2Api ChatStreamAsync parses SSE chunks", Sub2Api_ChatStreamAsync_ParsesSseChunks),
-    ("Sub2Api maps HTTP errors and redacts API key", Sub2Api_MapsHttpErrorsAndRedactsApiKey)
+    ("Sub2Api maps HTTP errors and redacts API key", Sub2Api_MapsHttpErrorsAndRedactsApiKey),
+    ("OpenAI ListModelsAsync uses official endpoint and headers", OpenAI_ListModelsAsync_UsesOfficialEndpointAndHeaders),
+    ("OpenAI ChatAsync sends upstream model", OpenAI_ChatAsync_SendsUpstreamModel),
+    ("OpenAI ChatStreamAsync parses SSE chunks", OpenAI_ChatStreamAsync_ParsesSseChunks),
+    ("OpenAI maps HTTP errors and redacts API key", OpenAI_MapsHttpErrorsAndRedactsApiKey),
+    ("DeepSeek ListModelsAsync uses official endpoint", DeepSeek_ListModelsAsync_UsesOfficialEndpoint),
+    ("DeepSeek ChatAsync sends upstream model", DeepSeek_ChatAsync_SendsUpstreamModel),
+    ("DeepSeek ChatStreamAsync parses SSE chunks", DeepSeek_ChatStreamAsync_ParsesSseChunks),
+    ("DeepSeek maps HTTP errors and redacts API key", DeepSeek_MapsHttpErrorsAndRedactsApiKey),
+    ("NVIDIA NIM uses OpenAI-compatible v1 endpoints", NvidiaNim_UsesOpenAiCompatibleV1Endpoints),
+    ("NVIDIA NIM maps HTTP errors and redacts API key", NvidiaNim_MapsHttpErrorsAndRedactsApiKey),
+    ("MoArk uses configured v1 base endpoint", Moark_UsesConfiguredV1BaseEndpoint),
+    ("MoArk maps HTTP errors and redacts API key", Moark_MapsHttpErrorsAndRedactsApiKey),
+    ("Claude ListModelsAsync uses Anthropic headers", Claude_ListModelsAsync_UsesAnthropicHeaders),
+    ("Claude ChatAsync converts system and messages", Claude_ChatAsync_ConvertsSystemAndMessages),
+    ("Claude ChatStreamAsync parses message stream", Claude_ChatStreamAsync_ParsesMessageStream),
+    ("Claude maps HTTP errors and redacts API key", Claude_MapsHttpErrorsAndRedactsApiKey)
 };
 
 var failed = 0;
@@ -244,6 +265,439 @@ static async Task Sub2Api_MapsHttpErrorsAndRedactsApiKey()
     Assert.Contains("[已脱敏密钥]", exception.PublicMessage, "错误消息应保留可理解的脱敏提示。");
 }
 
+static async Task OpenAI_ListModelsAsync_UsesOfficialEndpointAndHeaders()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "object": "list",
+          "data": [
+            { "id": "gpt-4.1-mini", "object": "model" },
+            { "id": "gpt-4.1", "object": "model" }
+          ]
+        }
+        """);
+    var provider = CreateOpenAiProvider(handler);
+
+    var models = await provider.ListModelsAsync();
+
+    Assert.Equal(2, models.Count, "OpenAI 应从 /v1/models 映射模型列表。");
+    Assert.Equal("openai/gpt-4.1-mini", models[0].Name, "OpenAI 模型名应带 Provider 前缀。");
+    Assert.Equal("/v1/models", handler.Requests[0].PathAndQuery, "OpenAI 默认 BaseUrl 应自动补齐 /v1/models。");
+    Assert.Equal("Bearer sk-openai-secret", handler.Requests[0].Authorization, "OpenAI 请求应使用 Bearer API Key 鉴权。");
+    Assert.Equal("org-test", handler.Requests[0].Headers["OpenAI-Organization"], "OpenAI 组织头应透传。");
+    Assert.Equal("proj-test", handler.Requests[0].Headers["OpenAI-Project"], "OpenAI 项目头应透传。");
+}
+
+static async Task OpenAI_ChatAsync_SendsUpstreamModel()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "choices": [
+            {
+              "message": { "role": "assistant", "content": "pong from openai" },
+              "finish_reason": "stop"
+            }
+          ]
+        }
+        """);
+    var provider = CreateOpenAiProvider(handler);
+
+    var response = await provider.ChatAsync(new ChatRequest(
+        "openai/gpt",
+        new[] { new ChatMessage("user", "ping") },
+        false,
+        "openai",
+        "gpt-4.1"));
+
+    Assert.Equal("pong from openai", response.Content, "OpenAI 非流式响应应提取 choices[0].message.content。");
+    var body = JsonDocument.Parse(handler.Requests[0].Body ?? "{}").RootElement;
+    Assert.Equal("/v1/chat/completions", handler.Requests[0].PathAndQuery, "OpenAI 聊天请求应发送到 /v1/chat/completions。");
+    Assert.Equal("gpt-4.1", body.GetProperty("model").GetString() ?? string.Empty, "OpenAI 请求体应使用路由后的上游模型名。");
+    Assert.False(body.GetProperty("stream").GetBoolean(), "OpenAI 非流式请求应显式发送 stream=false。");
+}
+
+static async Task OpenAI_ChatStreamAsync_ParsesSseChunks()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueText(HttpStatusCode.OK, """
+        data: {"choices":[{"delta":{"content":"hel"}}]}
+
+        data: {"choices":[{"delta":{"content":"lo"}}]}
+
+        data: {"choices":[{"delta":{},"finish_reason":"stop"}]}
+
+        data: [DONE]
+
+        """, "text/event-stream");
+    var provider = CreateOpenAiProvider(handler);
+
+    var chunks = new List<ChatStreamChunk>();
+    await foreach (var chunk in provider.ChatStreamAsync(new ChatRequest(
+        "openai/gpt",
+        new[] { new ChatMessage("user", "ping") },
+        true,
+        "openai",
+        "gpt-4.1")))
+    {
+        chunks.Add(chunk);
+    }
+
+    Assert.Equal(3, chunks.Count, "OpenAI 流式响应应包含两个内容分块和一个结束分块。");
+    Assert.Equal("hel", chunks[0].Content, "OpenAI 第一个 SSE delta 解析不正确。");
+    Assert.Equal("lo", chunks[1].Content, "OpenAI 第二个 SSE delta 解析不正确。");
+    Assert.True(chunks[^1].Done, "OpenAI finish_reason 应转换为 done 分块。");
+}
+
+static async Task OpenAI_MapsHttpErrorsAndRedactsApiKey()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.Unauthorized, """
+        {
+          "error": {
+            "type": "invalid_request_error",
+            "message": "Incorrect API key provided: sk-openai-secret."
+          }
+        }
+        """);
+    var provider = CreateOpenAiProvider(handler);
+
+    var exception = await Assert.ThrowsAsync<ProviderException>(() => provider.ListModelsAsync());
+
+    Assert.Equal(ProviderErrorKind.Unauthorized, exception.Kind, "OpenAI 401/403 应映射为 Provider 鉴权错误。");
+    Assert.DoesNotContain("sk-openai-secret", exception.PublicMessage, "OpenAI 公开错误消息不得包含 API Key 原文。");
+    Assert.Contains("[已脱敏密钥]", exception.PublicMessage, "OpenAI 错误消息应保留可理解的脱敏提示。");
+}
+
+static async Task DeepSeek_ListModelsAsync_UsesOfficialEndpoint()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "object": "list",
+          "data": [
+            { "id": "deepseek-chat", "object": "model" },
+            { "id": "deepseek-reasoner", "object": "model" }
+          ]
+        }
+        """);
+    var provider = CreateDeepSeekProvider(handler);
+
+    var models = await provider.ListModelsAsync();
+
+    Assert.Equal(2, models.Count, "DeepSeek 应从 /models 映射模型列表。");
+    Assert.Equal("deepseek/deepseek-chat", models[0].Name, "DeepSeek 模型名应带 Provider 前缀。");
+    Assert.Equal("/models", handler.Requests[0].PathAndQuery, "DeepSeek 默认 BaseUrl 不应额外补 /v1。");
+    Assert.Equal("Bearer sk-deepseek-secret", handler.Requests[0].Authorization, "DeepSeek 请求应使用 Bearer API Key 鉴权。");
+}
+
+static async Task DeepSeek_ChatAsync_SendsUpstreamModel()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "choices": [
+            {
+              "message": { "role": "assistant", "content": "pong from deepseek" },
+              "finish_reason": "stop"
+            }
+          ]
+        }
+        """);
+    var provider = CreateDeepSeekProvider(handler);
+
+    var response = await provider.ChatAsync(new ChatRequest(
+        "deepseek/chat",
+        new[] { new ChatMessage("user", "ping") },
+        false,
+        "deepseek",
+        "deepseek-chat"));
+
+    Assert.Equal("pong from deepseek", response.Content, "DeepSeek 非流式响应应提取 choices[0].message.content。");
+    var body = JsonDocument.Parse(handler.Requests[0].Body ?? "{}").RootElement;
+    Assert.Equal("/chat/completions", handler.Requests[0].PathAndQuery, "DeepSeek 聊天请求应发送到 /chat/completions。");
+    Assert.Equal("deepseek-chat", body.GetProperty("model").GetString() ?? string.Empty, "DeepSeek 请求体应使用路由后的上游模型名。");
+    Assert.False(body.GetProperty("stream").GetBoolean(), "DeepSeek 非流式请求应显式发送 stream=false。");
+}
+
+static async Task DeepSeek_ChatStreamAsync_ParsesSseChunks()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueText(HttpStatusCode.OK, """
+        data: {"choices":[{"delta":{"content":"hel"}}]}
+
+        data: {"choices":[{"delta":{"content":"lo"}}]}
+
+        data: {"choices":[{"delta":{},"finish_reason":"stop"}]}
+
+        data: [DONE]
+
+        """, "text/event-stream");
+    var provider = CreateDeepSeekProvider(handler);
+
+    var chunks = new List<ChatStreamChunk>();
+    await foreach (var chunk in provider.ChatStreamAsync(new ChatRequest(
+        "deepseek/chat",
+        new[] { new ChatMessage("user", "ping") },
+        true,
+        "deepseek",
+        "deepseek-chat")))
+    {
+        chunks.Add(chunk);
+    }
+
+    Assert.Equal(3, chunks.Count, "DeepSeek 流式响应应包含两个内容分块和一个结束分块。");
+    Assert.Equal("hel", chunks[0].Content, "DeepSeek 第一个 SSE delta 解析不正确。");
+    Assert.Equal("lo", chunks[1].Content, "DeepSeek 第二个 SSE delta 解析不正确。");
+    Assert.True(chunks[^1].Done, "DeepSeek finish_reason 应转换为 done 分块。");
+}
+
+static async Task DeepSeek_MapsHttpErrorsAndRedactsApiKey()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.Unauthorized, """
+        {
+          "error": {
+            "type": "authentication_error",
+            "message": "Invalid API key sk-deepseek-secret."
+          }
+        }
+        """);
+    var provider = CreateDeepSeekProvider(handler);
+
+    var exception = await Assert.ThrowsAsync<ProviderException>(() => provider.ListModelsAsync());
+
+    Assert.Equal(ProviderErrorKind.Unauthorized, exception.Kind, "DeepSeek 401/403 应映射为 Provider 鉴权错误。");
+    Assert.DoesNotContain("sk-deepseek-secret", exception.PublicMessage, "DeepSeek 公开错误消息不得包含 API Key 原文。");
+    Assert.Contains("[已脱敏密钥]", exception.PublicMessage, "DeepSeek 错误消息应保留可理解的脱敏提示。");
+}
+
+static async Task NvidiaNim_UsesOpenAiCompatibleV1Endpoints()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "data": [
+            { "id": "meta/llama-3.1-8b-instruct" }
+          ]
+        }
+        """);
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "choices": [
+            {
+              "message": { "role": "assistant", "content": "nim pong" },
+              "finish_reason": "stop"
+            }
+          ]
+        }
+        """);
+    var provider = CreateNvidiaNimProvider(handler);
+
+    var models = await provider.ListModelsAsync();
+    var response = await provider.ChatAsync(new ChatRequest(
+        "nvidia-nim/llama",
+        new[] { new ChatMessage("user", "ping") },
+        false,
+        "nvidia-nim",
+        "meta/llama-3.1-8b-instruct"));
+
+    Assert.Equal("nvidia-nim/meta/llama-3.1-8b-instruct", models[0].Name, "NVIDIA NIM 模型名应带 Provider 前缀。");
+    Assert.Equal("/v1/models", handler.Requests[0].PathAndQuery, "NVIDIA NIM 默认应使用 /v1/models。");
+    Assert.Equal("/v1/chat/completions", handler.Requests[1].PathAndQuery, "NVIDIA NIM 聊天请求应使用 /v1/chat/completions。");
+    Assert.Equal("nim pong", response.Content, "NVIDIA NIM 非流式响应应提取 choices[0].message.content。");
+}
+
+static async Task NvidiaNim_MapsHttpErrorsAndRedactsApiKey()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.Unauthorized, """
+        {
+          "error": {
+            "message": "Invalid API key sk-nvidia-secret"
+          }
+        }
+        """);
+    var provider = CreateNvidiaNimProvider(handler);
+
+    var exception = await Assert.ThrowsAsync<ProviderException>(() => provider.ListModelsAsync());
+
+    Assert.Equal(ProviderErrorKind.Unauthorized, exception.Kind, "NVIDIA NIM 401/403 应映射为 Provider 鉴权错误。");
+    Assert.DoesNotContain("sk-nvidia-secret", exception.PublicMessage, "NVIDIA NIM 公开错误消息不得包含 API Key 原文。");
+    Assert.Contains("[已脱敏密钥]", exception.PublicMessage, "NVIDIA NIM 错误消息应保留可理解的脱敏提示。");
+}
+
+static async Task Moark_UsesConfiguredV1BaseEndpoint()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "data": [
+            { "id": "claude-sonnet-4-5" }
+          ]
+        }
+        """);
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "choices": [
+            {
+              "message": { "role": "assistant", "content": "moark pong" },
+              "finish_reason": "stop"
+            }
+          ]
+        }
+        """);
+    var provider = CreateMoarkProvider(handler);
+
+    var models = await provider.ListModelsAsync();
+    var response = await provider.ChatAsync(new ChatRequest(
+        "moark/sonnet",
+        new[] { new ChatMessage("user", "ping") },
+        false,
+        "moark",
+        "claude-sonnet-4-5"));
+
+    Assert.Equal("moark/claude-sonnet-4-5", models[0].Name, "MoArk 模型名应带 Provider 前缀。");
+    Assert.Equal("/v1/models", handler.Requests[0].PathAndQuery, "MoArk 默认 BaseUrl 已含 /v1，不应重复拼接。");
+    Assert.Equal("/v1/chat/completions", handler.Requests[1].PathAndQuery, "MoArk 聊天请求应使用 /v1/chat/completions。");
+    Assert.Equal("moark pong", response.Content, "MoArk 非流式响应应提取 choices[0].message.content。");
+}
+
+static async Task Moark_MapsHttpErrorsAndRedactsApiKey()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.Unauthorized, """
+        {
+          "error": {
+            "message": "Invalid API key sk-moark-secret"
+          }
+        }
+        """);
+    var provider = CreateMoarkProvider(handler);
+
+    var exception = await Assert.ThrowsAsync<ProviderException>(() => provider.ListModelsAsync());
+
+    Assert.Equal(ProviderErrorKind.Unauthorized, exception.Kind, "MoArk 401/403 应映射为 Provider 鉴权错误。");
+    Assert.DoesNotContain("sk-moark-secret", exception.PublicMessage, "MoArk 公开错误消息不得包含 API Key 原文。");
+    Assert.Contains("[已脱敏密钥]", exception.PublicMessage, "MoArk 错误消息应保留可理解的脱敏提示。");
+}
+
+static async Task Claude_ListModelsAsync_UsesAnthropicHeaders()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "data": [
+            { "id": "claude-sonnet-4-5", "display_name": "Claude Sonnet 4.5" }
+          ]
+        }
+        """);
+    var provider = CreateClaudeProvider(handler);
+
+    var models = await provider.ListModelsAsync();
+
+    Assert.Equal("claude/claude-sonnet-4-5", models[0].Name, "Claude 模型名应带 Provider 前缀。");
+    Assert.Equal("/v1/models", handler.Requests[0].PathAndQuery, "Claude 模型列表应请求 /v1/models。");
+    Assert.Equal("sk-claude-secret", handler.Requests[0].Headers["x-api-key"], "Claude 应使用 x-api-key 鉴权头。");
+    Assert.Equal("2023-06-01", handler.Requests[0].Headers["anthropic-version"], "Claude 应携带 anthropic-version。");
+}
+
+static async Task Claude_ChatAsync_ConvertsSystemAndMessages()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "content": [
+            { "type": "text", "text": "claude pong" }
+          ],
+          "stop_reason": "end_turn"
+        }
+        """);
+    var provider = CreateClaudeProvider(handler);
+
+    var response = await provider.ChatAsync(new ChatRequest(
+        "claude/sonnet",
+        new[]
+        {
+            new ChatMessage("system", "Be concise."),
+            new ChatMessage("user", "ping")
+        },
+        false,
+        "claude",
+        "claude-sonnet-4-5"));
+
+    Assert.Equal("claude pong", response.Content, "Claude 非流式响应应拼接 content[].text。");
+    Assert.Equal("stop", response.DoneReason, "Claude end_turn 应转换为 Ollama stop。");
+    Assert.Equal("/v1/messages", handler.Requests[0].PathAndQuery, "Claude 聊天请求应发送到 /v1/messages。");
+    var body = JsonDocument.Parse(handler.Requests[0].Body ?? "{}").RootElement;
+    Assert.Equal("claude-sonnet-4-5", body.GetProperty("model").GetString() ?? string.Empty, "Claude 请求体应使用路由后的上游模型名。");
+    Assert.Equal(1024, body.GetProperty("max_tokens").GetInt32(), "Claude 请求体应包含配置的 max_tokens。");
+    Assert.Equal("Be concise.", body.GetProperty("system").GetString() ?? string.Empty, "Claude system 消息应提升到顶层。");
+    Assert.Equal("user", body.GetProperty("messages")[0].GetProperty("role").GetString() ?? string.Empty, "Claude 普通消息应保留 user/assistant 角色。");
+}
+
+static async Task Claude_ChatStreamAsync_ParsesMessageStream()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueText(HttpStatusCode.OK, """
+        event: message_start
+        data: {"type":"message_start","message":{"id":"msg_1"}}
+
+        event: content_block_delta
+        data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hel"}}
+
+        event: content_block_delta
+        data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"lo"}}
+
+        event: message_delta
+        data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+
+        event: message_stop
+        data: {"type":"message_stop"}
+
+        """, "text/event-stream");
+    var provider = CreateClaudeProvider(handler);
+
+    var chunks = new List<ChatStreamChunk>();
+    await foreach (var chunk in provider.ChatStreamAsync(new ChatRequest(
+        "claude/sonnet",
+        new[] { new ChatMessage("user", "ping") },
+        true,
+        "claude",
+        "claude-sonnet-4-5")))
+    {
+        chunks.Add(chunk);
+    }
+
+    Assert.Equal(3, chunks.Count, "Claude 流式响应应包含两个内容分块和一个结束分块。");
+    Assert.Equal("hel", chunks[0].Content, "Claude 第一个 text_delta 解析不正确。");
+    Assert.Equal("lo", chunks[1].Content, "Claude 第二个 text_delta 解析不正确。");
+    Assert.True(chunks[^1].Done, "Claude message_stop 应转换为 done 分块。");
+    Assert.Equal("stop", chunks[^1].DoneReason ?? string.Empty, "Claude end_turn 应转换为 stop。");
+}
+
+static async Task Claude_MapsHttpErrorsAndRedactsApiKey()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.Unauthorized, """
+        {
+          "type": "error",
+          "error": {
+            "type": "authentication_error",
+            "message": "Invalid API key sk-claude-secret."
+          }
+        }
+        """);
+    var provider = CreateClaudeProvider(handler);
+
+    var exception = await Assert.ThrowsAsync<ProviderException>(() => provider.ListModelsAsync());
+
+    Assert.Equal(ProviderErrorKind.Unauthorized, exception.Kind, "Claude 401/403 应映射为 Provider 鉴权错误。");
+    Assert.DoesNotContain("sk-claude-secret", exception.PublicMessage, "Claude 公开错误消息不得包含 API Key 原文。");
+    Assert.Contains("[已脱敏密钥]", exception.PublicMessage, "Claude 错误消息应保留可理解的脱敏提示。");
+}
+
 static Sub2ApiModelProvider CreateSub2ApiProvider(RecordingHttpMessageHandler handler)
 {
     return new Sub2ApiModelProvider(
@@ -252,6 +706,64 @@ static Sub2ApiModelProvider CreateSub2ApiProvider(RecordingHttpMessageHandler ha
         {
             BaseUrl = "https://sub2api.example/gateway",
             ApiKey = "sk-test-secret",
+            Timeout = TimeSpan.FromSeconds(5)
+        });
+}
+
+static OpenAiModelProvider CreateOpenAiProvider(RecordingHttpMessageHandler handler)
+{
+    return new OpenAiModelProvider(
+        new HttpClient(handler),
+        new OpenAiProviderOptions
+        {
+            ApiKey = "sk-openai-secret",
+            OrganizationId = "org-test",
+            ProjectId = "proj-test",
+            Timeout = TimeSpan.FromSeconds(5)
+        });
+}
+
+static DeepSeekModelProvider CreateDeepSeekProvider(RecordingHttpMessageHandler handler)
+{
+    return new DeepSeekModelProvider(
+        new HttpClient(handler),
+        new DeepSeekProviderOptions
+        {
+            ApiKey = "sk-deepseek-secret",
+            Timeout = TimeSpan.FromSeconds(5)
+        });
+}
+
+static NvidiaNimModelProvider CreateNvidiaNimProvider(RecordingHttpMessageHandler handler)
+{
+    return new NvidiaNimModelProvider(
+        new HttpClient(handler),
+        new NvidiaNimProviderOptions
+        {
+            ApiKey = "sk-nvidia-secret",
+            Timeout = TimeSpan.FromSeconds(5)
+        });
+}
+
+static MoarkModelProvider CreateMoarkProvider(RecordingHttpMessageHandler handler)
+{
+    return new MoarkModelProvider(
+        new HttpClient(handler),
+        new MoarkProviderOptions
+        {
+            ApiKey = "sk-moark-secret",
+            Timeout = TimeSpan.FromSeconds(5)
+        });
+}
+
+static ClaudeModelProvider CreateClaudeProvider(RecordingHttpMessageHandler handler)
+{
+    return new ClaudeModelProvider(
+        new HttpClient(handler),
+        new ClaudeProviderOptions
+        {
+            ApiKey = "sk-claude-secret",
+            MaxTokens = 1024,
             Timeout = TimeSpan.FromSeconds(5)
         });
 }
@@ -338,6 +850,7 @@ internal sealed class RecordingHttpMessageHandler : HttpMessageHandler
             request.Method.Method,
             request.RequestUri?.PathAndQuery ?? string.Empty,
             request.Headers.Authorization?.ToString(),
+            request.Headers.ToDictionary(header => header.Key, header => string.Join(",", header.Value), StringComparer.OrdinalIgnoreCase),
             body);
         Requests.Add(recorded);
         return _responses.Dequeue()(recorded);
@@ -348,6 +861,7 @@ internal sealed record RecordedHttpRequest(
     string Method,
     string PathAndQuery,
     string? Authorization,
+    IReadOnlyDictionary<string, string> Headers,
     string? Body);
 
 internal static class Assert
