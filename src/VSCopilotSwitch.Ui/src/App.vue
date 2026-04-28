@@ -163,6 +163,49 @@ type AnalyticsSnapshot = {
   Requests: RequestLogEntry[];
 };
 
+type UpdateAssetInfo = {
+  Name: string;
+  DownloadUrl: string;
+  SizeBytes: number;
+  ContentType: string | null;
+  Sha256: string | null;
+};
+
+type UpdateReleaseInfo = {
+  SourceName: string;
+  TagName: string;
+  Version: string;
+  Name: string;
+  Body: string;
+  PageUrl: string;
+  PublishedAt: string | null;
+  Prerelease: boolean;
+  Asset: UpdateAssetInfo | null;
+};
+
+type UpdateSourceCheckResult = {
+  SourceName: string;
+  Success: boolean;
+  Message: string;
+  Release: UpdateReleaseInfo | null;
+};
+
+type UpdateCheckResult = {
+  CurrentVersion: string;
+  CheckedAt: string;
+  UpdateAvailable: boolean;
+  LatestRelease: UpdateReleaseInfo | null;
+  Sources: UpdateSourceCheckResult[];
+};
+
+type UpdateDownloadResult = {
+  Downloaded: boolean;
+  Message: string;
+  FilePath: string | null;
+  SizeBytes: number;
+  Release: UpdateReleaseInfo | null;
+};
+
 type OmniBridge = {
   invoke: (handler: string, data?: unknown) => Promise<unknown>;
 };
@@ -179,8 +222,12 @@ const restoreResult = ref<RestoreResult | null>(null);
 const vscodeOllamaStatus = ref<VsCodeOllamaConfigStatus | null>(null);
 const portStatus = ref<PortStatus | null>(null);
 const analytics = ref<AnalyticsSnapshot | null>(null);
+const updateCheck = ref<UpdateCheckResult | null>(null);
+const updateDownload = ref<UpdateDownloadResult | null>(null);
 const loading = ref(false);
 const analyticsLoading = ref(false);
+const updateChecking = ref(false);
+const updateDownloading = ref(false);
 const previewLoading = ref(false);
 const applyLoading = ref(false);
 const exportConfigLoading = ref(false);
@@ -201,7 +248,7 @@ const providerConnectionResult = ref<ProviderConnectionTestResult | null>(null);
 const modelsRefreshedAt = ref<string | null>(null);
 const recoveryAdvice = ref<RecoveryAdvice | null>(null);
 const currentView = ref<'list' | 'edit' | 'settings' | 'analytics'>('list');
-const settingsTab = ref<'general' | 'backups'>('general');
+const settingsTab = ref<'general' | 'updates' | 'backups'>('general');
 const showApiKey = ref(false);
 const showAdvancedOptions = ref(false);
 const isCreatingProvider = ref(false);
@@ -268,6 +315,15 @@ const usingFallbackModelProvider = computed(() =>
   models.value.some((model) => model.details?.family === 'vscopilotswitch' || model.name.startsWith('vscopilotswitch/'))
 );
 const providerCountText = computed(() => `${providers.value.length} 个供应商 · ${existingDirectories.value.length} 个 VS Code 配置目录`);
+const updateStatusText = computed(() => {
+  if (!updateCheck.value) {
+    return '尚未检查';
+  }
+
+  return updateCheck.value.UpdateAvailable
+    ? `发现 ${updateCheck.value.LatestRelease?.Version ?? '新版'}`
+    : `当前 ${updateCheck.value.CurrentVersion} 已是最新`;
+});
 const visibleProviderRows = computed(() => Math.min(providers.value.length, 5));
 const providerListMaxHeight = computed(() => {
   const cardHeight = 128;
@@ -555,6 +611,52 @@ async function clearAnalytics() {
     setError(messageFromError(error, '清空分析统计失败。'));
   } finally {
     analyticsLoading.value = false;
+  }
+}
+
+async function checkUpdates(reportError = true) {
+  updateChecking.value = true;
+  if (reportError) {
+    clearError();
+  }
+
+  try {
+    const response = await fetch('/internal/updates/check');
+    if (!response.ok) {
+      throw new Error(await readPublicError(response, '检查更新失败，请稍后重试。'));
+    }
+
+    updateCheck.value = (await response.json()) as UpdateCheckResult;
+    updateDownload.value = null;
+  } catch (error) {
+    if (reportError) {
+      setError(messageFromError(error, '检查更新失败。'));
+    }
+  } finally {
+    updateChecking.value = false;
+  }
+}
+
+async function downloadLatestUpdate() {
+  updateDownloading.value = true;
+  clearError();
+
+  try {
+    const response = await fetch('/internal/updates/download-latest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    if (!response.ok) {
+      throw new Error(await readPublicError(response, '下载更新失败，请确认发布包可访问。'));
+    }
+
+    updateDownload.value = (await response.json()) as UpdateDownloadResult;
+    await checkUpdates(false);
+  } catch (error) {
+    setError(messageFromError(error, '下载更新失败。'));
+  } finally {
+    updateDownloading.value = false;
   }
 }
 
@@ -1159,6 +1261,13 @@ function openSettings() {
   vscodeSetupPromptVisible.value = false;
 }
 
+async function openUpdates() {
+  settingsTab.value = 'updates';
+  currentView.value = 'settings';
+  vscodeSetupPromptVisible.value = false;
+  await checkUpdates(false);
+}
+
 async function openAnalytics() {
   currentView.value = 'analytics';
   await loadAnalytics(false);
@@ -1343,6 +1452,7 @@ onMounted(loadDashboard);
       <section class="toolbar" aria-label="工具栏">
         <button class="icon-button" type="button" title="代理设置" @click="openSettings">🔧</button>
         <button class="icon-button" type="button" title="配置预览" @click="openSettings">▣</button>
+        <button class="icon-button" type="button" title="检查更新" @click="openUpdates">⇧</button>
         <button class="icon-button" type="button" title="分析统计" @click="openAnalytics">▤</button>
         <button class="icon-button" type="button" :disabled="loading" title="刷新" @click="loadDashboard">↻</button>
         <button class="icon-button" type="button" title="附件">⌁</button>
@@ -1746,6 +1856,10 @@ onMounted(loadDashboard);
               <strong>常规</strong>
               <span>VS Code 配置写入、代理基础状态</span>
             </button>
+            <button type="button" :class="{ active: settingsTab === 'updates' }" @click="openUpdates">
+              <strong>更新</strong>
+              <span>{{ updateStatusText }}</span>
+            </button>
             <button type="button" :class="{ active: settingsTab === 'backups' }" @click="settingsTab = 'backups'">
               <strong>备份</strong>
               <span>配置备份列表和回滚恢复</span>
@@ -1854,6 +1968,84 @@ onMounted(loadDashboard);
                 </div>
               </section>
 
+            </template>
+
+            <template v-else-if="settingsTab === 'updates'">
+              <section class="settings-section">
+                <div>
+                  <span>更新</span>
+                  <h3>GitHub / Gitee 自动更新</h3>
+                </div>
+                <p>后台会按策略检查 GitHub 和 Gitee Release，发现更高版本时只下载发布包到本地缓存，不会静默替换正在运行的程序。</p>
+              </section>
+
+              <section class="update-panel" aria-label="自动更新状态">
+                <div class="wizard-title">
+                  <div>
+                    <span>版本状态</span>
+                    <h3>{{ updateStatusText }}</h3>
+                  </div>
+                  <div class="wizard-actions">
+                    <button class="secondary-button" type="button" :disabled="updateChecking" @click="checkUpdates(true)">
+                      {{ updateChecking ? '检查中...' : '检查更新' }}
+                    </button>
+                    <button
+                      class="save-button"
+                      type="button"
+                      :disabled="updateDownloading || !updateCheck?.UpdateAvailable || !updateCheck.LatestRelease?.Asset"
+                      @click="downloadLatestUpdate"
+                    >
+                      {{ updateDownloading ? '下载中...' : '下载最新版本' }}
+                    </button>
+                  </div>
+                </div>
+
+                <div v-if="updateCheck" class="update-summary">
+                  <article>
+                    <span>当前版本</span>
+                    <strong>{{ updateCheck.CurrentVersion }}</strong>
+                  </article>
+                  <article>
+                    <span>最新版本</span>
+                    <strong>{{ updateCheck.LatestRelease?.Version ?? '未发现' }}</strong>
+                  </article>
+                  <article>
+                    <span>来源</span>
+                    <strong>{{ updateCheck.LatestRelease?.SourceName ?? '无' }}</strong>
+                  </article>
+                </div>
+
+                <div v-if="updateCheck?.LatestRelease" class="update-release">
+                  <strong>{{ updateCheck.LatestRelease.Name || updateCheck.LatestRelease.TagName }}</strong>
+                  <span>{{ updateCheck.LatestRelease.SourceName }} · {{ updateCheck.LatestRelease.TagName }}</span>
+                  <small v-if="updateCheck.LatestRelease.Asset">
+                    发布包：{{ updateCheck.LatestRelease.Asset.Name }} · {{ Math.max(1, Math.round(updateCheck.LatestRelease.Asset.SizeBytes / 1024 / 1024)) }} MB
+                  </small>
+                  <small v-else>该 Release 没有匹配到 Windows 单文件发布包。</small>
+                  <button
+                    v-if="updateCheck.LatestRelease.PageUrl"
+                    class="link-button"
+                    type="button"
+                    @click="openExternalUrl(updateCheck.LatestRelease.PageUrl)"
+                  >
+                    打开发布页
+                  </button>
+                </div>
+
+                <div v-if="updateDownload" class="wizard-summary">
+                  <strong>{{ updateDownload.Message }}</strong>
+                  <span v-if="updateDownload.FilePath">本地缓存：{{ updateDownload.FilePath }}</span>
+                  <small v-if="updateDownload.Release">版本：{{ updateDownload.Release.Version }} · 来源：{{ updateDownload.Release.SourceName }}</small>
+                </div>
+
+                <div v-if="updateCheck?.Sources.length" class="update-source-list">
+                  <div v-for="source in updateCheck.Sources" :key="source.SourceName" class="update-source-item" :class="{ failed: !source.Success }">
+                    <strong>{{ source.SourceName }}</strong>
+                    <span>{{ source.Message }}</span>
+                    <small v-if="source.Release">版本：{{ source.Release.Version }} · {{ source.Release.Asset?.Name ?? '未匹配发布包' }}</small>
+                  </div>
+                </div>
+              </section>
             </template>
 
             <template v-else-if="settingsTab === 'backups'">

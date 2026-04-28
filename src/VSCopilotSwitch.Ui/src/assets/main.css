@@ -1247,6 +1247,51 @@ a {
   padding: 18px;
 }
 
+.update-panel {
+  display: grid;
+  gap: 16px;
+  border: 1px solid #dfe5ef;
+  border-radius: 18px;
+  background: #f8fbff;
+  padding: 18px;
+}
+
+.update-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.update-summary article,
+.update-release,
+.update-source-item {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--cc-line);
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.update-summary span,
+.update-release span,
+.update-release small,
+.update-source-item span,
+.update-source-item small {
+  overflow-wrap: anywhere;
+  color: var(--cc-muted);
+}
+
+.update-source-list {
+  display: grid;
+  gap: 8px;
+}
+
+.update-source-item.failed {
+  border-color: #f0b7aa;
+  background: #fff8f6;
+}
+
 .wizard-title,
 .wizard-actions,
 .wizard-summary {
@@ -1518,6 +1563,7 @@ a {
 
   .status-strip,
   .analytics-cards,
+  .update-summary,
   .form-grid.two,
   .advanced-grid,
   .settings-layout {

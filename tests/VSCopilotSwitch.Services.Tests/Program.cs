@@ -6,7 +6,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("ExportAsync excludes API keys by default", ExportAsync_ExcludesApiKeysByDefault),
     ("ActivateAsync keeps one active provider", ActivateAsync_KeepsOneActiveProvider),
     ("ReorderAsync is idempotent", ReorderAsync_IsIdempotent),
-    ("DeleteAsync auto-selects available provider", DeleteAsync_AutoSelectsAvailableProvider)
+    ("DeleteAsync auto-selects available provider", DeleteAsync_AutoSelectsAvailableProvider),
+    ("UpdateService selects newest release across mirrors", UpdateService_SelectsNewestReleaseAcrossMirrors),
+    ("UpdateService downloads selected asset to cache", UpdateService_DownloadsSelectedAssetToCache)
 };
 
 var failed = 0;
@@ -111,6 +113,90 @@ static async Task DeleteAsync_AutoSelectsAvailableProvider()
     Assert.True(views.Single(provider => provider.Id == "beta").Active, "剩余供应商应自动启用。");
 }
 
+static async Task UpdateService_SelectsNewestReleaseAcrossMirrors()
+{
+    using var workspace = TestWorkspace.Create();
+    var service = workspace.CreateUpdateService(new Dictionary<string, string>
+    {
+        ["https://example.test/github"] = """
+            {
+              "tag_name": "v1.2.0",
+              "name": "GitHub 1.2.0",
+              "published_at": "2026-01-01T00:00:00Z",
+              "assets": [
+                {
+                  "name": "VSCopilotSwitch-win-x64-aot.zip",
+                  "browser_download_url": "https://example.test/download/github.zip",
+                  "size": 1024
+                }
+              ]
+            }
+            """,
+        ["https://example.test/gitee"] = """
+            {
+              "id": 130,
+              "tag_name": "v1.3.0",
+              "name": "Gitee 1.3.0",
+              "published_at": "2026-02-01T00:00:00Z",
+              "assets": []
+            }
+            """,
+        ["https://gitee.com/api/v5/repos/example.test/mirror/releases/130/attach_files"] = """
+            [
+                {
+                  "name": "VSCopilotSwitch-win-x64-aot.zip",
+                  "download_url": "https://example.test/download/gitee.zip",
+                  "size": 2048
+                }
+            ]
+            """
+    });
+
+    var result = await service.CheckAsync();
+
+    Assert.True(result.UpdateAvailable, "发现更高版本时应标记可更新。");
+    Assert.Equal("1.3.0", result.LatestRelease?.Version ?? string.Empty, "应在 GitHub 和 Gitee 中选择最高版本。");
+    Assert.Equal("Gitee", result.LatestRelease?.SourceName ?? string.Empty, "最高版本来源应保留。");
+}
+
+static async Task UpdateService_DownloadsSelectedAssetToCache()
+{
+    using var workspace = TestWorkspace.Create();
+    var payload = "fake update package";
+    var service = workspace.CreateUpdateService(new Dictionary<string, string>
+    {
+        ["https://example.test/github"] = """
+            {
+              "tag_name": "v1.2.0",
+              "name": "GitHub 1.2.0",
+              "published_at": "2026-01-01T00:00:00Z",
+              "assets": [
+                {
+                  "name": "VSCopilotSwitch-win-x64-aot.zip",
+                  "browser_download_url": "https://example.test/download/update.zip",
+                  "size": 19
+                }
+              ]
+            }
+            """,
+        ["https://example.test/gitee"] = """
+            {
+              "tag_name": "v1.1.0",
+              "name": "Gitee 1.1.0",
+              "published_at": "2025-12-01T00:00:00Z",
+              "assets": []
+            }
+            """,
+        ["https://example.test/download/update.zip"] = payload
+    });
+
+    var result = await service.DownloadLatestAsync(new UpdateDownloadRequest());
+
+    Assert.True(result.Downloaded, "发现新版本资产时应下载到本地缓存。");
+    Assert.True(File.Exists(result.FilePath), "下载结果应返回实际存在的文件。");
+    Assert.Equal(payload, File.ReadAllText(result.FilePath!), "下载文件内容应来自 Release 资产。");
+}
+
 static SaveProviderConfigRequest CreateSaveRequest(
     string id,
     string name,
@@ -156,12 +242,65 @@ internal sealed class TestWorkspace : IDisposable
     public ProviderConfigService CreateService()
         => new(ConfigPath);
 
+    public UpdateService CreateUpdateService(IReadOnlyDictionary<string, string> responses)
+    {
+        var handler = new StubHttpMessageHandler(responses);
+        return new UpdateService(
+            new HttpClient(handler),
+            new UpdateOptions
+            {
+                CacheDirectory = Path.Combine(Root, "updates"),
+                CurrentVersionOverride = "1.0.0",
+                Sources =
+                [
+                    new UpdateSourceOptions
+                    {
+                        Name = "GitHub",
+                        Kind = "GitHub",
+                        ApiUrl = "https://example.test/github"
+                    },
+                    new UpdateSourceOptions
+                    {
+                        Name = "Gitee",
+                        Kind = "Gitee",
+                        Repository = "example.test/mirror",
+                        ApiUrl = "https://example.test/gitee"
+                    }
+                ]
+            },
+            () => "1.0.0");
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(Root))
         {
             Directory.Delete(Root, recursive: true);
         }
+    }
+}
+
+internal sealed class StubHttpMessageHandler : HttpMessageHandler
+{
+    private readonly IReadOnlyDictionary<string, string> _responses;
+
+    public StubHttpMessageHandler(IReadOnlyDictionary<string, string> responses)
+    {
+        _responses = responses;
+    }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var url = request.RequestUri?.AbsoluteUri ?? string.Empty;
+        if (!_responses.TryGetValue(url, out var content))
+        {
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NotFound));
+        }
+
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent(content)
+        });
     }
 }
 

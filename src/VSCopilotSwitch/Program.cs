@@ -37,6 +37,10 @@ builder.Services.AddSingleton<IModelProvider, ActiveProviderModelProvider>();
 builder.Services.AddSingleton<ProviderConnectionTester>();
 builder.Services.AddSingleton<IRequestAnalyticsService, RequestAnalyticsService>();
 builder.Services.AddSingleton<ITrayMenuService, TrayMenuService>();
+builder.Services.Configure<UpdateOptions>(builder.Configuration.GetSection("Updates"));
+builder.Services.AddSingleton(new HttpClient());
+builder.Services.AddSingleton<IUpdateService, UpdateService>();
+builder.Services.AddHostedService<UpdateBackgroundService>();
 builder.Services.AddSingleton<IOllamaProxyService>(serviceProvider =>
     new OllamaProxyService(serviceProvider.GetServices<IModelProvider>()));
 builder.Services.AddSingleton<IVsCodeConfigLocator, VsCodeConfigLocator>();
@@ -119,6 +123,36 @@ webApp.MapPost("/internal/analytics/clear", (
 {
     analytics.Clear();
     return Results.Ok(analytics.GetSnapshot(configuredServerUrl));
+});
+
+webApp.MapGet("/internal/updates/check", async (
+    IUpdateService updates,
+    CancellationToken cancellationToken) =>
+{
+    return Results.Ok(await updates.CheckAsync(cancellationToken));
+});
+
+webApp.MapPost("/internal/updates/download-latest", async (
+    UpdateDownloadRequest request,
+    IUpdateService updates,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await updates.DownloadLatestAsync(request, cancellationToken));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new ErrorMessageResponse(ex.Message));
+    }
+    catch (HttpRequestException ex)
+    {
+        return Results.BadRequest(new ErrorMessageResponse($"下载更新失败：{ex.Message}"));
+    }
+    catch (IOException ex)
+    {
+        return Results.BadRequest(new ErrorMessageResponse($"写入更新缓存失败：{ex.Message}"));
+    }
 });
 
 webApp.MapMethods("/api/version", new[] { HttpMethods.Get, HttpMethods.Head }, () =>

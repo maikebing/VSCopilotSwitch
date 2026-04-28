@@ -264,9 +264,9 @@ UI 方向：
 - 🔧 API Key 本地加密存储：供应商配置已用 Windows 当前用户保护数据加密；仍需抽象为跨平台 Secret Store，并补配置导入导出策略。
 - 🟡 可并行 日志脱敏和崩溃报告脱敏。
 - ✅️ 配置导出时默认不包含密钥。
-- 🔵 后做 自动更新策略。
-- 🔵 后做 发布 CI。
-- 🔵 后做 发布流程包含 npm install、SPA build、嵌入式资源生成、AOT 单体应用打包。
+- ✅️ 自动更新策略：从 GitHub 和 Gitee Release 检查更高版本，自动下载匹配 Windows 单文件发布资产到本地缓存，更新替换仍保留为用户可控步骤。
+- ✅️ 发布 CI：GitHub Actions 覆盖 npm install、SPA build、嵌入式资源生成检查、AOT 单体应用打包和冒烟测试；分支/PR 只构建，`v*` 标签才发布 Release 资产。
+- ✅️ 发布流程包含 npm install、SPA build、嵌入式资源生成、AOT 单体应用打包。
 - 🔵 后做 安装包签名策略。
 - 🔵 后做 用户迁移说明。
 - 🟡 可并行 示例配置和故障排查文档。

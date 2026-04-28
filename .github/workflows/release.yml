@@ -1,0 +1,218 @@
+name: Release Windows AOT
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 0.1.0. Leave empty to use the branch or tag name."
+        required: false
+        type: string
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - "**"
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  PROJECT_PATH: src/VSCopilotSwitch/VSCopilotSwitch.csproj
+  UI_PATH: src/VSCopilotSwitch.Ui
+  RUNTIME_ID: win-x64
+  PUBLISH_DIR: artifacts/publish/win-x64
+  PACKAGE_DIR: artifacts/package
+
+jobs:
+  publish-win-x64-aot:
+    name: Build Windows AOT single-file package
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Resolve release version
+        id: version
+        shell: pwsh
+        run: |
+          $inputVersion = '${{ inputs.version }}'
+          if ([string]::IsNullOrWhiteSpace($inputVersion)) {
+            $refName = '${{ github.ref_name }}'
+            $inputVersion = if ($refName.StartsWith('v')) { $refName.Substring(1) } else { $refName }
+          }
+
+          if ([string]::IsNullOrWhiteSpace($inputVersion) -or $inputVersion -eq 'main' -or $inputVersion -eq 'master') {
+            $inputVersion = "0.0.0-ci.${{ github.run_number }}"
+          }
+
+          $packageVersion = $inputVersion.TrimStart('v', 'V')
+          $numericPrefix = $packageVersion.Split('-', '+')[0]
+          if ($numericPrefix -notmatch '^\d+(\.\d+){0,3}$') {
+            $numericPrefix = "0.0.${{ github.run_number }}.0"
+          }
+
+          $assemblyParts = @($numericPrefix.Split('.'))
+          while ($assemblyParts.Count -lt 4) {
+            $assemblyParts += "0"
+          }
+
+          $assemblyVersion = ($assemblyParts | Select-Object -First 4) -join "."
+          "version=$packageVersion" >> $env:GITHUB_OUTPUT
+          "assembly_version=$assemblyVersion" >> $env:GITHUB_OUTPUT
+          "tag=v$packageVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: src/VSCopilotSwitch.Ui/package-lock.json
+
+      - name: Restore .NET dependencies
+        run: dotnet restore VSCopilotSwitch.slnx
+
+      - name: Install SPA dependencies
+        run: npm install --prefix $env:UI_PATH
+
+      - name: Build SPA
+        run: npm --prefix $env:UI_PATH run build
+
+      - name: Verify SPA dist for embedded resources
+        shell: pwsh
+        run: |
+          $dist = Join-Path $env:UI_PATH "dist"
+          if (-not (Test-Path (Join-Path $dist "index.html"))) {
+            throw "SPA dist/index.html was not generated."
+          }
+
+          $assetCount = (Get-ChildItem -Path $dist -Recurse -File | Measure-Object).Count
+          if ($assetCount -lt 2) {
+            throw "SPA dist does not contain enough files to embed."
+          }
+
+          "SPA files ready for embedding: $assetCount"
+
+      - name: Build and test
+        shell: pwsh
+        run: |
+          dotnet build VSCopilotSwitch.slnx --no-restore -m:1 /p:RestoreUseStaticGraphEvaluation=false
+          dotnet run --no-build --project tests/VSCopilotSwitch.Core.Tests/VSCopilotSwitch.Core.Tests.csproj
+          dotnet run --no-build --project tests/VSCopilotSwitch.Services.Tests/VSCopilotSwitch.Services.Tests.csproj
+          dotnet run --no-build --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.VsCodeConfig.Tests.csproj
+
+      - name: Publish AOT single-file app
+        shell: pwsh
+        run: |
+          dotnet publish $env:PROJECT_PATH `
+            -c Release `
+            -r $env:RUNTIME_ID `
+            --self-contained true `
+            -o $env:PUBLISH_DIR `
+            /p:PublishAot=true `
+            /p:PublishSingleFile=true `
+            /p:Version=${{ steps.version.outputs.version }} `
+            /p:AssemblyVersion=${{ steps.version.outputs.assembly_version }} `
+            /p:FileVersion=${{ steps.version.outputs.assembly_version }} `
+            /p:InformationalVersion=${{ steps.version.outputs.version }}+${{ github.sha }}
+
+      - name: Smoke test published executable
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:PUBLISH_DIR "VSCopilotSwitch.exe"
+          if (-not (Test-Path $exe)) {
+            throw "Published executable was not found: $exe"
+          }
+
+          $oldUrls = $env:ASPNETCORE_URLS
+          $env:ASPNETCORE_URLS = "http://127.0.0.1:5142"
+          $process = $null
+          try {
+            $process = Start-Process -FilePath $exe -WorkingDirectory $env:PUBLISH_DIR -PassThru -WindowStyle Hidden
+            $deadline = (Get-Date).AddSeconds(30)
+            $result = $null
+            do {
+              Start-Sleep -Milliseconds 500
+              try {
+                $result = Invoke-RestMethod -Uri "http://127.0.0.1:5142/health" -TimeoutSec 2
+              } catch {
+                $result = $null
+              }
+            } while ($null -eq $result -and (Get-Date) -lt $deadline)
+
+            if ($null -eq $result -or $result.Status -ne "ok") {
+              throw "Published executable health check failed."
+            }
+
+            $result | ConvertTo-Json -Compress
+          }
+          finally {
+            if ($process -and -not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+              Wait-Process -Id $process.Id -Timeout 5 -ErrorAction SilentlyContinue
+            }
+
+            $env:ASPNETCORE_URLS = $oldUrls
+          }
+
+      - name: Package release artifact
+        id: package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path $env:PACKAGE_DIR -Force | Out-Null
+          $name = "VSCopilotSwitch-${{ steps.version.outputs.version }}-$env:RUNTIME_ID-aot"
+          $singleFileDir = Join-Path $env:PACKAGE_DIR $name
+          New-Item -ItemType Directory -Path $singleFileDir -Force | Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:PUBLISH_DIR "VSCopilotSwitch.exe") -Destination (Join-Path $singleFileDir "VSCopilotSwitch.exe") -Force
+
+          $zipPath = Join-Path $env:PACKAGE_DIR "$name.zip"
+          Compress-Archive -Path (Join-Path $singleFileDir "*") -DestinationPath $zipPath -Force
+
+          $hashPath = "$zipPath.sha256"
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $zipPath).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $zipPath)" | Set-Content -Path $hashPath -Encoding UTF8
+
+          "zip=$zipPath" >> $env:GITHUB_OUTPUT
+          "sha256=$hashPath" >> $env:GITHUB_OUTPUT
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VSCopilotSwitch-${{ steps.version.outputs.version }}-${{ env.RUNTIME_ID }}-aot
+          path: |
+            ${{ steps.package.outputs.zip }}
+            ${{ steps.package.outputs.sha256 }}
+          if-no-files-found: error
+
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $PSNativeCommandUseErrorActionPreference = $false
+          gh release view $tag *> $null
+          $releaseViewExitCode = $LASTEXITCODE
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          if ($releaseViewExitCode -ne 0) {
+            gh release create $tag --title $tag --notes "VSCopilotSwitch $tag"
+          }
+
+          gh release upload $tag `
+            "${{ steps.package.outputs.zip }}" `
+            "${{ steps.package.outputs.sha256 }}" `
+            --clobber
