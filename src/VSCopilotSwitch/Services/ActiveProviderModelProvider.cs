@@ -19,8 +19,22 @@ public sealed class ActiveProviderModelProvider : IModelProvider
 
     public async Task<IReadOnlyList<ProviderModel>> ListModelsAsync(CancellationToken cancellationToken = default)
     {
-        var provider = await CreateActiveProviderAsync(cancellationToken);
-        return await provider.ListModelsAsync(cancellationToken);
+        var config = await _providerConfigService.GetActiveRuntimeConfigAsync(cancellationToken);
+        if (!HasUsableRuntimeConfig(config))
+        {
+            return await _fallbackProvider.ListModelsAsync(cancellationToken);
+        }
+
+        var provider = CreateProvider(config!);
+        try
+        {
+            var models = await provider.ListModelsAsync(cancellationToken);
+            return models.Count > 0 ? models : CreateConfiguredModelFallback(config!);
+        }
+        catch (ProviderException ex) when (CanUseConfiguredModelFallback(ex))
+        {
+            return CreateConfiguredModelFallback(config!);
+        }
     }
 
     public async Task<ChatResponse> ChatAsync(ChatRequest request, CancellationToken cancellationToken = default)
@@ -44,16 +58,19 @@ public sealed class ActiveProviderModelProvider : IModelProvider
     {
         var config = await _providerConfigService.GetActiveRuntimeConfigAsync(cancellationToken);
         // 没有真实密钥时只启用本地占位 Provider，避免把半配置供应商误当成可用上游。
-        if (config is null
-            || string.IsNullOrWhiteSpace(config.ApiKey)
-            || string.IsNullOrWhiteSpace(config.ApiUrl)
-            || string.IsNullOrWhiteSpace(config.Model))
+        if (!HasUsableRuntimeConfig(config))
         {
             return _fallbackProvider;
         }
 
-        return CreateProvider(config);
+        return CreateProvider(config!);
     }
+
+    private static bool HasUsableRuntimeConfig(ProviderRuntimeConfig? config)
+        => config is not null
+            && !string.IsNullOrWhiteSpace(config.ApiKey)
+            && !string.IsNullOrWhiteSpace(config.ApiUrl)
+            && !string.IsNullOrWhiteSpace(config.Model);
 
     private static IModelProvider CreateProvider(ProviderRuntimeConfig config)
         => ProviderAdapterFactory.Create(new ProviderAdapterConfig(
@@ -63,4 +80,24 @@ public sealed class ActiveProviderModelProvider : IModelProvider
             config.Model,
             config.Vendor,
             config.ApiKey!), RuntimeTimeout);
+
+    private static bool CanUseConfiguredModelFallback(ProviderException exception)
+        => exception.Kind is ProviderErrorKind.Timeout
+            or ProviderErrorKind.Unavailable
+            or ProviderErrorKind.UpstreamError
+            or ProviderErrorKind.InvalidRequest;
+
+    private static IReadOnlyList<ProviderModel> CreateConfiguredModelFallback(ProviderRuntimeConfig config)
+    {
+        var model = config.Model.Trim();
+        return new[]
+        {
+            new ProviderModel(
+                $"{config.Id}/{model}",
+                config.Id,
+                model,
+                model,
+                new[] { model })
+        };
+    }
 }

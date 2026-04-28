@@ -47,6 +47,8 @@ public sealed class OllamaProxyService : IOllamaProxyService
                 RemoteContextLength,
                 BuildModelInfo(model.Model),
                 true,
+                true,
+                true,
                 true);
         }).ToArray());
     }
@@ -231,7 +233,7 @@ public sealed class OllamaProxyService : IOllamaProxyService
             "remote");
 
     private static IReadOnlyList<string> BuildCapabilities()
-        => new[] { "completion", "chat", "tools", "vision" };
+        => new[] { "completion", "chat", "tools", "vision", "thinking", "reasoning" };
 
     private static IReadOnlyDictionary<string, object> BuildModelInfo(ProviderModel model)
         => new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
@@ -243,7 +245,11 @@ public sealed class OllamaProxyService : IOllamaProxyService
             ["vscopilotswitch.upstream_model"] = model.UpstreamModel,
             ["vscopilotswitch.context_length"] = RemoteContextLength,
             ["vscopilotswitch.supports_tool_calling"] = true,
-            ["vscopilotswitch.supports_vision"] = true
+            ["vscopilotswitch.supports_vision"] = true,
+            ["vscopilotswitch.supports_thinking"] = true,
+            ["vscopilotswitch.supports_reasoning"] = true,
+            ["vscopilotswitch.reasoning_efforts"] = new[] { "low", "medium", "high", "xhigh" },
+            ["llama.thinking.enabled"] = true
         };
 
     private static ChatRequest BuildChatRequest(OllamaChatRequest request, ModelRoute route, bool stream)

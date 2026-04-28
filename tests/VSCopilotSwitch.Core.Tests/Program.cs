@@ -80,7 +80,11 @@ static async Task ListTagsAsync_ExposesVsCodeSuffixedUpstreamModelNames()
     Assert.Equal(400000, response.Models[0].ContextLength, "tags 响应应在模型列表直接声明 400K 上下文。");
     Assert.Contains("tools", string.Join(",", response.Models[0].Capabilities), "tags 响应应声明工具能力。");
     Assert.Contains("vision", string.Join(",", response.Models[0].Capabilities), "tags 响应应声明视觉能力。");
+    Assert.Contains("thinking", string.Join(",", response.Models[0].Capabilities), "tags 响应应声明推理/思考能力。");
+    Assert.True(response.Models[0].SupportsThinking, "tags 响应应在顶层声明支持 thinking。");
+    Assert.True(response.Models[0].SupportsReasoning, "tags 响应应在顶层声明支持 reasoning。");
     Assert.Equal(400000, Convert.ToInt32(response.Models[0].ModelInfo["llama.context_length"]), "tags model_info 应声明 400K 上下文。");
+    Assert.True(Convert.ToBoolean(response.Models[0].ModelInfo["llama.thinking.enabled"]), "tags model_info 应声明 thinking enabled。");
 }
 
 static async Task ChatAsync_RoutesAliasesToUpstreamModel()
@@ -119,7 +123,9 @@ static async Task ShowAsync_ReturnsMetadataForVsCodeSuffixedModel()
     Assert.Contains("completion", string.Join(",", response.Capabilities), "show 响应应声明基础补全能力。");
     Assert.Contains("tools", string.Join(",", response.Capabilities), "show 响应应声明工具调用能力。");
     Assert.Contains("vision", string.Join(",", response.Capabilities), "show 响应应声明视觉能力。");
+    Assert.Contains("reasoning", string.Join(",", response.Capabilities), "show 响应应声明 reasoning 能力。");
     Assert.Equal(400000, Convert.ToInt32(response.ModelInfo["llama.context_length"]), "show 响应应声明 400K 上下文。");
+    Assert.True(Convert.ToBoolean(response.ModelInfo["vscopilotswitch.supports_reasoning"]), "show model_info 应声明 reasoning 支持。");
 }
 
 static async Task ChatStreamAsync_EmitsChunksAndFinalDone()

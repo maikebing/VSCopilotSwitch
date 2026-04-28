@@ -45,6 +45,9 @@
 - ✅️ 新增 Ollama 兼容 `/api/show` 接口，返回当前 Provider 路由的模型元信息，修复 VS Code Copilot Chat 请求 `/api/show` 时出现 405 的问题。
 - ✅️ `/api/show` 模型元信息新增 400K 上下文、工具调用和视觉能力声明，让 VS Code 模型列表能显示上下文大小与功能标签。
 - ✅️ 对齐 TrafficPilot 的 Ollama 模型列表结构：`/api/tags` 每个模型现在直接返回 `context_length`、`capabilities`、`model_info`、`supports_tool_calling` 和 `supports_vision`，避免 VS Code 未调用 `/api/show` 时回退到 33K 默认上下文。
+- ✅️ `/api/tags` 新增远程模型列表失败降级：上游临时不可用或模型列表端点异常时，优先用当前已保存模型生成 VS Code 可见清单，避免 Copilot 模型选择器收到 503。
+- ✅️ `/api/tags` 和 `/api/show` 新增 `thinking` / `reasoning` 能力声明与推理级别候选元信息，用于对齐 Copilot 推理模型选择器的能力识别路径。
+- ✅️ 补充 VS Code 语言模型配置实测记录：确认真实入口为 `%APPDATA%\Code\User\chatLanguageModels.json` 的 Provider 数组，Ollama 条目使用 `name` / `vendor` / `url`，为后续重写配置写入逻辑提供依据。
 - ✅️ 新增失败修复建议面板，针对权限不足、JSON 无效、文件占用和端口冲突给出可执行处理步骤。
 - ✅️ 新增默认折叠的高级选项面板，集中放置代理地址、熔断阈值、重试次数和备用路由。
 - ✅️ 新增 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份。

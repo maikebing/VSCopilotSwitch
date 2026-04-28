@@ -22,7 +22,7 @@
 - ⬜ 表示尚未开始编码，不能在变更日志或验收说明中描述成已完成。
 - UI 骨架、静态假数据、仅 appsettings 配置可用、仅单元层通过，都不能等同于产品闭环完成。
 
-当前主线：🔴 现在做 阶段 5.5 真实功能闭环。已把“界面保存并启用的供应商”接入 Ollama 代理路由，模型列表从当前启用供应商实时刷新，并新增供应商测试连接；下一步优先补齐 Provider 类型选择，避免所有非 Claude 草稿都按 OpenAI-compatible 路径探测。
+当前主线：🔴 现在做 阶段 5.5 真实功能闭环。已把“界面保存并启用的供应商”接入 Ollama 代理路由，并确认 VS Code 语言模型界面真实配置入口是 `%APPDATA%\Code\User\chatLanguageModels.json` 的 Provider 数组；下一步优先重写 VS Code 配置写入逻辑，只维护本项目的 Ollama Provider 条目。
 
 ## 阶段 0：项目基线
 
@@ -182,7 +182,11 @@
 - ✅️ 补齐 Ollama `/api/version` 兼容接口，满足 VS Code 对 Ollama 0.6.4+ 的版本校验。
 - ✅️ 补齐 Ollama `/api/show` 模型能力元信息：上下文大小按 400K 返回，功能声明为工具调用和视觉。
 - ✅️ 对齐 TrafficPilot 的 `/api/tags` 模型元信息：在模型列表层直接返回 400K 上下文、工具和视觉能力，覆盖 VS Code 未请求 `/api/show` 时的默认 33K 显示。
-- 🔴 现在做 顶部 VS Code Ollama 开关打开时，在检测缺失后提供一键跳转和明确的写入流程，不静默修改配置。
+- ✅️ `/api/tags` 模型列表失败时降级为当前已保存模型，避免上游临时不可用导致 VS Code Copilot 模型选择器直接收到 503。
+- ✅️ `/api/tags` 和 `/api/show` 声明 `thinking` / `reasoning` 能力、thinking enabled 标记和推理级别候选元信息，继续验证 VS Code 是否对外部 Ollama Provider 开放推理级别选择。
+- ✅️ 完成 VS Code 语言模型配置实测分析：真实文件为 `%APPDATA%\Code\User\chatLanguageModels.json`，Ollama Provider 条目为 `{ name, vendor, url }`，模型列表由 Ollama 兼容接口动态发现。
+- 🔴 现在做 重写 VS Code 配置写入逻辑：改为幂等维护 `chatLanguageModels.json` 数组中的本项目 Ollama Provider 条目，不再写入自定义静态模型清单。
+- ⬜ 顶部 VS Code Ollama 开关打开时，在检测缺失后提供一键跳转和明确的写入流程，不静默修改配置。
 - ⬜ 托盘菜单显示当前启用供应商和模型，并支持快速切换真实供应商。
 - ⬜ 增加供应商配置 API 的最小测试：保存不回传密钥、启用唯一供应商、排序幂等、删除后自动选择可用供应商。
 - ⬜ 增加端到端人工验收清单：新增供应商、启用、刷新模型、VS Code 写入、VS Code 调用、本地撤销。

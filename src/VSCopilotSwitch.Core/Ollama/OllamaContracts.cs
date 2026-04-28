@@ -16,7 +16,9 @@ public sealed record OllamaModelInfo(
     [property: JsonPropertyName("context_length")] int ContextLength,
     [property: JsonPropertyName("model_info")] IReadOnlyDictionary<string, object> ModelInfo,
     [property: JsonPropertyName("supports_tool_calling")] bool SupportsToolCalling,
-    [property: JsonPropertyName("supports_vision")] bool SupportsVision);
+    [property: JsonPropertyName("supports_vision")] bool SupportsVision,
+    [property: JsonPropertyName("supports_thinking")] bool SupportsThinking,
+    [property: JsonPropertyName("supports_reasoning")] bool SupportsReasoning);
 
 public sealed record OllamaModelDetails(
     [property: JsonPropertyName("parent_model")] string ParentModel,
