@@ -26,6 +26,19 @@ public sealed record OllamaChatRequest(
     [property: JsonPropertyName("messages")] IReadOnlyList<OllamaChatMessage>? Messages,
     [property: JsonPropertyName("stream")] bool? Stream);
 
+public sealed record OllamaShowRequest(
+    [property: JsonPropertyName("model")] string Model);
+
+public sealed record OllamaShowResponse(
+    [property: JsonPropertyName("license")] string License,
+    [property: JsonPropertyName("modelfile")] string Modelfile,
+    [property: JsonPropertyName("parameters")] string Parameters,
+    [property: JsonPropertyName("template")] string Template,
+    [property: JsonPropertyName("details")] OllamaModelDetails Details,
+    [property: JsonPropertyName("model_info")] IReadOnlyDictionary<string, object> ModelInfo,
+    [property: JsonPropertyName("capabilities")] IReadOnlyList<string> Capabilities,
+    [property: JsonPropertyName("modified_at")] DateTimeOffset ModifiedAt);
+
 public sealed record OllamaChatMessage(
     [property: JsonPropertyName("role")] string Role,
     [property: JsonPropertyName("content")] string Content);

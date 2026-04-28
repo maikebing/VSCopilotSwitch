@@ -13,7 +13,9 @@ using VSCopilotSwitch.Core.Providers.Sub2Api;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("ListTagsAsync exposes VS Code suffixed upstream model names", ListTagsAsync_ExposesVsCodeSuffixedUpstreamModelNames),
     ("ChatAsync routes aliases to upstream model", ChatAsync_RoutesAliasesToUpstreamModel),
+    ("ShowAsync returns Ollama metadata for VS Code suffixed model", ShowAsync_ReturnsMetadataForVsCodeSuffixedModel),
     ("ChatStreamAsync emits chunks and final done", ChatStreamAsync_EmitsChunksAndFinalDone),
     ("ChatAsync strips VS Code suffix before upstream forwarding", ChatAsync_StripsVsCodeSuffixBeforeUpstreamForwarding),
     ("ChatAsync rejects unknown model", ChatAsync_RejectsUnknownModel),
@@ -62,6 +64,21 @@ foreach (var test in tests)
 
 return failed == 0 ? 0 : 1;
 
+static async Task ListTagsAsync_ExposesVsCodeSuffixedUpstreamModelNames()
+{
+    var provider = new RecordingProvider(
+        "alpha",
+        new ProviderModel("alpha/gpt-5.5", "alpha", "gpt-5.5", "GPT 5.5"),
+        "ok");
+    var service = new OllamaProxyService(new[] { provider });
+
+    var response = await service.ListTagsAsync();
+
+    Assert.Equal("gpt-5.5@vscc", response.Models[0].Name, "tags name 应使用 VS Code 可见的后缀模型名。");
+    Assert.Equal("gpt-5.5@vscc", response.Models[0].Model, "tags model 应使用 VS Code 可见的后缀模型名。");
+    Assert.Equal("gpt-5.5", response.Models[0].Details.ParentModel, "原始上游模型名应保留在 parent_model 供 UI 展示和调试。");
+}
+
 static async Task ChatAsync_RoutesAliasesToUpstreamModel()
 {
     var provider = new RecordingProvider(
@@ -81,6 +98,24 @@ static async Task ChatAsync_RoutesAliasesToUpstreamModel()
     Assert.Equal("alpha/default", lastRequest.Model, "Provider 请求应使用内部规范模型名。");
     Assert.Equal("alpha", lastRequest.Provider, "Provider 名称应来自路由模型。");
     Assert.Equal("upstream/gpt", lastRequest.UpstreamModel, "Provider 请求应携带上游模型名。");
+}
+
+static async Task ShowAsync_ReturnsMetadataForVsCodeSuffixedModel()
+{
+    var provider = new RecordingProvider(
+        "alpha",
+        new ProviderModel("alpha/gpt-5.5", "alpha", "gpt-5.5", "GPT 5.5"),
+        "ok");
+    var service = new OllamaProxyService(new[] { provider });
+
+    var response = await service.ShowAsync(new OllamaShowRequest("gpt-5.5@vscc"));
+
+    Assert.Equal("gpt-5.5", response.Details.ParentModel, "show 响应应暴露原始上游模型名。");
+    Assert.Equal("alpha", response.Details.Family, "show 响应应保留 Provider 族信息。");
+    Assert.Contains("completion", string.Join(",", response.Capabilities), "show 响应应声明基础补全能力。");
+    Assert.Contains("tools", string.Join(",", response.Capabilities), "show 响应应声明工具调用能力。");
+    Assert.Contains("vision", string.Join(",", response.Capabilities), "show 响应应声明视觉能力。");
+    Assert.Equal(400000, Convert.ToInt32(response.ModelInfo["llama.context_length"]), "show 响应应声明 400K 上下文。");
 }
 
 static async Task ChatStreamAsync_EmitsChunksAndFinalDone()

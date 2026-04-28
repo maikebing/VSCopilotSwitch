@@ -107,6 +107,26 @@ webApp.MapGet("/api/tags", async (IOllamaProxyService ollama, CancellationToken 
     }
 });
 
+webApp.MapPost("/api/show", async (
+    OllamaShowRequest request,
+    IOllamaProxyService ollama,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var response = await ollama.ShowAsync(request, cancellationToken);
+        return Results.Ok(response);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex)
+    {
+        return ToOllamaErrorResult(ex);
+    }
+});
+
 webApp.MapPost("/api/chat", async (
     OllamaChatRequest request,
     IOllamaProxyService ollama,

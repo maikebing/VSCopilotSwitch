@@ -792,6 +792,11 @@ a {
 }
 
 .analytics-table td:last-child {
+  overflow-wrap: anywhere;
+  color: #697386;
+}
+
+.analytics-table td:nth-last-child(2) {
   max-width: 360px;
   overflow-wrap: anywhere;
   color: #697386;
@@ -806,6 +811,54 @@ a {
 .analytics-table .money {
   color: #10a868;
   font-weight: 800;
+}
+
+.detail-toggle {
+  white-space: nowrap;
+}
+
+.analytics-detail-row td {
+  background: #fbfcff;
+  padding: 0;
+}
+
+.analytics-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 18px;
+}
+
+.analytics-detail-grid section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--cc-line);
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.analytics-detail-grid h3 {
+  margin: 0;
+  color: #293445;
+  font-size: 13px;
+}
+
+.analytics-detail-grid pre {
+  min-height: 92px;
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  border-radius: 8px;
+  background: #f6f8fb;
+  color: #2d3440;
+  padding: 10px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .status-badge {
@@ -1446,5 +1499,9 @@ a {
   .analytics-filter {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .analytics-detail-grid {
+    grid-template-columns: 1fr;
   }
 }

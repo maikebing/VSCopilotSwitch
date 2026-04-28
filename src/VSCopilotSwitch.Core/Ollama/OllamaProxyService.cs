@@ -7,6 +7,8 @@ public interface IOllamaProxyService
 {
     Task<OllamaTagsResponse> ListTagsAsync(CancellationToken cancellationToken = default);
 
+    Task<OllamaShowResponse> ShowAsync(OllamaShowRequest request, CancellationToken cancellationToken = default);
+
     Task<OllamaChatResponse> ChatAsync(OllamaChatRequest request, CancellationToken cancellationToken = default);
 
     IAsyncEnumerable<OllamaChatResponse> ChatStreamAsync(OllamaChatRequest request, CancellationToken cancellationToken = default);
@@ -15,6 +17,7 @@ public interface IOllamaProxyService
 public sealed class OllamaProxyService : IOllamaProxyService
 {
     private const string VsCodeModelSuffix = "@vscc";
+    private const int RemoteContextLength = 400_000;
     private readonly IReadOnlyList<IModelProvider> _providers;
 
     public OllamaProxyService(IEnumerable<IModelProvider> providers)
@@ -30,24 +33,58 @@ public sealed class OllamaProxyService : IOllamaProxyService
     public async Task<OllamaTagsResponse> ListTagsAsync(CancellationToken cancellationToken = default)
     {
         var models = await ListAllModelsAsync(cancellationToken);
-        return new OllamaTagsResponse(models.Select(model => new OllamaModelInfo(
-            model.Model.Name,
-            model.Model.Name,
-            DateTimeOffset.UtcNow,
-            0,
-            $"vscopilotswitch:{model.Model.Provider}:{model.Model.UpstreamModel}",
-            new OllamaModelDetails(
-                model.Model.UpstreamModel,
-                "provider-adapter",
-                model.Model.Provider,
-                new[] { model.Model.Provider },
-                "remote",
-                "remote"))).ToArray());
+        return new OllamaTagsResponse(models.Select(model =>
+        {
+            var publicModelName = ToVsCodeModelName(model.Model.UpstreamModel);
+            return new OllamaModelInfo(
+                publicModelName,
+                publicModelName,
+                DateTimeOffset.UtcNow,
+                0,
+                $"vscopilotswitch:{model.Model.Provider}:{model.Model.UpstreamModel}",
+                new OllamaModelDetails(
+                    model.Model.UpstreamModel,
+                    "provider-adapter",
+                    model.Model.Provider,
+                    new[] { model.Model.Provider },
+                    "remote",
+                    "remote"));
+        }).ToArray());
+    }
+
+    public async Task<OllamaShowResponse> ShowAsync(OllamaShowRequest request, CancellationToken cancellationToken = default)
+    {
+        var route = await ResolveRouteAsync(request.Model, cancellationToken);
+        var details = new OllamaModelDetails(
+            route.Model.UpstreamModel,
+            "provider-adapter",
+            route.Model.Provider,
+            new[] { route.Model.Provider },
+            "remote",
+            "remote");
+
+        return new OllamaShowResponse(
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            details,
+            new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["general.architecture"] = "llama",
+                ["general.context_length"] = RemoteContextLength,
+                ["llama.context_length"] = RemoteContextLength,
+                ["vscopilotswitch.provider"] = route.Model.Provider,
+                ["vscopilotswitch.upstream_model"] = route.Model.UpstreamModel,
+                ["vscopilotswitch.context_length"] = RemoteContextLength
+            },
+            new[] { "completion", "tools", "vision" },
+            DateTimeOffset.UtcNow);
     }
 
     public async Task<OllamaChatResponse> ChatAsync(OllamaChatRequest request, CancellationToken cancellationToken = default)
     {
-        var route = await ResolveRouteAsync(request, cancellationToken);
+        var route = await ResolveRouteAsync(request.Model, cancellationToken);
         var response = await InvokeProviderAsync(route, BuildChatRequest(request, route, stream: false), cancellationToken);
 
         return new OllamaChatResponse(
@@ -62,7 +99,7 @@ public sealed class OllamaProxyService : IOllamaProxyService
         OllamaChatRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var route = await ResolveRouteAsync(request, cancellationToken);
+        var route = await ResolveRouteAsync(request.Model, cancellationToken);
         var routedRequest = BuildChatRequest(request, route, stream: true);
         var completed = false;
         await foreach (var chunk in InvokeProviderStreamAsync(route, routedRequest, cancellationToken).WithCancellation(cancellationToken))
@@ -131,19 +168,19 @@ public sealed class OllamaProxyService : IOllamaProxyService
         return routes;
     }
 
-    private async Task<ModelRoute> ResolveRouteAsync(OllamaChatRequest request, CancellationToken cancellationToken)
+    private async Task<ModelRoute> ResolveRouteAsync(string requestedModel, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.Model))
+        if (string.IsNullOrWhiteSpace(requestedModel))
         {
             throw new OllamaProxyException(
                 OllamaProxyErrorKind.InvalidRequest,
                 "invalid_request",
-                "Ollama chat 请求必须包含 model。");
+                "Ollama 请求必须包含 model。");
         }
 
         var routes = await ListAllModelsAsync(cancellationToken);
         var matches = routes
-            .Where(route => MatchesModel(route.Model, request.Model))
+            .Where(route => MatchesModel(route.Model, requestedModel))
             .ToArray();
 
         if (matches.Length == 0)
@@ -151,11 +188,11 @@ public sealed class OllamaProxyService : IOllamaProxyService
             throw new OllamaProxyException(
                 OllamaProxyErrorKind.ModelNotFound,
                 "model_not_found",
-                $"模型 `{request.Model}` 未配置 Provider 路由。");
+                $"模型 `{requestedModel}` 未配置 Provider 路由。");
         }
 
         var exactMatches = matches
-            .Where(route => string.Equals(route.Model.Name, request.Model, StringComparison.OrdinalIgnoreCase))
+            .Where(route => string.Equals(route.Model.Name, requestedModel, StringComparison.OrdinalIgnoreCase))
             .ToArray();
         if (exactMatches.Length == 1)
         {
@@ -167,7 +204,7 @@ public sealed class OllamaProxyService : IOllamaProxyService
             throw new OllamaProxyException(
                 OllamaProxyErrorKind.AmbiguousModel,
                 "ambiguous_model_alias",
-                $"模型别名 `{request.Model}` 同时匹配多个 Provider，请使用完整模型名。");
+                $"模型别名 `{requestedModel}` 同时匹配多个 Provider，请使用完整模型名。");
         }
 
         return matches[0];
@@ -191,6 +228,14 @@ public sealed class OllamaProxyService : IOllamaProxyService
         return trimmed.EndsWith(VsCodeModelSuffix, StringComparison.OrdinalIgnoreCase)
             ? trimmed[..^VsCodeModelSuffix.Length]
             : trimmed;
+    }
+
+    private static string ToVsCodeModelName(string upstreamModel)
+    {
+        var trimmed = upstreamModel.Trim();
+        return trimmed.EndsWith(VsCodeModelSuffix, StringComparison.OrdinalIgnoreCase)
+            ? trimmed
+            : $"{trimmed}{VsCodeModelSuffix}";
     }
 
     private static ChatRequest BuildChatRequest(OllamaChatRequest request, ModelRoute route, bool stream)

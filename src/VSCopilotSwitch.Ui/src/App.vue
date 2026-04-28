@@ -152,6 +152,10 @@ type RequestLogEntry = {
   OutputTokens: number;
   Cost: number;
   UserAgent: string;
+  RequestHeaders: Record<string, string>;
+  RequestBody: string | null;
+  ResponseHeaders: Record<string, string>;
+  ResponseBody: string | null;
 };
 
 type AnalyticsSnapshot = {
@@ -187,6 +191,7 @@ const portChecking = ref(false);
 const modelsLoading = ref(false);
 const providerTestLoadingId = ref('');
 const providerDraftTestLoading = ref(false);
+const expandedAnalyticsKey = ref('');
 const applyConfirmationArmed = ref(false);
 const restoreConfirmationArmed = ref(false);
 const errorMessage = ref('');
@@ -344,6 +349,31 @@ function formatAnalyticsTime(value: string) {
     minute: '2-digit',
     second: '2-digit'
   });
+}
+
+function analyticsEntryKey(entry: RequestLogEntry) {
+  return `${entry.Timestamp}-${entry.Method}-${entry.Path}-${entry.DurationMilliseconds}-${entry.StatusCode}`;
+}
+
+function toggleAnalyticsEntry(entry: RequestLogEntry) {
+  const key = analyticsEntryKey(entry);
+  expandedAnalyticsKey.value = expandedAnalyticsKey.value === key ? '' : key;
+}
+
+function formatHeaders(headers: Record<string, string> | null | undefined) {
+  const entries = Object.entries(headers ?? {});
+  if (entries.length === 0) {
+    return '无';
+  }
+
+  return entries
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}: ${value}`)
+    .join('\n');
+}
+
+function formatBody(body: string | null | undefined) {
+  return body?.trim() ? body : '无';
 }
 
 function clearProviderConnectionResult() {
@@ -1460,27 +1490,57 @@ onMounted(loadDashboard);
                 <th>耗时</th>
                 <th>时间</th>
                 <th>User-Agent</th>
+                <th>详情</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="entry in analyticsRequests" :key="`${entry.Timestamp}-${entry.Path}-${entry.DurationMilliseconds}`">
-                <td>{{ entry.Method }}</td>
-                <td>{{ entry.Model ?? '-' }}</td>
-                <td>{{ entry.Path }}</td>
-                <td>
-                  <span class="status-badge" :class="{ ok: entry.StatusCode < 400 }">{{ entry.StatusCode }}</span>
-                </td>
-                <td>
-                  <span>↓ {{ formatNumber(entry.InputTokens) }}</span>
-                  <small>↑ {{ formatNumber(entry.OutputTokens) }}</small>
-                </td>
-                <td class="money">{{ formatCost(entry.Cost) }}</td>
-                <td>{{ formatSeconds(entry.DurationMilliseconds) }}</td>
-                <td>{{ formatAnalyticsTime(entry.Timestamp) }}</td>
-                <td>{{ entry.UserAgent }}</td>
-              </tr>
+              <template v-for="entry in analyticsRequests" :key="analyticsEntryKey(entry)">
+                <tr>
+                  <td>{{ entry.Method }}</td>
+                  <td>{{ entry.Model ?? '-' }}</td>
+                  <td>{{ entry.Path }}</td>
+                  <td>
+                    <span class="status-badge" :class="{ ok: entry.StatusCode < 400 }">{{ entry.StatusCode }}</span>
+                  </td>
+                  <td>
+                    <span>↓ {{ formatNumber(entry.InputTokens) }}</span>
+                    <small>↑ {{ formatNumber(entry.OutputTokens) }}</small>
+                  </td>
+                  <td class="money">{{ formatCost(entry.Cost) }}</td>
+                  <td>{{ formatSeconds(entry.DurationMilliseconds) }}</td>
+                  <td>{{ formatAnalyticsTime(entry.Timestamp) }}</td>
+                  <td>{{ entry.UserAgent }}</td>
+                  <td>
+                    <button class="link-button detail-toggle" type="button" @click="toggleAnalyticsEntry(entry)">
+                      {{ expandedAnalyticsKey === analyticsEntryKey(entry) ? '收起' : '展开' }}
+                    </button>
+                  </td>
+                </tr>
+                <tr v-if="expandedAnalyticsKey === analyticsEntryKey(entry)" class="analytics-detail-row">
+                  <td colspan="10">
+                    <div class="analytics-detail-grid">
+                      <section>
+                        <h3>请求头</h3>
+                        <pre>{{ formatHeaders(entry.RequestHeaders) }}</pre>
+                      </section>
+                      <section>
+                        <h3>请求体</h3>
+                        <pre>{{ formatBody(entry.RequestBody) }}</pre>
+                      </section>
+                      <section>
+                        <h3>响应头</h3>
+                        <pre>{{ formatHeaders(entry.ResponseHeaders) }}</pre>
+                      </section>
+                      <section>
+                        <h3>响应体</h3>
+                        <pre>{{ formatBody(entry.ResponseBody) }}</pre>
+                      </section>
+                    </div>
+                  </td>
+                </tr>
+              </template>
               <tr v-if="analyticsRequests.length === 0">
-                <td colspan="9" class="analytics-empty">暂无请求日志。刷新模型、测试连接或调用 `/api/chat` 后会出现在这里。</td>
+                <td colspan="10" class="analytics-empty">暂无请求日志。刷新模型、测试连接或调用 `/api/chat` 后会出现在这里。</td>
               </tr>
             </tbody>
           </table>

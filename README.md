@@ -207,6 +207,7 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 - `GET /health`：宿主健康检查。
 - `GET /api/tags`：Ollama 兼容模型列表；优先向 UI 当前启用供应商实时获取模型，未保存真实 API Key 或未配置真实供应商时返回内置占位模型 `vscopilotswitch/default`。
 - `GET /api/version`：Ollama 兼容版本探测接口，用于让 VS Code 确认本地代理满足 Ollama 0.6.4+ 要求。
+- `POST /api/show`：Ollama 兼容模型详情接口，用于 VS Code Copilot Chat 探测模型能力和元信息。
 - `POST /api/chat`：Ollama 兼容非流式和流式聊天；优先转发到 UI 当前启用供应商对应的上游聊天接口，未配置真实供应商时走内置 `InMemoryModelProvider` 回显。
 - `GET /internal/vscode/user-directories`：发现本机可能的 VS Code User 配置目录。
 - `POST /internal/vscode/apply-ollama`：对 `settings.json` 和 `chatLanguageModels.json` 做干运行预览或安全写入，写入前会备份已有文件。
@@ -235,9 +236,9 @@ dotnet run --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.Vs
 
 阶段 5 首批 Provider Adapter 首版已完成，阶段 5.5 正在把 UI、受保护供应商配置、Provider Adapter 和 Ollama 代理串成真实闭环：当前已支持 UI 启用供应商驱动 `/api/tags` 与 `/api/chat`，并在首页展示真实模型刷新状态、上游模型名和失败原因；供应商测试连接和协议类型选择也已接入。下一步会补齐 VS Code 写入使用当前代理模型，以及托盘状态联动。
 
-右上角工具栏提供“分析统计”入口，可查看当前本地进程内存中的请求日志、监听端口状态、估算 Token、耗时和 User-Agent。该日志只保存最近一段请求元信息，不记录 API Key、Authorization、Cookie 或请求正文；真实上游 usage 和费用精算仍在后续 Provider 响应增强中补齐。
+右上角工具栏提供“分析统计”入口，可查看当前本地进程内存中的请求日志、监听端口状态、估算 Token、耗时和 User-Agent。每条日志可展开查看脱敏后的请求头、请求体、响应头和响应体；Authorization、Cookie、API Key、Token 等敏感字段会被替换，正文采样也会限制长度。真实上游 usage 和费用精算仍在后续 Provider 响应增强中补齐。
 
-写入 VS Code / Copilot 的模型名会追加 `@vscc` 后缀，例如 `gpt-5.5@vscc`，用于避免和 VS Code Copilot 内置模型名冲突。本地代理收到带后缀的模型请求后只用于路由识别，转发到上游 Provider 前会恢复为原始模型名，例如 `gpt-5.5`。
+返回给 VS Code / Copilot 的模型名会追加 `@vscc` 后缀，`/api/tags` 会直接暴露 `gpt-5.5@vscc` 这类模型名，用于避免和 VS Code Copilot 内置模型名冲突。本地代理收到带后缀的模型请求后只用于路由识别，转发到上游 Provider 前会恢复为原始模型名，例如 `gpt-5.5`。
 
 ## 当前 OmniHost 接入状态
 
