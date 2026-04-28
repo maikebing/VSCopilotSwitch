@@ -11,7 +11,7 @@ VSCopilotSwitch 是一个面向 VS Code / GitHub Copilot Chat 体验的本地模
 - 基于 [OmniHost](https://github.com/maikebing/OmniHost) 优先实现 Windows 桌面端；macOS、Linux、WSL 暂不实现，后续跨平台阶段再补齐。
 - 界面使用 Vue 3 + TypeScript，以 Visual Studio SPA 模式在项目内调试、构建和发布。
 - 最终发布支持 AOT，并将 SPA 构建产物作为嵌入式资源打包进单体应用。
-- 支持系统托盘图标，可从托盘打开主界面、快速选择当前提供商并退出程序。
+- 系统托盘能力规划为后续 Win32 原生实现，避免主项目依赖 WinForms 并影响 AOT 发布。
 - UI 参考 `cc switch` 的快速切换体验，采用浅色卡片式供应商列表和添加/编辑表单，强调当前供应商、模型、密钥、代理和 VS Code 配置的一站式管理。
 
 ## 核心能力
@@ -229,7 +229,7 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 
 代理地址、熔断失败阈值、重试次数和备用路由等高级选项默认折叠，日常切换供应商时不会干扰主流程。
 
-高级选项中的本地代理地址支持端口占用检测，可填写 `5124`、`127.0.0.1:5124` 或完整 URL，并提示 `127.0.0.1` 上的目标端口是否已被其他代理占用。VSCopilotSwitch 不再把 VS Code Provider URL 指向 Ollama 默认的 `11434`，避免与用户本机原生 Ollama 服务冲突。Windows 桌面端已提供最小托盘菜单，可打开或聚焦主界面、查看当前提供商和代理状态，并通过退出菜单触发宿主关闭流程以停止本地代理。
+高级选项中的本地代理地址支持端口占用检测，可填写 `5124`、`127.0.0.1:5124` 或完整 URL，并提示 `127.0.0.1` 上的目标端口是否已被其他代理占用。VSCopilotSwitch 不再把 VS Code Provider URL 指向 Ollama 默认的 `11434`，避免与用户本机原生 Ollama 服务冲突。主窗口当前由 OmniHost Win32 + WebView2 承载；发布包运行时从单体程序内嵌的 SPA 静态资源加载界面，不依赖外部 `wwwroot` 目录。托盘菜单将改由 Win32 原生方式补齐，避免引入 WinForms 依赖。
 
 仓库包含一个无外部测试框架依赖的 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份：
 

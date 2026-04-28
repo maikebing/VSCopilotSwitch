@@ -1,14 +1,15 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Diagnostics;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Windows.Forms;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -20,16 +21,16 @@ using VSCopilotSwitch.Core.Providers;
 using VSCopilotSwitch.Services;
 using VSCopilotSwitch.VsCodeConfig.Models;
 using VSCopilotSwitch.VsCodeConfig.Services;
-using Application = System.Windows.Forms.Application;
 
 var configuredServerUrl = ResolveServerUrl();
-var builder = WebApplication.CreateBuilder(args);
+var builder = OmniApplication.CreateSlimBuilder(args);
 builder.WebHost.UseUrls(configuredServerUrl);
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = null;
     options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+    options.SerializerOptions.TypeInfoResolverChain.Insert(0, VSCopilotSwitchJsonContext.Default);
 });
 
 builder.Services.AddSingleton<IProviderConfigService, ProviderConfigService>();
@@ -41,10 +42,34 @@ builder.Services.AddSingleton<IOllamaProxyService>(serviceProvider =>
 builder.Services.AddSingleton<IVsCodeConfigLocator, VsCodeConfigLocator>();
 builder.Services.AddSingleton<IVsCodeConfigService, VsCodeConfigService>();
 
-var webApp = builder.Build();
+var app = builder
+    .ConfigureDesktop((options, webApp) =>
+    {
+        var serverUrl = ResolveStartedServerUrl(webApp, configuredServerUrl);
+        options.Title = "VSCopilotSwitch";
+        options.StartUrl = serverUrl;
+        options.Width = 1280;
+        options.Height = 820;
+        options.EnableDevTools = webApp.Environment.IsDevelopment();
+        // 使用系统原生标题栏，避免自绘 Chrome 与当前页面视觉割裂，并自动跟随操作系统主题。
+        options.WindowStyle = OmniWindowStyle.Normal;
+        options.BuiltInTitleBarStyle = OmniBuiltInTitleBarStyle.None;
+        options.ScrollBarMode = OmniScrollBarMode.Auto;
+        options.UserDataFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "VSCopilotSwitch",
+            "WebView2");
+    })
+    .UseAdapter(new WebView2AdapterFactory())
+    .UseRuntime(new Win32Runtime())
+    .UseDesktopApp(webApp => new VSCopilotSwitchDesktopApp(
+        ResolveStartedServerUrl(webApp, configuredServerUrl)))
+    .Build();
 
-webApp.UseDefaultFiles();
-webApp.MapStaticAssets();
+var webApp = app.Web;
+var embeddedSpaResources = BuildEmbeddedSpaResourceMap(Assembly.GetExecutingAssembly());
+var contentTypeProvider = new FileExtensionContentTypeProvider();
+
 webApp.Use(async (context, next) =>
 {
     var analytics = context.RequestServices.GetRequiredService<IRequestAnalyticsService>();
@@ -52,11 +77,7 @@ webApp.Use(async (context, next) =>
 });
 
 webApp.MapGet("/health", () => Results.Ok(new
-{
-    name = "VSCopilotSwitch",
-    status = "ok",
-    mode = webApp.Environment.EnvironmentName
-}));
+    HealthResponse("VSCopilotSwitch", "ok", webApp.Environment.EnvironmentName)));
 
 webApp.MapGet("/internal/network/port-status", (int port = 5124) =>
 {
@@ -185,7 +206,7 @@ webApp.MapPost("/internal/providers", async (
     }
     catch (InvalidOperationException ex)
     {
-        return Results.BadRequest(new { error = ex.Message });
+        return Results.BadRequest(new ErrorMessageResponse(ex.Message));
     }
 });
 
@@ -269,48 +290,12 @@ webApp.MapPost("/internal/vscode/restore-backup", async (
     return Results.Ok(result);
 });
 
-webApp.MapFallbackToFile("/index.html");
-
-await webApp.StartAsync();
-
-var serverUrl = webApp.Services
-    .GetRequiredService<IServer>()
-    .Features
-    .Get<IServerAddressesFeature>()?
-    .Addresses
-    .SingleOrDefault() ?? configuredServerUrl;
-
-var desktopApp = OmniApp.CreateBuilder(args)
-    .Configure(options =>
-    {
-        options.Title = "VSCopilotSwitch";
-        options.StartUrl = serverUrl;
-        options.Width = 1280;
-        options.Height = 820;
-        options.EnableDevTools = webApp.Environment.IsDevelopment();
-        // 使用系统原生标题栏，避免自绘 Chrome 与当前页面视觉割裂，并自动跟随操作系统主题。
-        options.WindowStyle = OmniWindowStyle.Normal;
-        options.BuiltInTitleBarStyle = OmniBuiltInTitleBarStyle.None;
-        options.ScrollBarMode = OmniScrollBarMode.Auto;
-        options.UserDataFolder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "VSCopilotSwitch",
-            "WebView2");
-    })
-    .UseAdapter(new WebView2AdapterFactory())
-    .UseRuntime(new Win32Runtime())
-    .UseDesktopApp(new VSCopilotSwitchDesktopApp(serverUrl))
-    .Build();
-
-try
+webApp.MapFallback(async context =>
 {
-    await desktopApp.RunAsync();
-}
-finally
-{
-    await webApp.StopAsync();
-    await webApp.DisposeAsync();
-}
+    await ServeEmbeddedSpaResourceAsync(context, embeddedSpaResources, contentTypeProvider);
+});
+
+await app.RunAsync();
 
 static string ResolveServerUrl()
 {
@@ -332,6 +317,16 @@ static string ResolveServerUrl()
     }
 
     return "http://127.0.0.1:5124";
+}
+
+static string ResolveStartedServerUrl(WebApplication webApp, string fallbackUrl)
+{
+    return webApp.Services
+        .GetRequiredService<IServer>()
+        .Features
+        .Get<IServerAddressesFeature>()?
+        .Addresses
+        .SingleOrDefault() ?? fallbackUrl;
 }
 
 static bool IsTcpPortAvailable(int targetPort)
@@ -479,6 +474,59 @@ static string NormalizePublicBaseUrl(string baseUrl)
     return builder.Uri.AbsoluteUri.TrimEnd('/');
 }
 
+static IReadOnlyDictionary<string, string> BuildEmbeddedSpaResourceMap(Assembly assembly)
+{
+    const string prefix = "Spa";
+    return assembly.GetManifestResourceNames()
+        .Where(name => name.StartsWith(prefix + "\\", StringComparison.OrdinalIgnoreCase)
+                       || name.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase))
+        .ToDictionary(
+            name => "/" + name[prefix.Length..].TrimStart('\\', '/').Replace('\\', '/'),
+            name => name,
+            StringComparer.OrdinalIgnoreCase);
+}
+
+static async Task ServeEmbeddedSpaResourceAsync(
+    HttpContext context,
+    IReadOnlyDictionary<string, string> resources,
+    FileExtensionContentTypeProvider contentTypeProvider)
+{
+    var requestPath = context.Request.Path.Value;
+    var resourcePath = string.IsNullOrWhiteSpace(requestPath) || requestPath == "/"
+        ? "/index.html"
+        : requestPath;
+
+    if (!resources.TryGetValue(resourcePath, out var resourceName))
+    {
+        resourcePath = Path.HasExtension(resourcePath) ? resourcePath : "/index.html";
+        if (!resources.TryGetValue(resourcePath, out resourceName))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+    }
+
+    var assembly = Assembly.GetExecutingAssembly();
+    await using var stream = assembly.GetManifestResourceStream(resourceName);
+    if (stream is null)
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    context.Response.ContentType = contentTypeProvider.TryGetContentType(resourcePath, out var contentType)
+        ? contentType
+        : "application/octet-stream";
+    context.Response.ContentLength = stream.Length;
+
+    if (resourcePath.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Response.Headers.CacheControl = "public,max-age=31536000,immutable";
+    }
+
+    await stream.CopyToAsync(context.Response.Body, context.RequestAborted);
+}
+
 public sealed record PortStatusResponse(int Port, bool Available, string Message);
 
 public sealed record OllamaVersionResponse(
@@ -497,20 +545,16 @@ public sealed record ListVsCodeConfigBackupsRequest(string UserDirectory);
 
 public sealed record RestoreVsCodeConfigBackupRequest(string UserDirectory, string BackupPath);
 
-sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IWindowAwareDesktopApp, IDisposable
+sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IWindowAwareDesktopApp
 {
-    private NotifyIcon? _trayIcon;
-    private IOmniWindowManager? _windowManager;
-    private string? _mainWindowId;
-
     public Task OnStartAsync(IWebViewAdapter adapter, CancellationToken cancellationToken = default)
     {
         // 暴露最小宿主信息，前端后续可据此判断是否运行在 OmniHost 桌面壳内。
-        adapter.JsBridge.RegisterHandler("host.info", _ => Task.FromResult(JsonSerializer.Serialize(new
-        {
+        adapter.JsBridge.RegisterHandler("host.info", _ => Task.FromResult(JsonSerializer.Serialize(
+            new HostInfoResponse(
             serverUrl,
-            platform = "windows-win32-webview2"
-        })));
+            "windows-win32-webview2"),
+            VSCopilotSwitchJsonContext.Default.HostInfoResponse)));
         adapter.JsBridge.RegisterHandler("host.openExternal", OpenExternalUrlAsync);
         return Task.CompletedTask;
     }
@@ -525,79 +569,17 @@ sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IWindowAwareDesktopAp
             return Task.CompletedTask;
         }
 
-        _windowManager = window.WindowManager;
-        _mainWindowId = window.WindowId;
-        EnsureTrayIcon();
         return Task.CompletedTask;
     }
 
     public Task OnWindowClosingAsync(OmniWindowContext window, CancellationToken cancellationToken = default)
-    {
-        Dispose();
-        return Task.CompletedTask;
-    }
-
-    public void Dispose()
-    {
-        if (_trayIcon is null)
-        {
-            return;
-        }
-
-        _trayIcon.Visible = false;
-        _trayIcon.Dispose();
-        _trayIcon = null;
-    }
-
-    private void EnsureTrayIcon()
-    {
-        if (_trayIcon is not null)
-        {
-            return;
-        }
-
-        var openMenuItem = new ToolStripMenuItem("打开 VSCopilotSwitch", null, (_, _) => ActivateMainWindow());
-        var providerMenuItem = new ToolStripMenuItem("当前提供商：My Codex") { Enabled = false };
-        var statusMenuItem = new ToolStripMenuItem("代理状态：运行中") { Enabled = false };
-        var exitMenuItem = new ToolStripMenuItem("退出并停止本地代理", null, (_, _) => ExitApplication());
-
-        _trayIcon = new NotifyIcon
-        {
-            Icon = System.Drawing.SystemIcons.Application,
-            Text = "VSCopilotSwitch - My Codex",
-            Visible = true,
-            ContextMenuStrip = new ContextMenuStrip()
-        };
-        _trayIcon.ContextMenuStrip.Items.Add(openMenuItem);
-        _trayIcon.ContextMenuStrip.Items.Add(providerMenuItem);
-        _trayIcon.ContextMenuStrip.Items.Add(statusMenuItem);
-        _trayIcon.ContextMenuStrip.Items.Add(new ToolStripSeparator());
-        _trayIcon.ContextMenuStrip.Items.Add(exitMenuItem);
-        _trayIcon.DoubleClick += (_, _) => ActivateMainWindow();
-    }
-
-    private void ActivateMainWindow()
-    {
-        if (_windowManager is not null && !string.IsNullOrWhiteSpace(_mainWindowId))
-        {
-            _windowManager.TryActivateWindow(_mainWindowId);
-        }
-    }
-
-    private void ExitApplication()
-    {
-        if (_windowManager is not null && !string.IsNullOrWhiteSpace(_mainWindowId))
-        {
-            _windowManager.TryCloseWindow(_mainWindowId);
-            return;
-        }
-
-        Application.Exit();
-    }
+        => Task.CompletedTask;
 
     private static Task<string> OpenExternalUrlAsync(string payload)
     {
-        var request = JsonSerializer.Deserialize<OpenExternalUrlRequest>(payload);
+        var request = JsonSerializer.Deserialize(
+            payload,
+            VSCopilotSwitchJsonContext.Default.OpenExternalUrlRequest);
         if (request is null || !Uri.TryCreate(request.Url, UriKind.Absolute, out var uri))
         {
             throw new InvalidOperationException("外部链接地址无效。");
@@ -613,8 +595,18 @@ sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IWindowAwareDesktopAp
             UseShellExecute = true
         });
 
-        return Task.FromResult(JsonSerializer.Serialize(new { opened = true }));
+        return Task.FromResult(JsonSerializer.Serialize(
+            new OpenExternalUrlResult(true),
+            VSCopilotSwitchJsonContext.Default.OpenExternalUrlResult));
     }
-
-    private sealed record OpenExternalUrlRequest(string Url);
 }
+
+public sealed record HealthResponse(string Name, string Status, string Mode);
+
+public sealed record ErrorMessageResponse(string Error);
+
+public sealed record HostInfoResponse(string ServerUrl, string Platform);
+
+public sealed record OpenExternalUrlRequest(string Url);
+
+public sealed record OpenExternalUrlResult(bool Opened);

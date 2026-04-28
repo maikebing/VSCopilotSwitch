@@ -187,8 +187,10 @@
 - ✅️ 完成 VS Code 语言模型配置实测分析：真实文件为 `%APPDATA%\Code\User\chatLanguageModels.json`，Ollama Provider 条目为 `{ name, vendor, url }`，模型列表由 Ollama 兼容接口动态发现。
 - ✅️ 重写 VS Code 配置写入逻辑：改为幂等维护 `chatLanguageModels.json` 数组中的本项目 Ollama Provider 条目，不再写入自定义静态模型清单。
 - ✅️ VS Code Provider URL 默认使用 `http://127.0.0.1:5124`，取消写入 Ollama 默认 `11434` 的兼容路径，避免与用户本机 Ollama 服务冲突。
+- ✅️ 移除主项目 WinForms 依赖，Native AOT 发布不再需要通过 `_SuppressWinFormsTrimError` 绕过 SDK 检查。
+- ✅️ 发布运行时从内嵌 SPA 静态资源加载管理界面，不再依赖发布目录中的外部 `wwwroot`。
 - 🔴 现在做 顶部 VS Code Ollama 开关打开时，在检测缺失后提供一键跳转和明确的写入流程，不静默修改配置。
-- ⬜ 托盘菜单显示当前启用供应商和模型，并支持快速切换真实供应商。
+- ⬜ 使用 Win32 原生托盘实现显示当前启用供应商和模型，并支持快速切换真实供应商。
 - ⬜ 增加供应商配置 API 的最小测试：保存不回传密钥、启用唯一供应商、排序幂等、删除后自动选择可用供应商。
 - ⬜ 增加端到端人工验收清单：新增供应商、启用、刷新模型、VS Code 写入、VS Code 调用、本地撤销。
 
@@ -223,6 +225,7 @@
 目标：提供 Windows、macOS、Linux、WSL 可运行的桌面体验，并用 Vue 3 SPA 承载主要 UI。
 
 - ✅️ 集成 OmniHost 工程结构，宿主项目直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.WebView2` 三个源码项目。
+- ✅️ 新增 `OmniApplication` 组合宿主生成器：外层 API 对齐 ASP.NET Core 的 `CreateBuilder` / `CreateSlimBuilder` / `CreateEmptyBuilder`，内部组合本地 Web 服务和桌面窗口生命周期，避免应用入口手动维护两套启动/退出流程。
 - 🟡 可并行 实现主窗口生命周期。
 - ✅️ 实现 Windows 托盘图标最小增强：打开或聚焦主界面。
 - ✅️ 实现 Windows 托盘菜单最小增强：显示当前提供商和代理服务状态；当前模型后续接入真实路由状态。

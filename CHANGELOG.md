@@ -50,6 +50,10 @@
 - ✅️ 补充 VS Code 语言模型配置实测记录：确认真实入口为 `%APPDATA%\Code\User\chatLanguageModels.json` 的 Provider 数组，Ollama 条目使用 `name` / `vendor` / `url`，为后续重写配置写入逻辑提供依据。
 - ✅️ 重写 VS Code 配置写入逻辑：废弃旧版 `settings.json` 自定义字段和静态 `vscopilotswitch.models` 清单，只幂等维护 `chatLanguageModels.json` 数组中的 `vscc` Ollama Provider 条目。
 - ✅️ VS Code Provider URL 改用 VSCopilotSwitch 专用端口 `http://127.0.0.1:5124`，取消写入 Ollama 默认 `11434` 的兼容路径，避免与原生 Ollama 服务冲突。
+- ✅️ 移除主项目 WinForms 依赖和临时 `NotifyIcon` 托盘实现，避免 `UseWindowsForms` 阻塞 Native AOT 单文件发布；托盘能力后续改由 Win32 原生路径补齐。
+- ✅️ 显式引用 `System.Security.Cryptography.ProtectedData`，让 API Key 的 Windows 当前用户保护数据加密不再依赖 WinForms 间接引用。
+- ✅️ 宿主发布运行时改为从程序集内嵌 `Spa\...` 资源加载 Vue 静态产物，AOT 单文件包不再依赖外部 `wwwroot` 目录。
+- ✅️ 新增 `OmniApplication` 组合宿主入口，提供 `CreateBuilder`、`CreateSlimBuilder`、`CreateEmptyBuilder` / `CreateEmpty`，让本地 ASP.NET Core 服务和 OmniHost 桌面壳由同一个应用生命周期统一启动和停止。
 - ✅️ 新增失败修复建议面板，针对权限不足、JSON 无效、文件占用和端口冲突给出可执行处理步骤。
 - ✅️ 新增默认折叠的高级选项面板，集中放置代理地址、熔断阈值、重试次数和备用路由。
 - ✅️ 新增 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份。

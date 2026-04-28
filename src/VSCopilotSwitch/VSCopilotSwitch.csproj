@@ -4,18 +4,18 @@
     <PackageReference Include="Microsoft.AspNetCore.SpaProxy">
       <Version>10.*-*</Version>
     </PackageReference>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
     <ProjectReference Include="..\VSCopilotSwitch.Core\VSCopilotSwitch.Core.csproj" />
     <ProjectReference Include="..\VSCopilotSwitch.VsCodeConfig\VSCopilotSwitch.VsCodeConfig.csproj" />
     <ProjectReference Include="..\..\external\OmniHost\src\OmniHost\OmniHost.csproj" />
     <ProjectReference Include="..\..\external\OmniHost\src\OmniHost.Windows\OmniHost.Windows.csproj" />
     <ProjectReference Include="..\..\external\OmniHost\src\OmniHost.WebView2\OmniHost.WebView2.csproj" />
-    <ProjectReference Include="..\VSCopilotSwitch.Ui\VSCopilotSwitch.Ui.esproj">
-      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
-    </ProjectReference>
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="..\..\src\VSCopilotSwitch.Ui\dist\**\*" Condition="Exists('..\..\src\VSCopilotSwitch.Ui\dist')" LogicalName="Spa\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Content Remove="wwwroot\**\*" />
+    <Content Update="appsettings*.json" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -23,7 +23,6 @@
     <AssemblyName>VSCopilotSwitch</AssemblyName>
     <TargetFramework>net10.0-windows</TargetFramework>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
@@ -35,6 +34,9 @@
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <PublishAot>true</PublishAot>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>None</DebugType>
+    <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
 
 </Project>
