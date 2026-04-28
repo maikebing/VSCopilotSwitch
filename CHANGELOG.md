@@ -54,6 +54,7 @@
 - ✅️ 显式引用 `System.Security.Cryptography.ProtectedData`，让 API Key 的 Windows 当前用户保护数据加密不再依赖 WinForms 间接引用。
 - ✅️ 宿主发布运行时改为从程序集内嵌 `Spa\...` 资源加载 Vue 静态产物，AOT 单文件包不再依赖外部 `wwwroot` 目录。
 - ✅️ 新增 `OmniApplication` 组合宿主入口，提供 `CreateBuilder`、`CreateSlimBuilder`、`CreateEmptyBuilder` / `CreateEmpty`，让本地 ASP.NET Core 服务和 OmniHost 桌面壳由同一个应用生命周期统一启动和停止。
+- ✅️ 新增 `OmniHost.NativeWebView2` 项目，基于 `WebView2Aot` 对接原生 WebView2 COM binding，并将 `WebView2Loader.dll` 嵌入资源；VSCopilotSwitch 启动界面已切换到 `NativeWebView2AdapterFactory`，避免 Native AOT 下 classic WebView2 wrapper 的 COM marshalling 问题。
 - ✅️ 新增失败修复建议面板，针对权限不足、JSON 无效、文件占用和端口冲突给出可执行处理步骤。
 - ✅️ 新增默认折叠的高级选项面板，集中放置代理地址、熔断阈值、重试次数和备用路由。
 - ✅️ 新增 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份。
@@ -61,7 +62,7 @@
 - ✅️ 新增 Windows 托盘菜单最小增强，支持打开或聚焦主界面、查看当前提供商和代理状态、退出并停止本地代理。
 - ✅️ 重新设计 VSCopilotSwitch 专属 SVG logo，并替换首页左上角 `CC Switch` 品牌展示。
 - ✅️ 首页右上角快速入口从 `Claude` / `Codex` 调整为 `VS2026` / `VSCode`，并替换为对应 IDE 风格图标。
-- ✅️ 接入 OmniHost Windows 原生宿主：`src/VSCopilotSwitch` 直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.WebView2`，启动本地 ASP.NET Core 服务后由 Win32 + WebView2 窗口承载 Vue 管理界面。
+- ✅️ 接入 OmniHost Windows 原生宿主：`src/VSCopilotSwitch` 直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.NativeWebView2`，启动本地 ASP.NET Core 服务后由 Win32 + Native WebView2 窗口承载 Vue 管理界面。
 - ✅️ 将 OmniHost 直接依赖和传递依赖加入 `VSCopilotSwitch.slnx`，修复 Visual Studio 生成主项目时未先生成 `OmniHost.Abstractions` / `OmniHost.Core` 等外部项目导致的 `CS0006`。
 - ✅️ `/api/chat` 支持 Ollama 兼容流式 NDJSON 响应，`stream: true` 时按分块返回并追加最终 `done` 分块。
 - ✅️ Ollama 代理新增 Provider 路由和模型别名解析，支持按完整模型名、上游模型名或别名定位目标 Provider。

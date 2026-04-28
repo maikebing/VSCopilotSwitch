@@ -14,7 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using OmniHost;
-using OmniHost.WebView2;
+using OmniHost.NativeWebView2;
 using OmniHost.Windows;
 using VSCopilotSwitch.Core.Ollama;
 using VSCopilotSwitch.Core.Providers;
@@ -60,7 +60,7 @@ var app = builder
             "VSCopilotSwitch",
             "WebView2");
     })
-    .UseAdapter(new WebView2AdapterFactory())
+    .UseAdapter(new NativeWebView2AdapterFactory())
     .UseRuntime(new Win32Runtime())
     .UseDesktopApp(webApp => new VSCopilotSwitchDesktopApp(
         ResolveStartedServerUrl(webApp, configuredServerUrl)))

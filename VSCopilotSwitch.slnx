@@ -18,5 +18,6 @@
     <Project Path="external/OmniHost/src/OmniHost/OmniHost.csproj" />
     <Project Path="external/OmniHost/src/OmniHost.Windows/OmniHost.Windows.csproj" />
     <Project Path="external/OmniHost/src/OmniHost.WebView2/OmniHost.WebView2.csproj" />
+    <Project Path="external/OmniHost/src/OmniHost.NativeWebView2/OmniHost.NativeWebView2.csproj" />
   </Folder>
 </Solution>

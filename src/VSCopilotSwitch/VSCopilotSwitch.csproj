@@ -9,7 +9,7 @@
     <ProjectReference Include="..\VSCopilotSwitch.VsCodeConfig\VSCopilotSwitch.VsCodeConfig.csproj" />
     <ProjectReference Include="..\..\external\OmniHost\src\OmniHost\OmniHost.csproj" />
     <ProjectReference Include="..\..\external\OmniHost\src\OmniHost.Windows\OmniHost.Windows.csproj" />
-    <ProjectReference Include="..\..\external\OmniHost\src\OmniHost.WebView2\OmniHost.WebView2.csproj" />
+    <ProjectReference Include="..\..\external\OmniHost\src\OmniHost.NativeWebView2\OmniHost.NativeWebView2.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <AssemblyName>VSCopilotSwitch</AssemblyName>
     <TargetFramework>net10.0-windows</TargetFramework>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
