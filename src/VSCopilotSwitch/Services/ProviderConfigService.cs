@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using VSCopilotSwitch.Core.Providers;
 
 namespace VSCopilotSwitch.Services;
 
@@ -10,6 +11,10 @@ public interface IProviderConfigService
     Task<IReadOnlyList<ProviderConfigView>> ListAsync(CancellationToken cancellationToken = default);
 
     Task<ProviderRuntimeConfig?> GetActiveRuntimeConfigAsync(CancellationToken cancellationToken = default);
+
+    Task<ProviderAdapterConfig> BuildConnectionTestConfigAsync(
+        TestProviderConnectionRequest request,
+        CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ProviderConfigView>> SaveAsync(
         SaveProviderConfigRequest request,
@@ -85,6 +90,35 @@ public sealed class ProviderConfigService : IProviderConfigService
         }
     }
 
+    public async Task<ProviderAdapterConfig> BuildConnectionTestConfigAsync(
+        TestProviderConnectionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var document = await LoadDocumentAsync(cancellationToken);
+            var existing = string.IsNullOrWhiteSpace(request.Id)
+                ? null
+                : document.Providers.FirstOrDefault(provider => string.Equals(provider.Id, request.Id, StringComparison.OrdinalIgnoreCase));
+
+            var id = FirstNonEmpty(request.Id, existing?.Id, "connection-test");
+            var name = FirstNonEmpty(request.Name, existing?.Name, "未命名供应商");
+            var apiUrl = FirstNonEmpty(request.ApiUrl, existing?.ApiUrl, string.Empty);
+            var model = FirstNonEmpty(request.Model, existing?.Model, string.Empty);
+            var vendor = FirstNonEmpty(request.Vendor, existing?.Vendor, "openai-compatible");
+            var apiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
+                ? request.ApiKey.Trim()
+                : UnprotectSecret(existing?.EncryptedApiKey) ?? string.Empty;
+
+            return new ProviderAdapterConfig(id, name, apiUrl, model, vendor, apiKey);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<IReadOnlyList<ProviderConfigView>> SaveAsync(
         SaveProviderConfigRequest request,
         CancellationToken cancellationToken = default)
@@ -107,7 +141,7 @@ public sealed class ProviderConfigService : IProviderConfigService
                 request.Remark?.Trim() ?? string.Empty,
                 request.Url.Trim(),
                 request.ApiUrl.Trim(),
-                request.Model.Trim(),
+            request.Model?.Trim() ?? string.Empty,
                 request.Vendor,
                 CreateAvatar(request.Name),
                 request.Active || existing?.Active == true,
@@ -246,7 +280,7 @@ public sealed class ProviderConfigService : IProviderConfigService
                 "https://how88.top",
                 "https://how88.top",
                 "gpt-5.5",
-                "codex",
+                "openai-compatible",
                 "MC",
                 Active: true,
                 SortOrder: 0,
@@ -290,10 +324,7 @@ public sealed class ProviderConfigService : IProviderConfigService
             throw new InvalidOperationException("API 请求地址必须是 http 或 https URL。");
         }
 
-        if (string.IsNullOrWhiteSpace(request.Model))
-        {
-            throw new InvalidOperationException("模型名称不能为空。");
-        }
+        // 模型允许先留空：新增供应商可通过“测试连接”从远程模型列表自动回填。
     }
 
     private static string CreateProviderId(string name)
@@ -318,6 +349,9 @@ public sealed class ProviderConfigService : IProviderConfigService
 
     private static int NextSortOrder(IEnumerable<ProviderConfig> providers)
         => providers.Any() ? providers.Max(provider => provider.SortOrder) + 1 : 0;
+
+    private static string FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
 
     private static void NormalizeSortOrder(List<ProviderConfig> providers)
     {
@@ -415,6 +449,14 @@ public sealed record ProviderRuntimeConfig(
     string ApiUrl,
     string Model,
     string Vendor,
+    string? ApiKey);
+
+public sealed record TestProviderConnectionRequest(
+    string? Id,
+    string? Name,
+    string? ApiUrl,
+    string? Model,
+    string? Vendor,
     string? ApiKey);
 
 public sealed record SaveProviderConfigRequest(

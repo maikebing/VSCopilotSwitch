@@ -301,6 +301,83 @@ a {
   color: var(--cc-red);
 }
 
+.connection-result {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  border: 1px solid #cbeede;
+  border-radius: 14px;
+  background: #f0fff8;
+  color: #246b55;
+  padding: 14px 16px;
+}
+
+.connection-result.failed {
+  border-color: #ffd5d5;
+  background: #fff5f5;
+  color: var(--cc-red);
+}
+
+.connection-result strong {
+  font-size: 15px;
+}
+
+.connection-result > span {
+  color: inherit;
+  font-size: 13px;
+}
+
+.connection-result ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connection-result li {
+  display: grid;
+  grid-template-columns: 26px minmax(90px, auto) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid rgb(255 55 55 / 18%);
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px 10px;
+}
+
+.connection-result li.done {
+  border-color: rgb(18 185 129 / 24%);
+}
+
+.connection-result b {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #ffe3e3;
+  color: var(--cc-red);
+  font-size: 13px;
+}
+
+.connection-result li.done b {
+  background: var(--cc-green);
+  color: #ffffff;
+}
+
+.connection-result li span {
+  font-weight: 800;
+}
+
+.connection-result li small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #5c6370;
+  line-height: 1.4;
+}
+
 .recovery-advice {
   display: grid;
   gap: 10px;
@@ -605,6 +682,151 @@ a {
   gap: 24px;
   min-height: 0;
   padding-bottom: 42px;
+}
+
+.analytics-page {
+  display: grid;
+  gap: 22px;
+  min-height: 0;
+  padding-bottom: 42px;
+}
+
+.analytics-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.analytics-cards article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 1px solid var(--cc-line);
+  border-radius: 18px;
+  background: var(--cc-panel);
+  box-shadow: var(--cc-shadow);
+  padding: 18px 20px;
+}
+
+.analytics-cards span,
+.analytics-filter span {
+  color: var(--cc-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.analytics-cards strong {
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.analytics-cards small,
+.analytics-filter small {
+  overflow-wrap: anywhere;
+  color: var(--cc-muted);
+  line-height: 1.35;
+}
+
+.analytics-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--cc-line);
+  border-radius: 18px;
+  background: var(--cc-panel);
+  box-shadow: var(--cc-shadow);
+  padding: 18px 22px;
+}
+
+.analytics-filter > div:first-child {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.analytics-filter strong {
+  overflow-wrap: anywhere;
+  font-size: 18px;
+}
+
+.analytics-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 12px;
+}
+
+.analytics-table-wrap {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--cc-line);
+  border-radius: 18px;
+  background: var(--cc-panel);
+  box-shadow: var(--cc-shadow);
+}
+
+.analytics-table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.analytics-table th,
+.analytics-table td {
+  border-bottom: 1px solid #edf0f5;
+  padding: 15px 18px;
+  color: #4d5563;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.analytics-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fbfcfe;
+  color: #293445;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.analytics-table td:last-child {
+  max-width: 360px;
+  overflow-wrap: anywhere;
+  color: #697386;
+}
+
+.analytics-table small {
+  display: block;
+  margin-top: 3px;
+  color: #8768ff;
+}
+
+.analytics-table .money {
+  color: #10a868;
+  font-weight: 800;
+}
+
+.status-badge {
+  display: inline-flex;
+  border-radius: 999px;
+  background: #ffecec;
+  color: var(--cc-red);
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.status-badge.ok {
+  background: #eafaf4;
+  color: #0c8b62;
+}
+
+.analytics-empty {
+  height: 96px;
+  color: var(--cc-muted);
+  text-align: center;
 }
 
 .settings-layout {
@@ -1206,6 +1428,7 @@ a {
   }
 
   .status-strip,
+  .analytics-cards,
   .form-grid.two,
   .advanced-grid,
   .settings-layout {
@@ -1218,5 +1441,10 @@ a {
 
   .provider-actions {
     flex-wrap: wrap;
+  }
+
+  .analytics-filter {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

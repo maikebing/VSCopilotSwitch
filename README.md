@@ -114,7 +114,7 @@ npm --prefix src/VSCopilotSwitch.Ui run dev
 
 当前桌面宿主以 UI 中保存并启用的供应商作为 Ollama 代理运行时来源。供应商的 API Key 使用当前 Windows 用户保护数据加密落盘，前端和内部列表 API 只返回脱敏预览；`/api/tags` 会向当前启用供应商实时获取模型列表，非流式 `/api/chat` 和流式 `/api/chat` 会在请求时读取当前启用供应商，并在内存中构建对应 Provider Adapter。未保存真实 API Key 或未配置真实供应商时，代理才回退到内置占位 Provider。
 
-当前保存表单已经能配置供应商名称、官网/API 地址、模型名和 API Key；Provider 类型选择仍在阶段 5.5 后续任务中，因此非 Claude 供应商会先按 OpenAI-compatible 路径接入，Claude 供应商按 Anthropic Messages API 接入。
+当前保存表单已经能配置供应商名称、协议类型、官网/API 地址、模型名和 API Key，并可在保存前或供应商列表中执行“测试连接”。协议类型用于选择底层 Adapter，目前可选 OpenAI-compatible、OpenAI Official、DeepSeek、Claude、NVIDIA NIM、MoArk 和 sub2api；sub2api 中转站应选择 `sub2api`。测试连接会按顺序验证 Base URL、API Key、模型列表和一次最小非流式聊天探测，返回给前端的错误会经过脱敏，不包含 API Key 原文。模型名称可以先留空，测试连接会从远程模型列表中优先选择 `gpt-5.5`，其次选择 `sonnet-4.6`，否则回填第一个返回模型。
 
 下面各 Adapter 段落记录已实现协议能力和底层配置字段，主要用于后续测试、调试和 Provider 类型选择接入参考；真实桌面运行路径以 UI 保存并启用的供应商为准。
 
@@ -206,6 +206,7 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 
 - `GET /health`：宿主健康检查。
 - `GET /api/tags`：Ollama 兼容模型列表；优先向 UI 当前启用供应商实时获取模型，未保存真实 API Key 或未配置真实供应商时返回内置占位模型 `vscopilotswitch/default`。
+- `GET /api/version`：Ollama 兼容版本探测接口，用于让 VS Code 确认本地代理满足 Ollama 0.6.4+ 要求。
 - `POST /api/chat`：Ollama 兼容非流式和流式聊天；优先转发到 UI 当前启用供应商对应的上游聊天接口，未配置真实供应商时走内置 `InMemoryModelProvider` 回显。
 - `GET /internal/vscode/user-directories`：发现本机可能的 VS Code User 配置目录。
 - `POST /internal/vscode/apply-ollama`：对 `settings.json` 和 `chatLanguageModels.json` 做干运行预览或安全写入，写入前会备份已有文件。
@@ -216,7 +217,7 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 
 代理地址、熔断失败阈值、重试次数和备用路由等高级选项默认折叠，日常切换供应商时不会干扰主流程。
 
-高级选项中的本地代理地址支持端口占用检测，可提示 `127.0.0.1` 上的目标端口是否已被 Ollama 或其他代理占用。Windows 桌面端已提供最小托盘菜单，可打开或聚焦主界面、查看当前提供商和代理状态，并通过退出菜单触发宿主关闭流程以停止本地代理。
+高级选项中的本地代理地址支持端口占用检测，可填写 `11434`、`127.0.0.1:11434` 或完整 URL，并提示 `127.0.0.1` 上的目标端口是否已被 Ollama 或其他代理占用。Windows 桌面端已提供最小托盘菜单，可打开或聚焦主界面、查看当前提供商和代理状态，并通过退出菜单触发宿主关闭流程以停止本地代理。
 
 仓库包含一个无外部测试框架依赖的 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份：
 
@@ -232,10 +233,14 @@ dotnet run --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.Vs
 
 ## 当前状态
 
-阶段 5 首批 Provider Adapter 首版已完成，阶段 5.5 正在把 UI、受保护供应商配置、Provider Adapter 和 Ollama 代理串成真实闭环：当前已支持 UI 启用供应商驱动 `/api/tags` 与 `/api/chat`，并在首页展示真实模型刷新状态和失败原因；下一步会补齐测试连接、VS Code 写入使用当前代理模型，以及托盘状态联动。
+阶段 5 首批 Provider Adapter 首版已完成，阶段 5.5 正在把 UI、受保护供应商配置、Provider Adapter 和 Ollama 代理串成真实闭环：当前已支持 UI 启用供应商驱动 `/api/tags` 与 `/api/chat`，并在首页展示真实模型刷新状态、上游模型名和失败原因；供应商测试连接和协议类型选择也已接入。下一步会补齐 VS Code 写入使用当前代理模型，以及托盘状态联动。
+
+右上角工具栏提供“分析统计”入口，可查看当前本地进程内存中的请求日志、监听端口状态、估算 Token、耗时和 User-Agent。该日志只保存最近一段请求元信息，不记录 API Key、Authorization、Cookie 或请求正文；真实上游 usage 和费用精算仍在后续 Provider 响应增强中补齐。
+
+写入 VS Code / Copilot 的模型名会追加 `@vscc` 后缀，例如 `gpt-5.5@vscc`，用于避免和 VS Code Copilot 内置模型名冲突。本地代理收到带后缀的模型请求后只用于路由识别，转发到上游 Provider 前会恢复为原始模型名，例如 `gpt-5.5`。
 
 ## 当前 OmniHost 接入状态
 
-Windows 端已进入源码集成阶段：宿主项目直接引用 `external/OmniHost/src/OmniHost`、`external/OmniHost/src/OmniHost.Windows` 和 `external/OmniHost/src/OmniHost.WebView2`。运行时会先在 `127.0.0.1` 随机可用端口启动 ASP.NET Core API / SPA 服务，再使用 OmniHost 的 `Win32Runtime` 与 `WebView2AdapterFactory` 打开原生窗口承载管理界面。
+Windows 端已进入源码集成阶段：宿主项目直接引用 `external/OmniHost/src/OmniHost`、`external/OmniHost/src/OmniHost.Windows` 和 `external/OmniHost/src/OmniHost.WebView2`。运行时会先启动 ASP.NET Core API / SPA 服务；开发模式优先使用 `launchSettings.json` / `ASPNETCORE_URLS` 中的固定地址，方便 Vite 代理对齐，未显式配置时再回退到 `127.0.0.1` 随机可用端口。随后使用 OmniHost 的 `Win32Runtime` 与 `WebView2AdapterFactory` 打开原生窗口承载管理界面。
 
 当前阶段仍保留本地 HTTP 服务边界，便于 VS Code 配置 API、Ollama 兼容代理和 Vue SPA 继续复用现有开发链路；后续托盘菜单、窗口聚焦、快速切换供应商和退出代理会在 OmniHost 宿主层继续补齐。

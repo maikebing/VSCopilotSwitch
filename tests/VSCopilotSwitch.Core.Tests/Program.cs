@@ -15,9 +15,14 @@ var tests = new (string Name, Func<Task> Run)[]
 {
     ("ChatAsync routes aliases to upstream model", ChatAsync_RoutesAliasesToUpstreamModel),
     ("ChatStreamAsync emits chunks and final done", ChatStreamAsync_EmitsChunksAndFinalDone),
+    ("ChatAsync strips VS Code suffix before upstream forwarding", ChatAsync_StripsVsCodeSuffixBeforeUpstreamForwarding),
     ("ChatAsync rejects unknown model", ChatAsync_RejectsUnknownModel),
     ("ChatAsync rejects ambiguous alias", ChatAsync_RejectsAmbiguousAlias),
     ("ChatAsync maps provider errors", ChatAsync_MapsProviderErrors),
+    ("Provider connection tester probes model list and chat", ProviderConnectionTester_ProbesModelListAndChat),
+    ("Provider connection tester auto-selects preferred model", ProviderConnectionTester_AutoSelectsPreferredModel),
+    ("Provider connection tester rejects missing configured model", ProviderConnectionTester_RejectsMissingConfiguredModel),
+    ("Provider connection tester redacts provider errors", ProviderConnectionTester_RedactsProviderErrors),
     ("Sub2Api ListModelsAsync fetches OpenAI-compatible models", Sub2Api_ListModelsAsync_FetchesOpenAiCompatibleModels),
     ("Sub2Api ChatAsync sends upstream model", Sub2Api_ChatAsync_SendsUpstreamModel),
     ("Sub2Api ChatStreamAsync parses SSE chunks", Sub2Api_ChatStreamAsync_ParsesSseChunks),
@@ -107,6 +112,24 @@ static async Task ChatStreamAsync_EmitsChunksAndFinalDone()
     Assert.Equal("stop", chunks[^1].DoneReason ?? string.Empty, "结束原因应透传。");
 }
 
+static async Task ChatAsync_StripsVsCodeSuffixBeforeUpstreamForwarding()
+{
+    var provider = new RecordingProvider(
+        "alpha",
+        new ProviderModel("alpha/gpt-5.5", "alpha", "gpt-5.5", "GPT 5.5"),
+        "ok");
+    var service = new OllamaProxyService(new[] { provider });
+
+    var response = await service.ChatAsync(new OllamaChatRequest(
+        "gpt-5.5@vscc",
+        new[] { new OllamaChatMessage("user", "hello") },
+        false));
+
+    Assert.Equal("gpt-5.5@vscc", response.Model, "Ollama 响应应保留 VS Code 请求的模型名。");
+    Assert.NotNull(provider.LastRequest, "Provider 应收到去后缀后的请求。");
+    Assert.Equal("gpt-5.5", provider.LastRequest!.UpstreamModel, "转发给上游时必须去掉 @vscc 后缀。");
+}
+
 static async Task ChatAsync_RejectsUnknownModel()
 {
     var provider = new RecordingProvider(
@@ -159,6 +182,96 @@ static async Task ChatAsync_MapsProviderErrors()
     Assert.Equal(OllamaProxyErrorKind.ProviderUnauthorized, exception.Kind, "Provider 鉴权错误应映射为 ProviderUnauthorized。");
     Assert.Equal("provider_unauthorized", exception.Code, "Provider 鉴权错误码不正确。");
     Assert.Equal("提供商鉴权失败，请检查密钥。", exception.PublicMessage, "错误消息应使用 Provider 提供的脱敏说明。");
+}
+
+static async Task ProviderConnectionTester_ProbesModelListAndChat()
+{
+    var provider = new ConnectionProbeProvider(new[]
+    {
+        new ProviderModel("alpha/default", "alpha", "gpt-test", "GPT Test", new[] { "test" })
+    });
+    var tester = new ProviderConnectionTester((_, _) => provider);
+
+    var result = await tester.TestAsync(new ProviderAdapterConfig(
+        "alpha",
+        "Alpha",
+        "https://alpha.example/v1",
+        "test",
+        "openai-compatible",
+        "sk-connection-secret"));
+
+    Assert.True(result.Success, "连接测试应在模型列表和聊天探测都通过后成功。");
+    Assert.Equal(1, result.ModelCount, "连接测试应返回模型数量。");
+    Assert.Equal("gpt-test", result.SelectedModel ?? string.Empty, "连接测试应按别名选中上游模型。");
+    Assert.True(provider.ListModelsCalled, "连接测试应先请求模型列表。");
+    Assert.True(provider.ChatCalled, "连接测试应执行最小聊天探测。");
+    Assert.Equal("gpt-test", provider.LastRequest?.UpstreamModel ?? string.Empty, "聊天探测应使用选中的上游模型。");
+}
+
+static async Task ProviderConnectionTester_AutoSelectsPreferredModel()
+{
+    var provider = new ConnectionProbeProvider(new[]
+    {
+        new ProviderModel("alpha/first", "alpha", "first-model", "First Model"),
+        new ProviderModel("alpha/sonnet", "alpha", "claude-sonnet-4-6", "Claude Sonnet 4.6"),
+        new ProviderModel("alpha/gpt", "alpha", "gpt-5.5", "GPT 5.5")
+    });
+    var tester = new ProviderConnectionTester((_, _) => provider);
+
+    var result = await tester.TestAsync(new ProviderAdapterConfig(
+        "alpha",
+        "Alpha",
+        "https://alpha.example/v1",
+        string.Empty,
+        "openai-compatible",
+        "sk-connection-secret"));
+
+    Assert.True(result.Success, "模型名称留空时应自动选择模型并继续聊天探测。");
+    Assert.Equal("gpt-5.5", result.SelectedModel ?? string.Empty, "自动选择应优先使用 gpt-5.5。");
+    Assert.Equal("gpt-5.5", provider.LastRequest?.UpstreamModel ?? string.Empty, "聊天探测应使用自动选中的模型。");
+    Assert.Equal(3, result.Models.Count, "连接测试应把远程模型列表返回给 UI 作为候选项。");
+}
+
+static async Task ProviderConnectionTester_RejectsMissingConfiguredModel()
+{
+    var provider = new ConnectionProbeProvider(new[]
+    {
+        new ProviderModel("alpha/default", "alpha", "gpt-test", "GPT Test")
+    });
+    var tester = new ProviderConnectionTester((_, _) => provider);
+
+    var result = await tester.TestAsync(new ProviderAdapterConfig(
+        "alpha",
+        "Alpha",
+        "https://alpha.example/v1",
+        "missing-model",
+        "openai-compatible",
+        "sk-connection-secret"));
+
+    Assert.False(result.Success, "配置模型不在模型列表中时连接测试应失败。");
+    Assert.False(provider.ChatCalled, "模型不匹配时不应继续发起聊天探测。");
+    Assert.Contains("missing-model", result.Message + string.Join(" ", result.Steps.Select(step => step.Message)), "失败说明应指出缺失的模型名。");
+}
+
+static async Task ProviderConnectionTester_RedactsProviderErrors()
+{
+    var provider = new ConnectionProbeProvider(
+        Array.Empty<ProviderModel>(),
+        listException: new ProviderException(ProviderErrorKind.Unauthorized, "invalid key sk-connection-secret"));
+    var tester = new ProviderConnectionTester((_, _) => provider);
+
+    var result = await tester.TestAsync(new ProviderAdapterConfig(
+        "alpha",
+        "Alpha",
+        "https://alpha.example/v1",
+        "gpt-test",
+        "openai-compatible",
+        "sk-connection-secret"));
+
+    Assert.False(result.Success, "模型列表鉴权失败时连接测试应失败。");
+    var joinedMessages = result.Message + string.Join(" ", result.Steps.Select(step => step.Message));
+    Assert.DoesNotContain("sk-connection-secret", joinedMessages, "连接测试公开错误不得包含 API Key 原文。");
+    Assert.Contains("[已脱敏密钥]", joinedMessages, "连接测试错误应保留脱敏提示。");
 }
 
 static async Task Sub2Api_ListModelsAsync_FetchesOpenAiCompatibleModels()
@@ -816,6 +929,61 @@ internal sealed class RecordingProvider : IModelProvider
             await Task.Yield();
             yield return chunk;
         }
+    }
+}
+
+internal sealed class ConnectionProbeProvider : IModelProvider
+{
+    private readonly IReadOnlyList<ProviderModel> _models;
+    private readonly Exception? _listException;
+    private readonly Exception? _chatException;
+
+    public ConnectionProbeProvider(
+        IReadOnlyList<ProviderModel> models,
+        Exception? listException = null,
+        Exception? chatException = null)
+    {
+        _models = models;
+        _listException = listException;
+        _chatException = chatException;
+    }
+
+    public string Name => "connection-probe";
+
+    public bool ListModelsCalled { get; private set; }
+
+    public bool ChatCalled { get; private set; }
+
+    public ChatRequest? LastRequest { get; private set; }
+
+    public Task<IReadOnlyList<ProviderModel>> ListModelsAsync(CancellationToken cancellationToken = default)
+    {
+        ListModelsCalled = true;
+        if (_listException is not null)
+        {
+            throw _listException;
+        }
+
+        return Task.FromResult(_models);
+    }
+
+    public Task<ChatResponse> ChatAsync(ChatRequest request, CancellationToken cancellationToken = default)
+    {
+        ChatCalled = true;
+        LastRequest = request;
+        if (_chatException is not null)
+        {
+            throw _chatException;
+        }
+
+        return Task.FromResult(new ChatResponse(request.Model, "pong"));
+    }
+
+    public async IAsyncEnumerable<ChatStreamChunk> ChatStreamAsync(ChatRequest request, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await Task.Yield();
+        yield return new ChatStreamChunk(request.Model, "pong", Done: false);
+        yield return new ChatStreamChunk(request.Model, string.Empty, Done: true, "stop");
     }
 }
 

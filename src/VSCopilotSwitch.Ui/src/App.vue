@@ -8,6 +8,7 @@ type HealthStatus = {
 };
 
 type ModelDetails = {
+  parent_model?: string;
   family: string;
   parameter_size: string;
   quantization_level: string;
@@ -99,12 +100,64 @@ type ProviderCard = {
   apiUrl: string;
   model: string;
   avatar: string;
-  vendor: 'codex' | 'claude';
+  vendor: string;
   active: boolean;
   selected: boolean;
   hasApiKey: boolean;
   apiKeyPreview: string | null;
   sortOrder: number;
+};
+
+type ProviderConnectionTestStep = {
+  Name: string;
+  Label: string;
+  Success: boolean;
+  Message: string;
+  ElapsedMilliseconds: number;
+};
+
+type ProviderConnectionTestResult = {
+  Success: boolean;
+  Message: string;
+  ModelCount: number;
+  SelectedModel: string | null;
+  Models: string[];
+  Steps: ProviderConnectionTestStep[];
+};
+
+type AnalyticsSummary = {
+  TotalRequests: number;
+  TotalTokens: number;
+  InputTokens: number;
+  OutputTokens: number;
+  TotalCost: number;
+  AverageLatencySeconds: number;
+};
+
+type AnalyticsListener = {
+  Url: string;
+  Port: number;
+  Status: string;
+  OllamaPortAvailable: boolean;
+};
+
+type RequestLogEntry = {
+  Timestamp: string;
+  Method: string;
+  Path: string;
+  Model: string | null;
+  StatusCode: number;
+  DurationMilliseconds: number;
+  InputTokens: number;
+  OutputTokens: number;
+  Cost: number;
+  UserAgent: string;
+};
+
+type AnalyticsSnapshot = {
+  Summary: AnalyticsSummary;
+  Listener: AnalyticsListener;
+  Requests: RequestLogEntry[];
 };
 
 type OmniBridge = {
@@ -122,7 +175,9 @@ const selectedBackupPath = ref('');
 const restoreResult = ref<RestoreResult | null>(null);
 const vscodeOllamaStatus = ref<VsCodeOllamaConfigStatus | null>(null);
 const portStatus = ref<PortStatus | null>(null);
+const analytics = ref<AnalyticsSnapshot | null>(null);
 const loading = ref(false);
+const analyticsLoading = ref(false);
 const previewLoading = ref(false);
 const applyLoading = ref(false);
 const backupsLoading = ref(false);
@@ -130,13 +185,16 @@ const restoreLoading = ref(false);
 const vscodeConfigSwitchLoading = ref(false);
 const portChecking = ref(false);
 const modelsLoading = ref(false);
+const providerTestLoadingId = ref('');
+const providerDraftTestLoading = ref(false);
 const applyConfirmationArmed = ref(false);
 const restoreConfirmationArmed = ref(false);
 const errorMessage = ref('');
 const modelErrorMessage = ref('');
+const providerConnectionResult = ref<ProviderConnectionTestResult | null>(null);
 const modelsRefreshedAt = ref<string | null>(null);
 const recoveryAdvice = ref<RecoveryAdvice | null>(null);
-const currentView = ref<'list' | 'edit' | 'settings'>('list');
+const currentView = ref<'list' | 'edit' | 'settings' | 'analytics'>('list');
 const settingsTab = ref<'general' | 'backups' | 'providers' | 'advanced'>('general');
 const showApiKey = ref(false);
 const showAdvancedOptions = ref(false);
@@ -147,12 +205,23 @@ const dragOverProviderId = ref('');
 
 const providers = ref<ProviderCard[]>([]);
 
+const protocolOptions = [
+  { value: 'sub2api', label: 'sub2api 中转协议' },
+  { value: 'openai-compatible', label: 'OpenAI-compatible' },
+  { value: 'openai', label: 'OpenAI Official' },
+  { value: 'deepseek', label: 'DeepSeek' },
+  { value: 'claude', label: 'Claude Official' },
+  { value: 'nvidia-nim', label: 'NVIDIA NIM' },
+  { value: 'moark', label: 'MoArk' }
+];
+
 const providerName = ref('无极限超大杯');
 const providerRemark = ref('');
 const providerWebsite = ref('https://2030.wujixian.fun');
 const providerApiKey = ref('sk-demo-placeholder-c087');
 const providerApiUrl = ref('https://2030.wujixian.fun');
 const providerModel = ref('gpt-5.5');
+const providerProtocol = ref('sub2api');
 const proxyAddress = ref('http://127.0.0.1:11434');
 const circuitBreakerThreshold = ref(5);
 const retryCount = ref(2);
@@ -169,7 +238,7 @@ const selectedDirectoryDescription = computed(() => {
   return directory?.Description ?? '请选择一个 VS Code User 配置目录。';
 });
 const healthState = computed(() => health.value?.status ?? 'unknown');
-const activeModel = computed(() => models.value[0]?.name ?? providerModel.value);
+const activeModel = computed(() => displayModelName(models.value[0]) || providerModel.value);
 const activeProvider = computed(() => providers.value.find((provider) => provider.active));
 const modelRefreshText = computed(() => {
   if (modelsLoading.value) {
@@ -199,6 +268,15 @@ const providerListMaxHeight = computed(() => {
   const rowGap = 18;
   return `${visibleProviderRows.value * cardHeight + Math.max(0, visibleProviderRows.value - 1) * rowGap}px`;
 });
+const analyticsSummary = computed(() => analytics.value?.Summary ?? {
+  TotalRequests: 0,
+  TotalTokens: 0,
+  InputTokens: 0,
+  OutputTokens: 0,
+  TotalCost: 0,
+  AverageLatencySeconds: 0
+});
+const analyticsRequests = computed(() => analytics.value?.Requests ?? []);
 const previewChangedCount = computed(() => preview.value?.Changes.filter((change) => change.Changed).length ?? 0);
 const canApplyVsCodeConfig = computed(() => Boolean(preview.value?.DryRun && selectedDirectory.value && !applyResult.value));
 const selectedBackup = computed(() => backups.value.find((backup) => backup.BackupPath === selectedBackupPath.value));
@@ -222,6 +300,54 @@ const editDescription = computed(() =>
 function clearError() {
   errorMessage.value = '';
   recoveryAdvice.value = null;
+}
+
+function displayModelName(model?: ModelInfo) {
+  if (!model) {
+    return '';
+  }
+
+  if (model.details?.parent_model?.trim()) {
+    return model.details.parent_model.trim();
+  }
+
+  const name = model.name || model.model || '';
+  const separatorIndex = name.indexOf('/');
+  return separatorIndex >= 0 ? name.slice(separatorIndex + 1) : name;
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('zh-CN').format(value);
+}
+
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat('zh-CN', {
+    notation: 'compact',
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
+function formatCost(value: number) {
+  return `$${value.toFixed(6)}`;
+}
+
+function formatSeconds(milliseconds: number) {
+  return `${(milliseconds / 1000).toFixed(2)}s`;
+}
+
+function formatAnalyticsTime(value: string) {
+  return new Date(value).toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+}
+
+function clearProviderConnectionResult() {
+  providerConnectionResult.value = null;
 }
 
 function setError(message: string, advice?: RecoveryAdvice) {
@@ -279,7 +405,8 @@ function buildRecoveryAdvice(message: string): RecoveryAdvice {
     };
   }
 
-  if (normalized.includes('端口') || normalized.includes('port') || normalized.includes('listen')) {
+  if ((normalized.includes('端口') || normalized.includes('port') || normalized.includes('listen'))
+    && !normalized.includes('端口号')) {
     return {
       title: '本地端口不可用',
       steps: [
@@ -358,6 +485,48 @@ async function refreshModels(showGlobalError = true) {
   }
 }
 
+async function loadAnalytics(showGlobalError = true) {
+  analyticsLoading.value = true;
+  if (showGlobalError) {
+    clearError();
+  }
+
+  try {
+    const response = await fetch('/internal/analytics');
+    if (!response.ok) {
+      throw new Error(await readPublicError(response, '读取分析统计失败，请确认本地代理仍在运行。'));
+    }
+
+    analytics.value = (await response.json()) as AnalyticsSnapshot;
+  } catch (error) {
+    if (showGlobalError) {
+      setError(messageFromError(error, '读取分析统计失败。'));
+    }
+  } finally {
+    analyticsLoading.value = false;
+  }
+}
+
+async function clearAnalytics() {
+  analyticsLoading.value = true;
+  clearError();
+
+  try {
+    const response = await fetch('/internal/analytics/clear', {
+      method: 'POST'
+    });
+    if (!response.ok) {
+      throw new Error(await readPublicError(response, '清空分析统计失败。'));
+    }
+
+    analytics.value = (await response.json()) as AnalyticsSnapshot;
+  } catch (error) {
+    setError(messageFromError(error, '清空分析统计失败。'));
+  } finally {
+    analyticsLoading.value = false;
+  }
+}
+
 function mapProviderViews(items: unknown): ProviderCard[] {
   if (!Array.isArray(items)) {
     return [];
@@ -365,7 +534,7 @@ function mapProviderViews(items: unknown): ProviderCard[] {
 
   return items.map((item) => {
     const provider = item as Record<string, unknown>;
-    const vendor = provider.Vendor === 'claude' ? 'claude' : 'codex';
+    const vendor = normalizeProtocol(String(provider.Vendor ?? ''));
     const active = provider.Active === true;
     return {
       id: String(provider.Id ?? ''),
@@ -383,6 +552,24 @@ function mapProviderViews(items: unknown): ProviderCard[] {
       sortOrder: Number(provider.SortOrder ?? 0)
     };
   });
+}
+
+function normalizeProtocol(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === 'codex') {
+    return 'openai-compatible';
+  }
+
+  if (normalized === 'nvidia') {
+    return 'nvidia-nim';
+  }
+
+  return normalized;
+}
+
+function protocolLabel(value: string) {
+  const normalized = normalizeProtocol(value);
+  return protocolOptions.find((option) => option.value === normalized)?.label ?? normalized;
 }
 
 async function previewVsCodeConfig() {
@@ -630,16 +817,32 @@ async function restoreBackup() {
 }
 
 async function checkProxyPort() {
-  const parsedUrl = new URL(proxyAddress.value);
-  const port = Number(parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80));
+  const parsedPort = parseProxyPort(proxyAddress.value);
 
   portChecking.value = true;
   clearError();
+  portStatus.value = null;
 
   try {
+    if (!parsedPort.valid) {
+      portStatus.value = {
+        Port: 0,
+        Available: false,
+        Message: parsedPort.message
+      };
+      return;
+    }
+
+    const port = parsedPort.port;
     const response = await fetch(`/internal/network/port-status?port=${encodeURIComponent(port)}`);
     if (!response.ok) {
-      throw new Error('端口检测失败，请确认端口号在 1 到 65535 之间。');
+      const message = await readPublicError(response, '端口检测失败，请确认端口号在 1 到 65535 之间。');
+      portStatus.value = {
+        Port: port,
+        Available: false,
+        Message: message
+      };
+      return;
     }
 
     portStatus.value = await response.json();
@@ -648,6 +851,41 @@ async function checkProxyPort() {
   } finally {
     portChecking.value = false;
   }
+}
+
+function parseProxyPort(value: string): { valid: true; port: number } | { valid: false; message: string } {
+  const raw = value.trim();
+  if (!raw) {
+    return { valid: false, message: '请输入本地代理端口，例如 11434 或 http://127.0.0.1:11434。' };
+  }
+
+  if (/^\d+$/.test(raw)) {
+    return normalizePort(Number(raw));
+  }
+
+  const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`;
+  try {
+    const parsedUrl = new URL(withScheme);
+    if (!parsedUrl.hostname) {
+      return { valid: false, message: '本地代理地址缺少主机名，请填写 127.0.0.1:11434。' };
+    }
+
+    if (!parsedUrl.port) {
+      return { valid: false, message: '本地代理地址缺少端口，请填写 127.0.0.1:11434。' };
+    }
+
+    return normalizePort(Number(parsedUrl.port));
+  } catch {
+    return { valid: false, message: '本地代理地址格式无效，请填写 11434、127.0.0.1:11434 或 http://127.0.0.1:11434。' };
+  }
+}
+
+function normalizePort(port: number): { valid: true; port: number } | { valid: false; message: string } {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return { valid: false, message: '端口号必须是 1 到 65535 之间的整数。' };
+  }
+
+  return { valid: true, port };
 }
 
 function resetVsCodeWizard() {
@@ -660,12 +898,14 @@ function resetVsCodeWizard() {
 
 function resetProviderForm() {
   editingProviderId.value = null;
+  clearProviderConnectionResult();
   providerName.value = '';
   providerRemark.value = '';
   providerWebsite.value = '';
   providerApiKey.value = '';
   providerApiUrl.value = '';
   providerModel.value = '';
+  providerProtocol.value = 'sub2api';
   showApiKey.value = false;
   showAdvancedOptions.value = false;
   portStatus.value = null;
@@ -680,6 +920,7 @@ function openCreateProvider() {
 
 function openEdit(provider?: ProviderCard) {
   resetVsCodeWizard();
+  clearProviderConnectionResult();
 
   if (provider) {
     isCreatingProvider.value = false;
@@ -690,6 +931,7 @@ function openEdit(provider?: ProviderCard) {
     providerRemark.value = provider.remark;
     providerApiKey.value = '';
     providerModel.value = provider.model;
+    providerProtocol.value = normalizeProtocol(provider.vendor);
   } else {
     isCreatingProvider.value = true;
     resetProviderForm();
@@ -700,8 +942,18 @@ function openEdit(provider?: ProviderCard) {
 
 async function saveProvider() {
   clearError();
+  clearProviderConnectionResult();
 
   try {
+    ensureProviderDefaults();
+    if (!providerModel.value.trim() && providerApiUrl.value.trim()) {
+      await testProviderConnection();
+    }
+
+    if (!providerModel.value.trim()) {
+      throw new Error('请先点击“测试连接”获取远程模型列表，或手动填写模型名称。');
+    }
+
     const response = await fetch('/internal/providers', {
       method: 'POST',
       headers: {
@@ -714,14 +966,14 @@ async function saveProvider() {
         Url: providerWebsite.value,
         ApiUrl: providerApiUrl.value,
         Model: providerModel.value,
-        Vendor: 'codex',
+        Vendor: providerProtocol.value,
         ApiKey: providerApiKey.value || null,
         Active: providers.value.length === 0 || providers.value.some((provider) => provider.id === editingProviderId.value && provider.active)
       })
     });
 
     if (!response.ok) {
-      throw new Error('保存供应商失败，请检查名称、官网链接、API 地址和模型名称。');
+      throw new Error(await readPublicError(response, '保存供应商失败，请检查名称、官网链接和 API 地址。'));
     }
 
     providers.value = mapProviderViews(await response.json());
@@ -732,6 +984,90 @@ async function saveProvider() {
   }
 }
 
+function ensureProviderDefaults() {
+  const apiUrl = providerApiUrl.value.trim();
+  if (!apiUrl) {
+    return;
+  }
+
+  if (!providerWebsite.value.trim()) {
+    providerWebsite.value = apiUrl;
+  }
+
+  if (!providerName.value.trim()) {
+    providerName.value = providerNameFromUrl(apiUrl);
+  }
+}
+
+function providerNameFromUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    return parsed.hostname.replace(/^www\./, '') || '自定义供应商';
+  } catch {
+    return '自定义供应商';
+  }
+}
+
+function buildProviderConnectionRequest(provider?: ProviderCard) {
+  if (provider) {
+    return {
+      Id: provider.id,
+      Name: provider.name,
+      ApiUrl: provider.apiUrl,
+      Model: provider.model,
+      Vendor: provider.vendor,
+      ApiKey: null
+    };
+  }
+
+  return {
+    Id: editingProviderId.value,
+    Name: providerName.value,
+    ApiUrl: providerApiUrl.value,
+    Model: providerModel.value,
+    Vendor: providerProtocol.value,
+    ApiKey: providerApiKey.value || null
+  };
+}
+
+async function testProviderConnection(provider?: ProviderCard) {
+  clearError();
+  clearProviderConnectionResult();
+
+  if (provider) {
+    providerTestLoadingId.value = provider.id;
+  } else {
+    providerDraftTestLoading.value = true;
+  }
+
+  try {
+    const response = await fetch('/internal/providers/test-connection', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(buildProviderConnectionRequest(provider))
+    });
+
+    if (!response.ok) {
+      throw new Error(await readPublicError(response, '测试连接失败，请检查 API 地址、API Key 和模型名称。'));
+    }
+
+    providerConnectionResult.value = (await response.json()) as ProviderConnectionTestResult;
+    if (!provider && providerConnectionResult.value.SelectedModel) {
+      providerModel.value = providerConnectionResult.value.SelectedModel;
+    }
+  } catch (error) {
+    setError(messageFromError(error, '测试连接失败。'));
+  } finally {
+    if (provider) {
+      providerTestLoadingId.value = '';
+    } else {
+      providerDraftTestLoading.value = false;
+    }
+  }
+}
+
 function openList() {
   currentView.value = 'list';
 }
@@ -739,6 +1075,11 @@ function openList() {
 function openSettings() {
   settingsTab.value = 'general';
   currentView.value = 'settings';
+}
+
+async function openAnalytics() {
+  currentView.value = 'analytics';
+  await loadAnalytics(false);
 }
 
 async function activateProvider(providerId: string) {
@@ -920,6 +1261,7 @@ onMounted(loadDashboard);
       <section class="toolbar" aria-label="工具栏">
         <button class="icon-button" type="button" title="代理设置" @click="openSettings">🔧</button>
         <button class="icon-button" type="button" title="配置预览" @click="openSettings">▣</button>
+        <button class="icon-button" type="button" title="分析统计" @click="openAnalytics">▤</button>
         <button class="icon-button" type="button" :disabled="loading" title="刷新" @click="loadDashboard">↻</button>
         <button class="icon-button" type="button" title="附件">⌁</button>
         <button class="add-button" type="button" title="添加供应商" @click="openCreateProvider">＋</button>
@@ -928,6 +1270,28 @@ onMounted(loadDashboard);
 
     <main class="page-surface" :class="currentView === 'list' ? 'list-surface' : 'edit-surface'">
       <p v-if="errorMessage" class="notice error">{{ errorMessage }}</p>
+      <div
+        v-if="providerConnectionResult"
+        class="connection-result"
+        :class="{ success: providerConnectionResult.Success, failed: !providerConnectionResult.Success }"
+        aria-label="供应商连接测试结果"
+      >
+        <strong>{{ providerConnectionResult.Message }}</strong>
+        <span v-if="providerConnectionResult.SelectedModel">
+          探测模型：{{ providerConnectionResult.SelectedModel }} · 模型数：{{ providerConnectionResult.ModelCount }}
+        </span>
+        <ol>
+          <li
+            v-for="step in providerConnectionResult.Steps"
+            :key="step.Name"
+            :class="{ done: step.Success }"
+          >
+            <b>{{ step.Success ? '✓' : '!' }}</b>
+            <span>{{ step.Label }}</span>
+            <small>{{ step.Message }}</small>
+          </li>
+        </ol>
+      </div>
       <section v-if="recoveryAdvice" class="recovery-advice" aria-label="失败修复建议">
         <strong>{{ recoveryAdvice.title }}</strong>
         <ol>
@@ -974,9 +1338,9 @@ onMounted(loadDashboard);
               :key="model.name"
               class="model-chip"
               type="button"
-              :title="model.details?.family ?? model.name"
+              :title="displayModelName(model)"
             >
-              {{ model.name }}
+              {{ displayModelName(model) }}
             </button>
           </div>
           <p v-else class="model-empty">当前供应商尚未返回可用模型。</p>
@@ -1007,6 +1371,7 @@ onMounted(loadDashboard);
             </div>
             <div class="provider-meta">
               <span>{{ provider.model }}</span>
+              <span>{{ protocolLabel(provider.vendor) }}</span>
               <span>
                 密钥：<strong class="money">{{ provider.hasApiKey ? (provider.apiKeyPreview ?? '已保存') : '未保存' }}</strong>
               </span>
@@ -1017,12 +1382,109 @@ onMounted(loadDashboard);
               </button>
               <button class="icon-button small" type="button" title="编辑" @click="openEdit(provider)">✎</button>
               <button class="icon-button small" type="button" title="复制">▣</button>
-              <button class="icon-button small" type="button" title="测试">↗</button>
+              <button
+                class="icon-button small"
+                type="button"
+                :disabled="providerTestLoadingId === provider.id"
+                title="测试连接"
+                @click="testProviderConnection(provider)"
+              >
+                {{ providerTestLoadingId === provider.id ? '…' : '↗' }}
+              </button>
               <button class="icon-button small" type="button" title="统计">▥</button>
               <button class="icon-button small" type="button" title="删除" @click="deleteProvider(provider.id)">♲</button>
             </div>
           </article>
         </div>
+      </section>
+
+      <section v-else-if="currentView === 'analytics'" class="analytics-page">
+        <div class="edit-header">
+          <button class="back-button" type="button" @click="openList">←</button>
+          <div>
+            <h2>分析统计</h2>
+            <p>查看本地代理当前接收的请求、端口状态和使用日志。</p>
+          </div>
+        </div>
+
+        <div class="analytics-cards">
+          <article>
+            <span>总请求数</span>
+            <strong>{{ formatNumber(analyticsSummary.TotalRequests) }}</strong>
+            <small>内存窗口内</small>
+          </article>
+          <article>
+            <span>总 Token</span>
+            <strong>{{ formatCompactNumber(analyticsSummary.TotalTokens) }}</strong>
+            <small>输入：{{ formatCompactNumber(analyticsSummary.InputTokens) }} / 输出：{{ formatCompactNumber(analyticsSummary.OutputTokens) }}</small>
+          </article>
+          <article>
+            <span>总消费</span>
+            <strong>{{ formatCost(analyticsSummary.TotalCost) }}</strong>
+            <small>当前为本地估算占位</small>
+          </article>
+          <article>
+            <span>平均耗时</span>
+            <strong>{{ analyticsSummary.AverageLatencySeconds.toFixed(2) }}s</strong>
+            <small>每次请求</small>
+          </article>
+        </div>
+
+        <section class="analytics-filter">
+          <div>
+            <span>监听端口</span>
+            <strong>{{ analytics?.Listener.Url ?? '未连接' }}</strong>
+            <small>
+              状态：{{ analytics?.Listener.Status ?? '未知' }} · Ollama 11434：
+              {{ analytics?.Listener.OllamaPortAvailable ? '可用' : '已占用或不可用' }}
+            </small>
+          </div>
+          <div class="analytics-actions">
+            <button class="secondary-button" type="button" :disabled="analyticsLoading" @click="loadAnalytics(true)">
+              {{ analyticsLoading ? '刷新中...' : '刷新' }}
+            </button>
+            <button class="secondary-button" type="button" :disabled="analyticsLoading" @click="clearAnalytics">重置</button>
+          </div>
+        </section>
+
+        <section class="analytics-table-wrap" aria-label="当前请求日志">
+          <table class="analytics-table">
+            <thead>
+              <tr>
+                <th>方法</th>
+                <th>模型</th>
+                <th>端点</th>
+                <th>状态</th>
+                <th>Token</th>
+                <th>费用</th>
+                <th>耗时</th>
+                <th>时间</th>
+                <th>User-Agent</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="entry in analyticsRequests" :key="`${entry.Timestamp}-${entry.Path}-${entry.DurationMilliseconds}`">
+                <td>{{ entry.Method }}</td>
+                <td>{{ entry.Model ?? '-' }}</td>
+                <td>{{ entry.Path }}</td>
+                <td>
+                  <span class="status-badge" :class="{ ok: entry.StatusCode < 400 }">{{ entry.StatusCode }}</span>
+                </td>
+                <td>
+                  <span>↓ {{ formatNumber(entry.InputTokens) }}</span>
+                  <small>↑ {{ formatNumber(entry.OutputTokens) }}</small>
+                </td>
+                <td class="money">{{ formatCost(entry.Cost) }}</td>
+                <td>{{ formatSeconds(entry.DurationMilliseconds) }}</td>
+                <td>{{ formatAnalyticsTime(entry.Timestamp) }}</td>
+                <td>{{ entry.UserAgent }}</td>
+              </tr>
+              <tr v-if="analyticsRequests.length === 0">
+                <td colspan="9" class="analytics-empty">暂无请求日志。刷新模型、测试连接或调用 `/api/chat` 后会出现在这里。</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
       </section>
 
       <section v-else-if="currentView === 'edit'" class="edit-page">
@@ -1043,10 +1505,23 @@ onMounted(loadDashboard);
               <input v-model="providerName" type="text" autocomplete="off" />
             </label>
             <label class="form-field">
-              <span>备注</span>
-              <input v-model="providerRemark" type="text" placeholder="例如：公司专用账号" autocomplete="off" />
+              <span>协议类型</span>
+              <select v-model="providerProtocol">
+                <option
+                  v-for="option in protocolOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </option>
+              </select>
             </label>
           </div>
+
+          <label class="form-field">
+            <span>备注</span>
+            <input v-model="providerRemark" type="text" placeholder="例如：公司专用账号" autocomplete="off" />
+          </label>
 
           <label class="form-field">
             <span>官网链接</span>
@@ -1075,12 +1550,21 @@ onMounted(loadDashboard);
 
           <div class="field-head">
             <label>模型名称</label>
-            <button class="secondary-button" type="button">⇩ 获取模型列表</button>
+            <button class="secondary-button" type="button" :disabled="providerDraftTestLoading" @click="testProviderConnection()">
+              {{ providerDraftTestLoading ? '测试中...' : '获取模型并测试' }}
+            </button>
           </div>
           <label class="form-field">
-            <input v-model="providerModel" type="text" autocomplete="off" />
+            <input v-model="providerModel" type="text" list="provider-model-options" autocomplete="off" />
+            <datalist id="provider-model-options">
+              <option
+                v-for="modelName in providerConnectionResult?.Models ?? []"
+                :key="modelName"
+                :value="modelName"
+              />
+            </datalist>
           </label>
-          <p class="helper">指定使用的模型，将自动更新到 config.toml 中</p>
+          <p class="helper">可留空后点击获取模型；优先自动选中 gpt-5.5 或 sonnet-4.6，否则选中远程返回的第一个模型。</p>
 
           <section class="advanced-options" :class="{ open: showAdvancedOptions }" aria-label="高级选项">
             <button class="advanced-toggle" type="button" @click="showAdvancedOptions = !showAdvancedOptions">
@@ -1092,7 +1576,7 @@ onMounted(loadDashboard);
             <div v-if="showAdvancedOptions" class="advanced-grid">
               <label class="form-field">
                 <span>本地代理地址</span>
-                <input v-model="proxyAddress" type="url" autocomplete="off" />
+                <input v-model="proxyAddress" type="text" inputmode="url" autocomplete="off" />
               </label>
               <div class="port-check-card">
                 <button class="secondary-button" type="button" :disabled="portChecking" @click="checkProxyPort">

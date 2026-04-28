@@ -1,12 +1,5 @@
 using System.Runtime.CompilerServices;
 using VSCopilotSwitch.Core.Providers;
-using VSCopilotSwitch.Core.Providers.Claude;
-using VSCopilotSwitch.Core.Providers.DeepSeek;
-using VSCopilotSwitch.Core.Providers.Moark;
-using VSCopilotSwitch.Core.Providers.Nvidia;
-using VSCopilotSwitch.Core.Providers.OpenAI;
-using VSCopilotSwitch.Core.Providers.OpenAiCompatible;
-using VSCopilotSwitch.Core.Providers.Sub2Api;
 
 namespace VSCopilotSwitch.Services;
 
@@ -63,75 +56,11 @@ public sealed class ActiveProviderModelProvider : IModelProvider
     }
 
     private static IModelProvider CreateProvider(ProviderRuntimeConfig config)
-    {
-        var providerName = NormalizeProviderName(config);
-        var vendor = NormalizeVendor(config.Vendor);
-
-        return vendor switch
-        {
-            "openai" => new OpenAiModelProvider(new HttpClient(), new OpenAiProviderOptions
-            {
-                ProviderName = providerName,
-                BaseUrl = config.ApiUrl,
-                ApiKey = config.ApiKey!,
-                Timeout = RuntimeTimeout
-            }),
-            "deepseek" => new DeepSeekModelProvider(new HttpClient(), new DeepSeekProviderOptions
-            {
-                ProviderName = providerName,
-                BaseUrl = config.ApiUrl,
-                ApiKey = config.ApiKey!,
-                Timeout = RuntimeTimeout
-            }),
-            "claude" => new ClaudeModelProvider(new HttpClient(), new ClaudeProviderOptions
-            {
-                ProviderName = providerName,
-                BaseUrl = config.ApiUrl,
-                ApiKey = config.ApiKey!,
-                Timeout = RuntimeTimeout
-            }),
-            "nvidia" or "nvidia-nim" => new NvidiaNimModelProvider(new HttpClient(), new NvidiaNimProviderOptions
-            {
-                ProviderName = providerName,
-                BaseUrl = config.ApiUrl,
-                ApiKey = config.ApiKey!,
-                Timeout = RuntimeTimeout
-            }),
-            "moark" => new MoarkModelProvider(new HttpClient(), new MoarkProviderOptions
-            {
-                ProviderName = providerName,
-                BaseUrl = config.ApiUrl,
-                ApiKey = config.ApiKey!,
-                Timeout = RuntimeTimeout
-            }),
-            "sub2api" => new Sub2ApiModelProvider(new HttpClient(), new Sub2ApiProviderOptions
-            {
-                ProviderName = providerName,
-                BaseUrl = config.ApiUrl,
-                ApiKey = config.ApiKey!,
-                Timeout = RuntimeTimeout
-            }),
-            _ => new OpenAiCompatibleModelProvider(new HttpClient(), new OpenAiCompatibleProviderOptions
-            {
-                ProviderName = providerName,
-                PublicProviderName = config.Name,
-                BaseUrl = config.ApiUrl,
-                ApiKey = config.ApiKey!,
-                Timeout = RuntimeTimeout
-            })
-        };
-    }
-
-    private static string NormalizeProviderName(ProviderRuntimeConfig config)
-    {
-        var source = string.IsNullOrWhiteSpace(config.Id) ? config.Name : config.Id;
-        var normalized = new string(source.Trim().ToLowerInvariant()
-            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
-            .ToArray());
-        normalized = string.Join('-', normalized.Split('-', StringSplitOptions.RemoveEmptyEntries));
-        return string.IsNullOrWhiteSpace(normalized) ? "active-provider" : normalized;
-    }
-
-    private static string NormalizeVendor(string vendor)
-        => string.IsNullOrWhiteSpace(vendor) ? "openai-compatible" : vendor.Trim().ToLowerInvariant();
+        => ProviderAdapterFactory.Create(new ProviderAdapterConfig(
+            config.Id,
+            config.Name,
+            config.ApiUrl,
+            config.Model,
+            config.Vendor,
+            config.ApiKey!), RuntimeTimeout);
 }

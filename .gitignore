@@ -426,3 +426,7 @@ src/VSCopilotSwitch.Ui/dist/
 **/obj/
 .npm-cache/
 
+/.run-out
+/.build-out
+/.dotnet-home
+/.npm-cache

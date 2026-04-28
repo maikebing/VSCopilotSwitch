@@ -14,6 +14,7 @@ public interface IOllamaProxyService
 
 public sealed class OllamaProxyService : IOllamaProxyService
 {
+    private const string VsCodeModelSuffix = "@vscc";
     private readonly IReadOnlyList<IModelProvider> _providers;
 
     public OllamaProxyService(IEnumerable<IModelProvider> providers)
@@ -174,13 +175,22 @@ public sealed class OllamaProxyService : IOllamaProxyService
 
     private static bool MatchesModel(ProviderModel model, string requestedModel)
     {
+        var normalizedRequestedModel = StripVsCodeModelSuffix(requestedModel);
         if (string.Equals(model.Name, requestedModel, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(model.UpstreamModel, requestedModel, StringComparison.OrdinalIgnoreCase))
+            || string.Equals(model.UpstreamModel, normalizedRequestedModel, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return model.Aliases?.Any(alias => string.Equals(alias, requestedModel, StringComparison.OrdinalIgnoreCase)) == true;
+        return model.Aliases?.Any(alias => string.Equals(alias, normalizedRequestedModel, StringComparison.OrdinalIgnoreCase)) == true;
+    }
+
+    private static string StripVsCodeModelSuffix(string requestedModel)
+    {
+        var trimmed = requestedModel.Trim();
+        return trimmed.EndsWith(VsCodeModelSuffix, StringComparison.OrdinalIgnoreCase)
+            ? trimmed[..^VsCodeModelSuffix.Length]
+            : trimmed;
     }
 
     private static ChatRequest BuildChatRequest(OllamaChatRequest request, ModelRoute route, bool stream)

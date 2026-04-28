@@ -22,9 +22,9 @@ using VSCopilotSwitch.VsCodeConfig.Models;
 using VSCopilotSwitch.VsCodeConfig.Services;
 using Application = System.Windows.Forms.Application;
 
-var port = GetFreeTcpPort();
+var configuredServerUrl = ResolveServerUrl();
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
+builder.WebHost.UseUrls(configuredServerUrl);
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -34,6 +34,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.Services.AddSingleton<IProviderConfigService, ProviderConfigService>();
 builder.Services.AddSingleton<IModelProvider, ActiveProviderModelProvider>();
+builder.Services.AddSingleton<ProviderConnectionTester>();
+builder.Services.AddSingleton<IRequestAnalyticsService, RequestAnalyticsService>();
 builder.Services.AddSingleton<IOllamaProxyService>(serviceProvider =>
     new OllamaProxyService(serviceProvider.GetServices<IModelProvider>()));
 builder.Services.AddSingleton<IVsCodeConfigLocator, VsCodeConfigLocator>();
@@ -43,6 +45,11 @@ var webApp = builder.Build();
 
 webApp.UseDefaultFiles();
 webApp.MapStaticAssets();
+webApp.Use(async (context, next) =>
+{
+    var analytics = context.RequestServices.GetRequiredService<IRequestAnalyticsService>();
+    await analytics.InvokeAsync(context, next);
+});
 
 webApp.MapGet("/health", () => Results.Ok(new
 {
@@ -63,6 +70,24 @@ webApp.MapGet("/internal/network/port-status", (int port = 11434) =>
         ? $"127.0.0.1:{port} 当前可用。"
         : $"127.0.0.1:{port} 已被占用，请关闭其他 Ollama 或代理进程，或改用其他端口。";
     return Results.Ok(new PortStatusResponse(port, available, message));
+});
+
+webApp.MapGet("/internal/analytics", (
+    IRequestAnalyticsService analytics) =>
+{
+    return Results.Ok(analytics.GetSnapshot(configuredServerUrl, IsTcpPortAvailable(11434)));
+});
+
+webApp.MapPost("/internal/analytics/clear", (
+    IRequestAnalyticsService analytics) =>
+{
+    analytics.Clear();
+    return Results.Ok(analytics.GetSnapshot(configuredServerUrl, IsTcpPortAvailable(11434)));
+});
+
+webApp.MapMethods("/api/version", new[] { HttpMethods.Get, HttpMethods.Head }, () =>
+{
+    return Results.Ok(new OllamaVersionResponse("0.6.8"));
 });
 
 webApp.MapGet("/api/tags", async (IOllamaProxyService ollama, CancellationToken cancellationToken) =>
@@ -129,7 +154,25 @@ webApp.MapPost("/internal/providers", async (
     IProviderConfigService service,
     CancellationToken cancellationToken) =>
 {
-    return Results.Ok(await service.SaveAsync(request, cancellationToken));
+    try
+    {
+        return Results.Ok(await service.SaveAsync(request, cancellationToken));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+webApp.MapPost("/internal/providers/test-connection", async (
+    TestProviderConnectionRequest request,
+    IProviderConfigService configService,
+    ProviderConnectionTester connectionTester,
+    CancellationToken cancellationToken) =>
+{
+    var config = await configService.BuildConnectionTestConfigAsync(request, cancellationToken);
+    var result = await connectionTester.TestAsync(config, cancellationToken);
+    return Results.Ok(result);
 });
 
 webApp.MapPost("/internal/providers/reorder", async (
@@ -158,10 +201,11 @@ webApp.MapDelete("/internal/providers/{providerId}", async (
 
 webApp.MapPost("/internal/vscode/apply-ollama", async (
     ApplyVsCodeOllamaConfigRequest request,
+    IOllamaProxyService ollama,
     IVsCodeConfigService service,
     CancellationToken cancellationToken) =>
 {
-    var config = request.Config ?? ManagedOllamaConfig.Default;
+    var config = request.Config ?? await BuildRuntimeManagedOllamaConfigAsync(configuredServerUrl, ollama, cancellationToken);
     var result = await service.ApplyOllamaConfigAsync(request.UserDirectory, config, request.DryRun, cancellationToken);
     return Results.Ok(result);
 });
@@ -209,7 +253,7 @@ var serverUrl = webApp.Services
     .Features
     .Get<IServerAddressesFeature>()?
     .Addresses
-    .SingleOrDefault() ?? $"http://127.0.0.1:{port}";
+    .SingleOrDefault() ?? configuredServerUrl;
 
 var desktopApp = OmniApp.CreateBuilder(args)
     .Configure(options =>
@@ -248,6 +292,24 @@ static int GetFreeTcpPort()
     using var listener = new TcpListener(IPAddress.Loopback, 0);
     listener.Start();
     return ((IPEndPoint)listener.LocalEndpoint).Port;
+}
+
+static string ResolveServerUrl()
+{
+    var configuredUrls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
+    var configuredUrl = configuredUrls?
+        .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .FirstOrDefault();
+
+    if (Uri.TryCreate(configuredUrl, UriKind.Absolute, out var uri)
+        && uri.Scheme is "http" or "https"
+        && uri.Port is >= 1 and <= 65535)
+    {
+        return uri.AbsoluteUri.TrimEnd('/');
+    }
+
+    var port = GetFreeTcpPort();
+    return $"http://127.0.0.1:{port}";
 }
 
 static bool IsTcpPortAvailable(int targetPort)
@@ -340,7 +402,64 @@ static (int StatusCode, OllamaErrorResponse Response) MapOllamaException(Excepti
     return (StatusCodes.Status500InternalServerError, new OllamaErrorResponse("请求处理失败，请稍后重试。", "internal_error"));
 }
 
+static async Task<ManagedOllamaConfig> BuildRuntimeManagedOllamaConfigAsync(
+    string baseUrl,
+    IOllamaProxyService ollama,
+    CancellationToken cancellationToken)
+{
+    var tags = await ollama.ListTagsAsync(cancellationToken);
+    var models = tags.Models
+        .Select(model =>
+        {
+            var upstreamModel = string.IsNullOrWhiteSpace(model.Details.ParentModel)
+                ? model.Model
+                : model.Details.ParentModel;
+            var cleanModelName = string.IsNullOrWhiteSpace(upstreamModel)
+                ? model.Model
+                : upstreamModel;
+            var vsCodeModelName = ToVsCodeModelName(cleanModelName);
+
+            return new ManagedOllamaModel(vsCodeModelName, vsCodeModelName, vsCodeModelName);
+        })
+        .Where(model => !string.IsNullOrWhiteSpace(model.Id))
+        .DistinctBy(model => model.Id, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    return new ManagedOllamaConfig(
+        NormalizePublicBaseUrl(baseUrl),
+        models.Length > 0 ? models : ManagedOllamaConfig.Default.Models);
+}
+
+static string ToVsCodeModelName(string upstreamModel)
+{
+    const string suffix = "@vscc";
+    var trimmed = upstreamModel.Trim();
+    return trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+        ? trimmed
+        : $"{trimmed}{suffix}";
+}
+
+static string NormalizePublicBaseUrl(string baseUrl)
+{
+    if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
+    {
+        return baseUrl.TrimEnd('/');
+    }
+
+    var builder = new UriBuilder(uri)
+    {
+        Path = string.Empty,
+        Query = string.Empty,
+        Fragment = string.Empty
+    };
+
+    return builder.Uri.AbsoluteUri.TrimEnd('/');
+}
+
 public sealed record PortStatusResponse(int Port, bool Available, string Message);
+
+public sealed record OllamaVersionResponse(
+    [property: JsonPropertyName("version")] string Version);
 
 public sealed record ApplyVsCodeOllamaConfigRequest(
     string UserDirectory,
