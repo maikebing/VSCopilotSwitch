@@ -60,6 +60,7 @@ var app = builder
         options.TrayToolTip = "VSCopilotSwitch";
         options.TrayOpenText = "打开 VSCopilotSwitch";
         options.TrayExitText = "退出 VSCopilotSwitch";
+        options.HideMainWindowOnClose = true;
         var trayMenu = webApp.Services.GetRequiredService<ITrayMenuService>();
         options.TrayToolTipProvider = trayMenu.GetToolTip;
         options.TrayMenuProvider = trayMenu.GetMenuItems;
