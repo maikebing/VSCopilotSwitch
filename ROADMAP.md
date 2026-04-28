@@ -229,9 +229,12 @@
 - ✅️ 新增 Native WebView2 适配器：基于 `WebView2Aot` 生成式 COM binding 创建环境和 HWND controller，提供导航、尺寸同步和 JS bridge，并嵌入 WebView2 Loader 以支持 AOT 单文件发布。
 - ✅️ 收敛 Native AOT JSON 警告：主程序、Provider 配置、OpenAI-compatible / Claude Provider、VS Code 配置写入和 OmniHost 窗口事件均改为源生成或显式 `JsonNode.WriteTo`，AOT 单文件发布不再出现 IL2026 / IL3050。
 - ✅️ 修复 Native WebView2 JS bridge 初始化闪退：不再释放 `AddScriptToExecuteOnDocumentCreated` 完成回调返回的脚本 ID，发布版窗口可持续运行。
+- ✅️ 修复嵌入式 SPA 静态资源路由：发布版 `/assets/*.js`、`/assets/*.css`、favicon 均由内嵌资源返回，避免窗口白屏。
+- ✅️ 优化 VS Code 配置预览失败诊断：后端返回明确的 JSON、权限和文件占用错误，前端直接展示具体原因，并补充无效 JSON 测试。
+- ✅️ 接入 Win32 原生托盘和窗口图标：标题栏/任务栏、发布版 exe 和系统托盘使用 VSCopilotSwitch 图标，托盘菜单支持打开主界面和退出程序。
 - 🟡 可并行 实现主窗口生命周期。
 - ✅️ 实现 Windows 托盘图标最小增强：打开或聚焦主界面。
-- ✅️ 实现 Windows 托盘菜单最小增强：显示当前提供商和代理服务状态；当前模型后续接入真实路由状态。
+- ✅️ 实现 Windows 托盘菜单最小增强：右键菜单支持打开主界面和退出程序；当前提供商、当前模型和代理服务状态后续接入真实路由状态。
 - 🔵 后做 实现托盘菜单：快速切换当前提供商。
 - ✅️ 实现 Windows 托盘菜单最小增强：退出程序并触发宿主关闭流程，随后停止本地代理。
 - ✅️ 配置 SPA 构建产物输出目录，供宿主发布流程收集。

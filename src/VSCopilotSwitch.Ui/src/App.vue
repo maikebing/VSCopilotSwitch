@@ -626,7 +626,7 @@ async function previewVsCodeConfig() {
     });
 
     if (!response.ok) {
-      throw new Error('VS Code 配置预览失败，请检查目录权限和 JSON 文件格式。');
+      throw new Error(await readPublicError(response, 'VS Code 配置预览失败，请检查目录权限和 JSON 文件格式。'));
     }
 
     preview.value = await response.json();
@@ -667,7 +667,7 @@ async function applyVsCodeConfig() {
     });
 
     if (!response.ok) {
-      throw new Error('VS Code 配置写入失败，原文件已保留，请检查权限或文件占用。');
+      throw new Error(await readPublicError(response, 'VS Code 配置写入失败，原文件已保留，请检查权限或文件占用。'));
     }
 
     applyResult.value = await response.json();
@@ -700,7 +700,7 @@ async function refreshVsCodeOllamaStatus(reportError = true) {
     });
 
     if (!response.ok) {
-      throw new Error('VS Code Ollama 配置状态检查失败，请检查目录权限。');
+      throw new Error(await readPublicError(response, 'VS Code Ollama 配置状态检查失败，请检查目录权限。'));
     }
 
     vscodeOllamaStatus.value = await response.json();
@@ -733,7 +733,7 @@ async function removeVsCodeOllamaConfig() {
     });
 
     if (!response.ok) {
-      throw new Error('撤销 VS Code Ollama 配置失败，原文件已保留，请检查权限或文件占用。');
+      throw new Error(await readPublicError(response, '撤销 VS Code Ollama 配置失败，原文件已保留，请检查权限或文件占用。'));
     }
 
     applyResult.value = await response.json();

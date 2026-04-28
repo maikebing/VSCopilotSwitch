@@ -7,6 +7,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("GetOllamaConfigStatusAsync detects managed provider", GetOllamaConfigStatusAsync_DetectsManagedProvider),
     ("RemoveOllamaConfigAsync removes only managed provider", RemoveOllamaConfigAsync_RemovesOnlyManagedProvider),
     ("ApplyOllamaConfigAsync removes duplicate managed providers", ApplyOllamaConfigAsync_RemovesDuplicateManagedProviders),
+    ("ApplyOllamaConfigAsync reports invalid chatLanguageModels JSON", ApplyOllamaConfigAsync_ReportsInvalidChatLanguageModelsJson),
     ("ListBackups returns recent backups", ListBackups_ReturnsRecentBackups),
     ("RestoreBackupAsync creates safety backup", RestoreBackupAsync_CreatesSafetyBackup)
 };
@@ -111,6 +112,19 @@ static async Task ApplyOllamaConfigAsync_RemovesDuplicateManagedProviders()
     Assert.Contains("\"name\": \"OpenAI\"", content, "去重时应保留其他 Provider。");
 }
 
+static async Task ApplyOllamaConfigAsync_ReportsInvalidChatLanguageModelsJson()
+{
+    using var workspace = TestWorkspace.Create();
+    var service = new VsCodeConfigService();
+    var chatLanguageModelsPath = Path.Combine(workspace.UserDirectory, "chatLanguageModels.json");
+
+    File.WriteAllText(chatLanguageModelsPath, "[{\"name\":\"OpenAI\",]");
+
+    await Assert.ThrowsAsync<InvalidOperationException>(
+        () => service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: true),
+        "VS Code chatLanguageModels.json 无法解析。");
+}
+
 static async Task RestoreBackupAsync_CreatesSafetyBackup()
 {
     using var workspace = TestWorkspace.Create();
@@ -207,5 +221,25 @@ internal static class Assert
         {
             throw new InvalidOperationException(message);
         }
+    }
+
+    public static async Task ThrowsAsync<TException>(Func<Task> action, string expectedMessage)
+        where TException : Exception
+    {
+        try
+        {
+            await action();
+        }
+        catch (TException ex)
+        {
+            if (!ex.Message.Contains(expectedMessage, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"异常消息不符合预期。实际：{ex.Message}");
+            }
+
+            return;
+        }
+
+        throw new InvalidOperationException($"预期抛出 {typeof(TException).Name}，但操作成功完成。");
     }
 }

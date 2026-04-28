@@ -333,11 +333,11 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
                 return new JsonArray();
             }
 
-            throw new InvalidOperationException("VS Code chatLanguageModels.json must be a JSON array. Please choose the VS Code User directory or fix the file before applying changes.");
+            throw new InvalidOperationException("VS Code chatLanguageModels.json 必须是 JSON 数组。请确认选择的是 VS Code User 目录，或先修复该文件后再生成预览。");
         }
         catch (JsonException ex)
         {
-            throw new InvalidOperationException("The VS Code chatLanguageModels.json file could not be parsed. Make a backup and fix invalid JSON before applying changes.", ex);
+            throw new InvalidOperationException("VS Code chatLanguageModels.json 无法解析。请先备份并修复无效 JSON 后，再生成差异预览。", ex);
         }
     }
 
@@ -396,7 +396,7 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
     {
         if (string.IsNullOrWhiteSpace(userDirectory))
         {
-            throw new ArgumentException("VS Code user directory is required.", nameof(userDirectory));
+            throw new ArgumentException("必须选择 VS Code User 配置目录。", nameof(userDirectory));
         }
 
         return Path.GetFullPath(userDirectory);
@@ -406,20 +406,20 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
     {
         if (string.IsNullOrWhiteSpace(backupPath))
         {
-            throw new ArgumentException("Backup path is required.", nameof(backupPath));
+            throw new ArgumentException("必须选择要恢复的备份文件。", nameof(backupPath));
         }
 
         var fullBackupPath = Path.GetFullPath(backupPath);
         var fullUserDirectory = Path.GetFullPath(userDirectory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         if (!fullBackupPath.StartsWith(fullUserDirectory, StringComparison.OrdinalIgnoreCase) || !File.Exists(fullBackupPath))
         {
-            throw new InvalidOperationException("The selected backup does not belong to the selected VS Code user directory.");
+            throw new InvalidOperationException("选中的备份文件不属于当前 VS Code User 目录。");
         }
 
         var targetPath = GetTargetPathFromBackup(fullBackupPath);
         if (!IsManagedFileName(Path.GetFileName(targetPath)))
         {
-            throw new InvalidOperationException("Only VSCopilotSwitch backups for settings.json and chatLanguageModels.json can be restored.");
+            throw new InvalidOperationException("只能恢复 VSCopilotSwitch 为 settings.json 或 chatLanguageModels.json 创建的备份。");
         }
 
         return fullBackupPath;
@@ -431,7 +431,7 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         var markerIndex = backupPath.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
         if (markerIndex <= 0 || !backupPath.EndsWith(".bak", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("The selected file is not a VSCopilotSwitch backup.");
+            throw new InvalidOperationException("选中的文件不是 VSCopilotSwitch 备份。");
         }
 
         return backupPath[..markerIndex];

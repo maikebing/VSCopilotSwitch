@@ -54,6 +54,11 @@ var app = builder
         options.WindowStyle = OmniWindowStyle.Normal;
         options.BuiltInTitleBarStyle = OmniBuiltInTitleBarStyle.None;
         options.ScrollBarMode = OmniScrollBarMode.Auto;
+        options.IconPath = EnsureAppIconFile();
+        options.EnableTrayIcon = true;
+        options.TrayToolTip = "VSCopilotSwitch";
+        options.TrayOpenText = "打开 VSCopilotSwitch";
+        options.TrayExitText = "退出 VSCopilotSwitch";
         options.UserDataFolder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "VSCopilotSwitch",
@@ -253,9 +258,20 @@ webApp.MapPost("/internal/vscode/apply-ollama", async (
     IVsCodeConfigService service,
     CancellationToken cancellationToken) =>
 {
-    var config = request.Config ?? await BuildRuntimeManagedOllamaConfigAsync(configuredServerUrl, ollama, cancellationToken);
-    var result = await service.ApplyOllamaConfigAsync(request.UserDirectory, config, request.DryRun, cancellationToken);
-    return Results.Ok(result);
+    try
+    {
+        var config = request.Config ?? await BuildRuntimeManagedOllamaConfigAsync(configuredServerUrl, ollama, cancellationToken);
+        var result = await service.ApplyOllamaConfigAsync(request.UserDirectory, config, request.DryRun, cancellationToken);
+        return Results.Ok(result);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex) when (IsVsCodeConfigClientError(ex))
+    {
+        return Results.BadRequest(new ErrorMessageResponse(ex.Message));
+    }
 });
 
 webApp.MapPost("/internal/vscode/ollama-status", async (
@@ -263,8 +279,19 @@ webApp.MapPost("/internal/vscode/ollama-status", async (
     IVsCodeConfigService service,
     CancellationToken cancellationToken) =>
 {
-    var result = await service.GetOllamaConfigStatusAsync(request.UserDirectory, cancellationToken);
-    return Results.Ok(result);
+    try
+    {
+        var result = await service.GetOllamaConfigStatusAsync(request.UserDirectory, cancellationToken);
+        return Results.Ok(result);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex) when (IsVsCodeConfigClientError(ex))
+    {
+        return Results.BadRequest(new ErrorMessageResponse(ex.Message));
+    }
 });
 
 webApp.MapPost("/internal/vscode/remove-ollama", async (
@@ -272,8 +299,19 @@ webApp.MapPost("/internal/vscode/remove-ollama", async (
     IVsCodeConfigService service,
     CancellationToken cancellationToken) =>
 {
-    var result = await service.RemoveOllamaConfigAsync(request.UserDirectory, request.DryRun, cancellationToken);
-    return Results.Ok(result);
+    try
+    {
+        var result = await service.RemoveOllamaConfigAsync(request.UserDirectory, request.DryRun, cancellationToken);
+        return Results.Ok(result);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex) when (IsVsCodeConfigClientError(ex))
+    {
+        return Results.BadRequest(new ErrorMessageResponse(ex.Message));
+    }
 });
 
 webApp.MapPost("/internal/vscode/backups", (
@@ -292,7 +330,7 @@ webApp.MapPost("/internal/vscode/restore-backup", async (
     return Results.Ok(result);
 });
 
-webApp.MapFallback(async context =>
+webApp.MapGet("/{**path}", async context =>
 {
     await ServeEmbeddedSpaResourceAsync(context, embeddedSpaResources, contentTypeProvider);
 });
@@ -431,6 +469,13 @@ static (int StatusCode, OllamaErrorResponse Response) MapOllamaException(Excepti
     return (StatusCodes.Status500InternalServerError, new OllamaErrorResponse("请求处理失败，请稍后重试。", "internal_error"));
 }
 
+static bool IsVsCodeConfigClientError(Exception exception)
+    => exception is ArgumentException
+        or InvalidOperationException
+        or IOException
+        or UnauthorizedAccessException
+        or System.Security.SecurityException;
+
 static async Task<ManagedOllamaConfig> BuildRuntimeManagedOllamaConfigAsync(
     string baseUrl,
     IOllamaProxyService ollama,
@@ -496,6 +541,42 @@ static IReadOnlyDictionary<string, string> BuildEmbeddedSpaResourceMap(Assembly 
             name => "/" + name[prefix.Length..].TrimStart('\\', '/').Replace('\\', '/'),
             name => name,
             StringComparer.OrdinalIgnoreCase);
+}
+
+static string? EnsureAppIconFile()
+{
+    var assembly = Assembly.GetExecutingAssembly();
+    var iconResourceName = assembly
+        .GetManifestResourceNames()
+        .FirstOrDefault(name => name.EndsWith("favicon.ico", StringComparison.OrdinalIgnoreCase));
+    if (iconResourceName is null)
+    {
+        return null;
+    }
+
+    var iconPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "VSCopilotSwitch",
+        "Assets",
+        "VSCopilotSwitch.ico");
+    Directory.CreateDirectory(Path.GetDirectoryName(iconPath)!);
+
+    using var resourceStream = assembly.GetManifestResourceStream(iconResourceName);
+    if (resourceStream is null)
+    {
+        return null;
+    }
+
+    var shouldWrite = !File.Exists(iconPath) || new FileInfo(iconPath).Length != resourceStream.Length;
+    if (!shouldWrite)
+    {
+        return iconPath;
+    }
+
+    // Win32 托盘和窗口图标需要文件路径；发布包仍只内嵌资源，运行时幂等提取到用户本地缓存。
+    using var fileStream = File.Create(iconPath);
+    resourceStream.CopyTo(fileStream);
+    return iconPath;
 }
 
 static async Task ServeEmbeddedSpaResourceAsync(

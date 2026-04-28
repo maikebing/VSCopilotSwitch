@@ -57,6 +57,9 @@
 - ✅️ 新增 `OmniHost.NativeWebView2` 项目，基于 `WebView2Aot` 对接原生 WebView2 COM binding，并将 `WebView2Loader.dll` 嵌入资源；VSCopilotSwitch 启动界面已切换到 `NativeWebView2AdapterFactory`，避免 Native AOT 下 classic WebView2 wrapper 的 COM marshalling 问题。
 - ✅️ 将主程序、Provider 配置、上游 Provider、VS Code 配置写入和 OmniHost 生命周期事件的 JSON 读写改为 Native AOT 友好的源生成或显式 `JsonNode.WriteTo` 路径，消除 AOT 发布中的 IL2026 / IL3050 警告。
 - ✅️ 修复 Native WebView2 启动闪退：JS bridge 注入脚本完成回调返回的脚本 ID 由 WebView2 管理，不再手动释放，避免 WebView2Aot 路径触发原生崩溃。
+- ✅️ 修复 AOT 单文件发布版管理界面白屏：嵌入式 SPA 资源改用 GET catch-all 路由提供，确保 `/assets/*.js`、`/assets/*.css` 和 favicon 不再被默认 fallback 的 nonfile 规则漏掉。
+- ✅️ 优化 VS Code 配置预览错误提示：配置接口会把 JSON 格式、目录权限、文件占用等可恢复错误作为 400 返回，前端显示后端具体原因，不再统一误报为目录权限或 JSON 格式问题。
+- ✅️ 新增 AOT 友好的 Win32 原生窗口图标和托盘图标：发布版 exe、标题栏/任务栏和系统托盘使用同一 VSCopilotSwitch 图标，托盘右键菜单支持打开主界面和退出程序。
 - ✅️ 新增失败修复建议面板，针对权限不足、JSON 无效、文件占用和端口冲突给出可执行处理步骤。
 - ✅️ 新增默认折叠的高级选项面板，集中放置代理地址、熔断阈值、重试次数和备用路由。
 - ✅️ 新增 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份。
