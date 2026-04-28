@@ -42,43 +42,26 @@ public sealed class OllamaProxyService : IOllamaProxyService
                 DateTimeOffset.UtcNow,
                 0,
                 $"vscopilotswitch:{model.Model.Provider}:{model.Model.UpstreamModel}",
-                new OllamaModelDetails(
-                    model.Model.UpstreamModel,
-                    "provider-adapter",
-                    model.Model.Provider,
-                    new[] { model.Model.Provider },
-                    "remote",
-                    "remote"));
+                BuildModelDetails(model.Model),
+                BuildCapabilities(),
+                RemoteContextLength,
+                BuildModelInfo(model.Model),
+                true,
+                true);
         }).ToArray());
     }
 
     public async Task<OllamaShowResponse> ShowAsync(OllamaShowRequest request, CancellationToken cancellationToken = default)
     {
         var route = await ResolveRouteAsync(request.Model, cancellationToken);
-        var details = new OllamaModelDetails(
-            route.Model.UpstreamModel,
-            "provider-adapter",
-            route.Model.Provider,
-            new[] { route.Model.Provider },
-            "remote",
-            "remote");
-
         return new OllamaShowResponse(
             string.Empty,
             string.Empty,
             string.Empty,
             string.Empty,
-            details,
-            new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["general.architecture"] = "llama",
-                ["general.context_length"] = RemoteContextLength,
-                ["llama.context_length"] = RemoteContextLength,
-                ["vscopilotswitch.provider"] = route.Model.Provider,
-                ["vscopilotswitch.upstream_model"] = route.Model.UpstreamModel,
-                ["vscopilotswitch.context_length"] = RemoteContextLength
-            },
-            new[] { "completion", "tools", "vision" },
+            BuildModelDetails(route.Model),
+            BuildModelInfo(route.Model),
+            BuildCapabilities(),
             DateTimeOffset.UtcNow);
     }
 
@@ -237,6 +220,31 @@ public sealed class OllamaProxyService : IOllamaProxyService
             ? trimmed
             : $"{trimmed}{VsCodeModelSuffix}";
     }
+
+    private static OllamaModelDetails BuildModelDetails(ProviderModel model)
+        => new(
+            model.UpstreamModel,
+            "provider-adapter",
+            "llama",
+            new[] { "llama", model.Provider },
+            "remote",
+            "remote");
+
+    private static IReadOnlyList<string> BuildCapabilities()
+        => new[] { "completion", "chat", "tools", "vision" };
+
+    private static IReadOnlyDictionary<string, object> BuildModelInfo(ProviderModel model)
+        => new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["general.architecture"] = "llama",
+            ["general.context_length"] = RemoteContextLength,
+            ["llama.context_length"] = RemoteContextLength,
+            ["vscopilotswitch.provider"] = model.Provider,
+            ["vscopilotswitch.upstream_model"] = model.UpstreamModel,
+            ["vscopilotswitch.context_length"] = RemoteContextLength,
+            ["vscopilotswitch.supports_tool_calling"] = true,
+            ["vscopilotswitch.supports_vision"] = true
+        };
 
     private static ChatRequest BuildChatRequest(OllamaChatRequest request, ModelRoute route, bool stream)
     {

@@ -205,7 +205,7 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 ## 已实现 MVP API
 
 - `GET /health`：宿主健康检查。
-- `GET /api/tags`：Ollama 兼容模型列表；优先向 UI 当前启用供应商实时获取模型，未保存真实 API Key 或未配置真实供应商时返回内置占位模型 `vscopilotswitch/default`。
+- `GET /api/tags`：Ollama 兼容模型列表；优先向 UI 当前启用供应商实时获取模型，并在每个模型上直接返回 400K 上下文、工具调用和视觉能力元信息，兼容 VS Code 只读取模型列表的场景。未保存真实 API Key 或未配置真实供应商时返回内置占位模型 `vscopilotswitch/default`。
 - `GET /api/version`：Ollama 兼容版本探测接口，用于让 VS Code 确认本地代理满足 Ollama 0.6.4+ 要求。
 - `POST /api/show`：Ollama 兼容模型详情接口，用于 VS Code Copilot Chat 探测模型能力和元信息；当前统一声明 400K 上下文、工具调用和视觉能力。
 - `POST /api/chat`：Ollama 兼容非流式和流式聊天；优先转发到 UI 当前启用供应商对应的上游聊天接口，未配置真实供应商时走内置 `InMemoryModelProvider` 回显。

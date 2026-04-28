@@ -11,7 +11,12 @@ public sealed record OllamaModelInfo(
     [property: JsonPropertyName("modified_at")] DateTimeOffset ModifiedAt,
     [property: JsonPropertyName("size")] long Size,
     [property: JsonPropertyName("digest")] string Digest,
-    [property: JsonPropertyName("details")] OllamaModelDetails Details);
+    [property: JsonPropertyName("details")] OllamaModelDetails Details,
+    [property: JsonPropertyName("capabilities")] IReadOnlyList<string> Capabilities,
+    [property: JsonPropertyName("context_length")] int ContextLength,
+    [property: JsonPropertyName("model_info")] IReadOnlyDictionary<string, object> ModelInfo,
+    [property: JsonPropertyName("supports_tool_calling")] bool SupportsToolCalling,
+    [property: JsonPropertyName("supports_vision")] bool SupportsVision);
 
 public sealed record OllamaModelDetails(
     [property: JsonPropertyName("parent_model")] string ParentModel,

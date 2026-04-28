@@ -77,6 +77,10 @@ static async Task ListTagsAsync_ExposesVsCodeSuffixedUpstreamModelNames()
     Assert.Equal("gpt-5.5@vscc", response.Models[0].Name, "tags name 应使用 VS Code 可见的后缀模型名。");
     Assert.Equal("gpt-5.5@vscc", response.Models[0].Model, "tags model 应使用 VS Code 可见的后缀模型名。");
     Assert.Equal("gpt-5.5", response.Models[0].Details.ParentModel, "原始上游模型名应保留在 parent_model 供 UI 展示和调试。");
+    Assert.Equal(400000, response.Models[0].ContextLength, "tags 响应应在模型列表直接声明 400K 上下文。");
+    Assert.Contains("tools", string.Join(",", response.Models[0].Capabilities), "tags 响应应声明工具能力。");
+    Assert.Contains("vision", string.Join(",", response.Models[0].Capabilities), "tags 响应应声明视觉能力。");
+    Assert.Equal(400000, Convert.ToInt32(response.Models[0].ModelInfo["llama.context_length"]), "tags model_info 应声明 400K 上下文。");
 }
 
 static async Task ChatAsync_RoutesAliasesToUpstreamModel()
@@ -111,7 +115,7 @@ static async Task ShowAsync_ReturnsMetadataForVsCodeSuffixedModel()
     var response = await service.ShowAsync(new OllamaShowRequest("gpt-5.5@vscc"));
 
     Assert.Equal("gpt-5.5", response.Details.ParentModel, "show 响应应暴露原始上游模型名。");
-    Assert.Equal("alpha", response.Details.Family, "show 响应应保留 Provider 族信息。");
+    Assert.Equal("llama", response.Details.Family, "show 响应应使用 VS Code/Ollama 更易识别的模型架构族。");
     Assert.Contains("completion", string.Join(",", response.Capabilities), "show 响应应声明基础补全能力。");
     Assert.Contains("tools", string.Join(",", response.Capabilities), "show 响应应声明工具调用能力。");
     Assert.Contains("vision", string.Join(",", response.Capabilities), "show 响应应声明视觉能力。");
