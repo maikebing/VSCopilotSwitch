@@ -93,6 +93,12 @@ webApp.Use(async (context, next) =>
 webApp.MapGet("/health", () => Results.Ok(new
     HealthResponse("VSCopilotSwitch", "ok", webApp.Environment.EnvironmentName)));
 
+webApp.MapGet("/internal/about", () => Results.Ok(new AboutInfoResponse(
+    "VSCopilotSwitch",
+    ResolveAppVersion(),
+    "https://github.com/maikebing/VSCopilotSwitch",
+    "/VSCopilotSwitch.png")));
+
 webApp.MapGet("/internal/network/port-status", (int port = 5124) =>
 {
     if (port is < 1 or > 65535)
@@ -666,6 +672,26 @@ static async Task ServeEmbeddedSpaResourceAsync(
 
     await stream.CopyToAsync(context.Response.Body, context.RequestAborted);
 }
+
+static string ResolveAppVersion()
+{
+    var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+    var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+    var version = informational?.Split('+')[0].Trim();
+
+    if (!string.IsNullOrWhiteSpace(version))
+    {
+        return version;
+    }
+
+    return assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+}
+
+public sealed record AboutInfoResponse(
+    string Title,
+    string Version,
+    string GitHubUrl,
+    string EnterpriseWeChatQrPath);
 
 public sealed record PortStatusResponse(int Port, bool Available, string Message);
 

@@ -1256,15 +1256,33 @@ a {
   padding: 18px;
 }
 
+.about-panel {
+  display: grid;
+  gap: 16px;
+  border: 1px solid #dfe5ef;
+  border-radius: 18px;
+  background: #f8fbff;
+  padding: 18px;
+}
+
 .update-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
+.about-info-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 190px) minmax(0, 1fr);
+  gap: 10px;
+}
+
 .update-summary article,
 .update-release,
-.update-source-item {
+.update-source-item,
+.about-card,
+.about-info-grid article,
+.wechat-card {
   display: grid;
   gap: 4px;
   border: 1px solid var(--cc-line);
@@ -1277,9 +1295,53 @@ a {
 .update-release span,
 .update-release small,
 .update-source-item span,
-.update-source-item small {
+.update-source-item small,
+.about-card span,
+.about-info-grid span,
+.wechat-card span,
+.wechat-card small {
   overflow-wrap: anywhere;
   color: var(--cc-muted);
+}
+
+.about-card {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.about-logo {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  box-shadow: 0 10px 22px rgb(31 143 255 / 18%);
+}
+
+.about-info-grid strong,
+.about-info-grid button {
+  overflow-wrap: anywhere;
+}
+
+.about-link {
+  justify-self: start;
+  padding: 0;
+  text-align: left;
+}
+
+.wechat-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+}
+
+.wechat-card img {
+  width: 156px;
+  height: 156px;
+  border: 1px solid var(--cc-line);
+  border-radius: 12px;
+  background: #ffffff;
+  object-fit: contain;
+  padding: 8px;
 }
 
 .update-source-list {
@@ -1564,10 +1626,16 @@ a {
   .status-strip,
   .analytics-cards,
   .update-summary,
+  .about-info-grid,
+  .wechat-card,
   .form-grid.two,
   .advanced-grid,
   .settings-layout {
     grid-template-columns: 1fr;
+  }
+
+  .wechat-card img {
+    justify-self: start;
   }
 
   .settings-tabs {

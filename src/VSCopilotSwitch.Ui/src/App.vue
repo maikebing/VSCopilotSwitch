@@ -7,6 +7,13 @@ type HealthStatus = {
   mode: string;
 };
 
+type AboutInfo = {
+  Title: string;
+  Version: string;
+  GitHubUrl: string;
+  EnterpriseWeChatQrPath: string;
+};
+
 type ModelDetails = {
   parent_model?: string;
   family: string;
@@ -248,7 +255,8 @@ const providerConnectionResult = ref<ProviderConnectionTestResult | null>(null);
 const modelsRefreshedAt = ref<string | null>(null);
 const recoveryAdvice = ref<RecoveryAdvice | null>(null);
 const currentView = ref<'list' | 'edit' | 'settings' | 'analytics'>('list');
-const settingsTab = ref<'general' | 'updates' | 'backups'>('general');
+const settingsTab = ref<'general' | 'updates' | 'backups' | 'about'>('general');
+const aboutInfo = ref<AboutInfo | null>(null);
 const showApiKey = ref(false);
 const showAdvancedOptions = ref(false);
 const isCreatingProvider = ref(false);
@@ -519,19 +527,21 @@ async function loadDashboard() {
   clearError();
 
   try {
-    const [healthResponse, directoriesResponse, providersResponse] = await Promise.all([
+    const [healthResponse, directoriesResponse, providersResponse, aboutResponse] = await Promise.all([
       fetch('/health'),
       fetch('/internal/vscode/user-directories'),
-      fetch('/internal/providers')
+      fetch('/internal/providers'),
+      fetch('/internal/about')
     ]);
 
-    if (!healthResponse.ok || !directoriesResponse.ok || !providersResponse.ok) {
+    if (!healthResponse.ok || !directoriesResponse.ok || !providersResponse.ok || !aboutResponse.ok) {
       throw new Error('后端 API 返回异常，请确认本地代理已经启动。');
     }
 
     health.value = await healthResponse.json();
     directories.value = await directoriesResponse.json();
     providers.value = mapProviderViews(await providersResponse.json());
+    aboutInfo.value = await aboutResponse.json();
     selectedDirectory.value = existingDirectories.value[0]?.Path ?? directories.value[0]?.Path ?? '';
     preview.value = null;
     applyResult.value = null;
@@ -1864,6 +1874,10 @@ onMounted(loadDashboard);
               <strong>备份</strong>
               <span>配置备份列表和回滚恢复</span>
             </button>
+            <button type="button" :class="{ active: settingsTab === 'about' }" @click="settingsTab = 'about'">
+              <strong>关于</strong>
+              <span>版本、项目地址和企业微信</span>
+            </button>
           </nav>
 
           <div class="settings-panel">
@@ -2098,6 +2112,48 @@ onMounted(loadDashboard);
                   <span>{{ restoreResult.FilePath }}</span>
                   <small>使用备份：{{ restoreResult.BackupPath }}</small>
                   <small v-if="restoreResult.SafetyBackupPath">恢复前安全备份：{{ restoreResult.SafetyBackupPath }}</small>
+                </div>
+              </section>
+            </template>
+
+            <template v-else-if="settingsTab === 'about'">
+              <section class="settings-section">
+                <div>
+                  <span>关于</span>
+                  <h3>{{ aboutInfo?.Title ?? 'VSCopilotSwitch' }}</h3>
+                </div>
+                <p>本地模型供应商切换与 Ollama 兼容协议转换工具，面向 VS Code / GitHub Copilot Chat 使用场景。</p>
+              </section>
+
+              <section class="about-panel" aria-label="关于 VSCopilotSwitch">
+                <div class="about-card">
+                  <img class="about-logo" src="./assets/logo.svg" alt="VSCopilotSwitch logo" />
+                  <div>
+                    <span>应用名称</span>
+                    <strong>{{ aboutInfo?.Title ?? 'VSCopilotSwitch' }}</strong>
+                  </div>
+                </div>
+
+                <div class="about-info-grid">
+                  <article>
+                    <span>当前版本</span>
+                    <strong>{{ aboutInfo?.Version ?? '读取中' }}</strong>
+                  </article>
+                  <article>
+                    <span>GitHub</span>
+                    <button class="link-button about-link" type="button" @click="openExternalUrl(aboutInfo?.GitHubUrl ?? 'https://github.com/maikebing/VSCopilotSwitch')">
+                      {{ aboutInfo?.GitHubUrl ?? 'https://github.com/maikebing/VSCopilotSwitch' }}
+                    </button>
+                  </article>
+                </div>
+
+                <div class="wechat-card">
+                  <div>
+                    <span>企业微信</span>
+                    <strong>扫码联系和反馈</strong>
+                    <small>二维码图片来自发布包内置资源。</small>
+                  </div>
+                  <img :src="aboutInfo?.EnterpriseWeChatQrPath ?? '/VSCopilotSwitch.png'" alt="企业微信二维码" />
                 </div>
               </section>
             </template>

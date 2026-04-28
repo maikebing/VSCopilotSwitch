@@ -220,11 +220,14 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 - `GET /api/version`：Ollama 兼容版本探测接口，用于让 VS Code 确认本地代理满足 Ollama 0.6.4+ 要求。
 - `POST /api/show`：Ollama 兼容模型详情接口，用于 VS Code Copilot Chat 探测模型能力和元信息；当前统一声明 400K 上下文、工具调用、视觉和 thinking/reasoning 能力。
 - `POST /api/chat`：Ollama 兼容非流式和流式聊天；优先转发到 UI 当前启用供应商对应的上游聊天接口，未配置真实供应商时走内置 `InMemoryModelProvider` 回显。
+- `GET /internal/about`：返回关于页面所需的应用标题、当前版本、GitHub 地址和企业微信二维码路径。
 - `GET /internal/vscode/user-directories`：发现本机可能的 VS Code User 配置目录。
 - `POST /internal/vscode/apply-ollama`：对 `chatLanguageModels.json` 中的 `vscc` Ollama Provider 条目做干运行预览或安全写入，写入前会备份已有文件。
 - `GET /internal/providers/export`：导出供应商配置；默认不包含 API Key 原文、脱敏预览或加密密文，只保留 `HasApiKey` 状态。
 
 当前管理界面已提供 VS Code Ollama 配置写入向导：用户需要先选择 Windows VS Code User 目录并生成 dry-run 差异预览，确认 `vscc` Provider 条目的新增、更新或删除后才能二次确认写入；写入结果会展示备份路径、文件状态和字段级变化。顶部 VS Code Ollama 开关打开时只做状态检测，缺失配置时会跳转到写入向导并显示明确的预览/确认流程，不会静默写入。回滚入口会列出最近的 VSCopilotSwitch 备份，并在恢复指定备份前要求二次确认，同时为当前文件再创建安全备份。
+
+设置页还提供“关于”页面，展示应用标题、当前版本、GitHub 项目地址和企业微信二维码，便于用户确认版本并进入项目仓库或反馈渠道。
 
 当配置预览、写入、备份读取或恢复失败时，界面会按权限不足、JSON 无效、文件占用、端口冲突等类型展示可执行修复建议，帮助用户在不覆盖原配置的前提下处理问题。
 

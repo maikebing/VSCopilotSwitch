@@ -83,6 +83,7 @@
 - ✅️ 完成供应商页面滚动基线：编辑表单可向下滚动，首页供应商列表按数量撑开且最多显示 5 个后内部滚动。
 - ✅️ 建立独立设置页面，并将 VS Code 配置写入向导迁移到“常规”选项卡、配置回滚迁移到“备份”选项卡。
 - ✅️ 精简设置页面：移除供应商和高级熔断占位页面，未完成能力不再作为空入口暴露。
+- ✅️ 设置页新增“关于”页面：展示应用标题、当前版本、GitHub 地址和企业微信二维码。
 - ✅️ 实现配置写入向导骨架：选择 VS Code 配置目录、预览差异、确认写入、显示结果。
 - ✅️ 实现顶部 VS Code Ollama 配置开关：开启时检查配置状态，关闭时备份并撤销本项目托管字段。
 - ✅️ 实现差异视图：展示 `settings.json` 和 `chatLanguageModels.json` 的托管字段级变化。
@@ -232,6 +233,7 @@
 - ✅️ 收敛 Native AOT JSON 警告：主程序、Provider 配置、OpenAI-compatible / Claude Provider、VS Code 配置写入和 OmniHost 窗口事件均改为源生成或显式 `JsonNode.WriteTo`，AOT 单文件发布不再出现 IL2026 / IL3050。
 - ✅️ 修复 Native WebView2 JS bridge 初始化闪退：不再释放 `AddScriptToExecuteOnDocumentCreated` 完成回调返回的脚本 ID，发布版窗口可持续运行。
 - ✅️ 修复嵌入式 SPA 静态资源路由：发布版 `/assets/*.js`、`/assets/*.css`、favicon 均由内嵌资源返回，避免窗口白屏。
+- ✅️ 优化 Win32 + Native WebView2 首屏显示：启动时先完成 WebView2 初始化和首次导航，再显示主窗口，减少空白窗口闪现。
 - ✅️ 优化 VS Code 配置预览失败诊断：后端返回明确的 JSON、权限和文件占用错误，前端直接展示具体原因，并补充无效 JSON 测试。
 - ✅️ 接入 Win32 原生托盘和窗口图标：标题栏/任务栏、发布版 exe 和系统托盘使用 VSCopilotSwitch 图标，托盘菜单支持打开主界面和退出程序。
 - ✅️ 用 `src/assets/logo.svg` 重新生成 `public/favicon.ico`，统一浏览器 favicon、程序 ICO、窗口和托盘图标来源。

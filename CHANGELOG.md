@@ -58,6 +58,7 @@
 - ✅️ 将主程序、Provider 配置、上游 Provider、VS Code 配置写入和 OmniHost 生命周期事件的 JSON 读写改为 Native AOT 友好的源生成或显式 `JsonNode.WriteTo` 路径，消除 AOT 发布中的 IL2026 / IL3050 警告。
 - ✅️ 修复 Native WebView2 启动闪退：JS bridge 注入脚本完成回调返回的脚本 ID 由 WebView2 管理，不再手动释放，避免 WebView2Aot 路径触发原生崩溃。
 - ✅️ 修复 AOT 单文件发布版管理界面白屏：嵌入式 SPA 资源改用 GET catch-all 路由提供，确保 `/assets/*.js`、`/assets/*.css` 和 favicon 不再被默认 fallback 的 nonfile 规则漏掉。
+- ✅️ 优化主窗口首屏显示：Win32 宿主等待 Native WebView2 首次导航完成后再显示窗口，避免程序启动时先露出空窗口、内容随后才补上的观感。
 - ✅️ 优化 VS Code 配置预览错误提示：配置接口会把 JSON 格式、目录权限、文件占用等可恢复错误作为 400 返回，前端显示后端具体原因，不再统一误报为目录权限或 JSON 格式问题。
 - ✅️ 新增 AOT 友好的 Win32 原生窗口图标和托盘图标：发布版 exe、标题栏/任务栏和系统托盘使用同一 VSCopilotSwitch 图标，托盘右键菜单支持打开主界面和退出程序。
 - ✅️ 新增失败修复建议面板，针对权限不足、JSON 无效、文件占用和端口冲突给出可执行处理步骤。
@@ -69,6 +70,7 @@
 - ✅️ 新增本地端口占用检测 API 与高级选项中的端口检测提示。
 - ✅️ 实现主窗口生命周期：点击关闭按钮时隐藏到托盘并保持本地代理运行，托盘“打开”恢复聚焦，托盘“退出”才真正停止宿主进程。
 - ✅️ 新增自动更新策略：后台按配置从 GitHub 和 Gitee Release 检查版本，选择更高版本的 Windows 发布资产下载到本地缓存，并在设置页提供手动检查和下载入口。
+- ✅️ 设置页新增“关于”页面，展示应用标题、当前版本、GitHub 地址和企业微信二维码。
 - ✅️ 新增发布 CI：GitHub Actions 会执行 npm install、Vue SPA build、嵌入式资源检查、.NET 测试、Windows `win-x64` AOT 单文件发布和冒烟测试；分支/PR 只构建，`v*` 标签才上传 Release 资产。
 - ✅️ 发布包收敛为真正单文件资产：Release zip 只包含 `VSCopilotSwitch.exe`，避免把调试符号或生成清单放进自动更新包。
 - ✅️ 新增 Windows 托盘菜单最小增强，支持打开或聚焦主界面、查看当前提供商和代理状态、退出并停止本地代理。

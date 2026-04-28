@@ -7,6 +7,7 @@ using VSCopilotSwitch.VsCodeConfig.Models;
 
 [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(HealthResponse))]
+[JsonSerializable(typeof(AboutInfoResponse))]
 [JsonSerializable(typeof(ErrorMessageResponse))]
 [JsonSerializable(typeof(HostInfoResponse))]
 [JsonSerializable(typeof(OpenExternalUrlRequest))]
