@@ -4,6 +4,8 @@ using VSCopilotSwitch.VsCodeConfig.Services;
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("ApplyOllamaConfigAsync is idempotent", ApplyOllamaConfigAsync_IsIdempotent),
+    ("GetOllamaConfigStatusAsync detects managed config", GetOllamaConfigStatusAsync_DetectsManagedConfig),
+    ("RemoveOllamaConfigAsync removes only managed fields", RemoveOllamaConfigAsync_RemovesOnlyManagedFields),
     ("ListBackups returns recent backups", ListBackups_ReturnsRecentBackups),
     ("RestoreBackupAsync creates safety backup", RestoreBackupAsync_CreatesSafetyBackup)
 };
@@ -49,6 +51,39 @@ static async Task ListBackups_ReturnsRecentBackups()
 
     Assert.True(backups.Count >= 1, "写入已有文件前应创建备份。");
     Assert.True(backups.Any(backup => backup.FileName == "settings.json"), "备份列表应包含 settings.json。");
+}
+
+static async Task GetOllamaConfigStatusAsync_DetectsManagedConfig()
+{
+    using var workspace = TestWorkspace.Create();
+    var service = new VsCodeConfigService();
+
+    var before = await service.GetOllamaConfigStatusAsync(workspace.UserDirectory);
+    await service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: false);
+    var after = await service.GetOllamaConfigStatusAsync(workspace.UserDirectory);
+
+    Assert.True(!before.Enabled, "写入前不应检测到完整托管配置。");
+    Assert.True(after.Enabled, "写入后应检测到完整托管配置。");
+}
+
+static async Task RemoveOllamaConfigAsync_RemovesOnlyManagedFields()
+{
+    using var workspace = TestWorkspace.Create();
+    var service = new VsCodeConfigService();
+    var settingsPath = Path.Combine(workspace.UserDirectory, "settings.json");
+    var chatLanguageModelsPath = Path.Combine(workspace.UserDirectory, "chatLanguageModels.json");
+
+    File.WriteAllText(settingsPath, "{\"editor.fontSize\":14}");
+    File.WriteAllText(chatLanguageModelsPath, "{\"customProvider\":{\"name\":\"keep\"}}");
+    await service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: false);
+
+    var result = await service.RemoveOllamaConfigAsync(workspace.UserDirectory, dryRun: false);
+    var status = await service.GetOllamaConfigStatusAsync(workspace.UserDirectory);
+
+    Assert.True(result.Changes.Any(change => change.Changed), "撤销托管配置应产生变更。");
+    Assert.True(!status.Enabled, "撤销后不应再检测到完整托管配置。");
+    Assert.Contains("\"editor.fontSize\": 14", File.ReadAllText(settingsPath), "撤销不应删除用户 settings.json 字段。");
+    Assert.Contains("\"customProvider\"", File.ReadAllText(chatLanguageModelsPath), "撤销不应删除用户 chatLanguageModels.json 字段。");
 }
 
 static async Task RestoreBackupAsync_CreatesSafetyBackup()
@@ -107,6 +142,14 @@ internal static class Assert
     public static void Equal(string expected, string actual, string message)
     {
         if (!string.Equals(expected, actual, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(message);
+        }
+    }
+
+    public static void Contains(string expectedSubstring, string actual, string message)
+    {
+        if (!actual.Contains(expectedSubstring, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(message);
         }

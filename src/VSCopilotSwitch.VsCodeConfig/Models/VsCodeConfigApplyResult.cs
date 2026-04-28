@@ -5,6 +5,13 @@ public sealed record VsCodeConfigApplyResult(
     bool DryRun,
     IReadOnlyList<VsCodeConfigFileChange> Changes);
 
+public sealed record VsCodeOllamaConfigStatus(
+    string UserDirectory,
+    bool Enabled,
+    bool SettingsManaged,
+    bool ChatLanguageModelsManaged,
+    string Message);
+
 public sealed record VsCodeConfigFileChange(
     string FilePath,
     bool ExistedBefore,

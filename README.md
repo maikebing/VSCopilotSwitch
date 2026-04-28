@@ -110,9 +110,15 @@ dotnet run --project src/VSCopilotSwitch --urls http://127.0.0.1:11434
 npm --prefix src/VSCopilotSwitch.Ui run dev
 ```
 
-## sub2api 配置
+## 供应商配置与运行时路由
 
-宿主启动时会读取 `Providers:Sub2Api` 配置；如果没有配置 `BaseUrl` 和 `ApiKey`，会继续使用内置占位 Provider。开发调试建议用环境变量传入密钥，避免把 API Key 写进仓库文件：
+当前桌面宿主以 UI 中保存并启用的供应商作为 Ollama 代理运行时来源。供应商的 API Key 使用当前 Windows 用户保护数据加密落盘，前端和内部列表 API 只返回脱敏预览；`/api/tags` 会向当前启用供应商实时获取模型列表，非流式 `/api/chat` 和流式 `/api/chat` 会在请求时读取当前启用供应商，并在内存中构建对应 Provider Adapter。未保存真实 API Key 或未配置真实供应商时，代理才回退到内置占位 Provider。
+
+当前保存表单已经能配置供应商名称、官网/API 地址、模型名和 API Key；Provider 类型选择仍在阶段 5.5 后续任务中，因此非 Claude 供应商会先按 OpenAI-compatible 路径接入，Claude 供应商按 Anthropic Messages API 接入。
+
+下面各 Adapter 段落记录已实现协议能力和底层配置字段，主要用于后续测试、调试和 Provider 类型选择接入参考；真实桌面运行路径以 UI 保存并启用的供应商为准。
+
+## sub2api Adapter
 
 ```powershell
 $env:Providers__Sub2Api__BaseUrl = "https://your-sub2api.example"
@@ -120,14 +126,13 @@ $env:Providers__Sub2Api__ApiKey = "<sub2api-api-key>"
 $env:Providers__Sub2Api__Models__0__UpstreamModel = "gpt-4.1-mini"
 $env:Providers__Sub2Api__Models__0__Name = "sub2api/gpt-4.1-mini"
 $env:Providers__Sub2Api__Models__0__Aliases__0 = "gpt41-mini"
-dotnet run --project src/VSCopilotSwitch --launch-profile http
 ```
 
 `Models` 可以不配置；未配置时 Adapter 会通过 sub2api 的 `/v1/models` 拉取模型列表。配置静态模型后，`/api/tags` 会直接暴露这些模型，并在 `/api/chat` 中把 Ollama 侧模型名路由到对应的上游 `UpstreamModel`。上游 HTTP 错误会映射为 Ollama 代理错误，公开错误消息会脱敏当前 API Key。
 
 ## OpenAI Official 配置
 
-OpenAI Official Adapter 默认使用 `https://api.openai.com`，并自动访问 `/v1/models` 与 `/v1/chat/completions`。开发调试同样建议通过环境变量传入密钥；`OrganizationId` 和 `ProjectId` 可按需要配置：
+OpenAI Official Adapter 默认使用 `https://api.openai.com`，并自动访问 `/v1/models` 与 `/v1/chat/completions`。底层配置支持 `OrganizationId` 和 `ProjectId`：
 
 ```powershell
 $env:Providers__OpenAI__ApiKey = "<openai-api-key>"
@@ -136,14 +141,13 @@ $env:Providers__OpenAI__ProjectId = "<optional-project-id>"
 $env:Providers__OpenAI__Models__0__UpstreamModel = "gpt-4.1-mini"
 $env:Providers__OpenAI__Models__0__Name = "openai/gpt-4.1-mini"
 $env:Providers__OpenAI__Models__0__Aliases__0 = "openai-mini"
-dotnet run --project src/VSCopilotSwitch --launch-profile http
 ```
 
 `Models` 可以不配置；未配置时 Adapter 会通过 OpenAI 的 `/v1/models` 拉取当前 API Key 可见的模型列表。配置静态模型后可控制暴露给 Ollama 的模型名和别名，避免不同 Provider 返回相同上游模型名时产生歧义。
 
 ## DeepSeek 配置
 
-DeepSeek Adapter 默认使用 `https://api.deepseek.com`，并按官方 OpenAI-compatible 路径访问 `/models` 与 `/chat/completions`。开发调试建议使用环境变量传入密钥：
+DeepSeek Adapter 默认使用 `https://api.deepseek.com`，并按官方 OpenAI-compatible 路径访问 `/models` 与 `/chat/completions`：
 
 ```powershell
 $env:Providers__DeepSeek__ApiKey = "<deepseek-api-key>"
@@ -153,42 +157,39 @@ $env:Providers__DeepSeek__Models__0__Aliases__0 = "deepseek"
 $env:Providers__DeepSeek__Models__1__UpstreamModel = "deepseek-reasoner"
 $env:Providers__DeepSeek__Models__1__Name = "deepseek/deepseek-reasoner"
 $env:Providers__DeepSeek__Models__1__Aliases__0 = "deepseek-reasoner"
-dotnet run --project src/VSCopilotSwitch --launch-profile http
 ```
 
 `Models` 可以不配置；未配置时 Adapter 会通过 DeepSeek 的 `/models` 拉取当前 API Key 可见的模型列表。配置静态模型后可稳定 Ollama 侧模型名和别名，避免模型列表随上游变化影响 VS Code 配置。
 
 ## NVIDIA NIM 配置
 
-NVIDIA NIM Adapter 默认使用 `https://integrate.api.nvidia.com`，并访问 OpenAI-compatible 的 `/v1/models` 与 `/v1/chat/completions`。开发调试建议使用环境变量传入密钥和静态模型：
+NVIDIA NIM Adapter 默认使用 `https://integrate.api.nvidia.com`，并访问 OpenAI-compatible 的 `/v1/models` 与 `/v1/chat/completions`：
 
 ```powershell
 $env:Providers__NvidiaNim__ApiKey = "<nvidia-api-key>"
 $env:Providers__NvidiaNim__Models__0__UpstreamModel = "meta/llama-3.1-8b-instruct"
 $env:Providers__NvidiaNim__Models__0__Name = "nvidia-nim/llama-3.1-8b"
 $env:Providers__NvidiaNim__Models__0__Aliases__0 = "nim-llama"
-dotnet run --project src/VSCopilotSwitch --launch-profile http
 ```
 
 `BaseUrl` 可改成本地或私有 NIM 网关地址；如果地址本身已经包含 `/v1`，Adapter 不会重复拼接。
 
 ## MoArk 配置
 
-MoArk Adapter 默认使用 `https://moark.ai/v1`，并访问 OpenAI-compatible 的 `/models` 与 `/chat/completions` 组合路径。开发调试建议使用环境变量传入密钥：
+MoArk Adapter 默认使用 `https://moark.ai/v1`，并访问 OpenAI-compatible 的 `/models` 与 `/chat/completions` 组合路径：
 
 ```powershell
 $env:Providers__Moark__ApiKey = "<moark-api-key>"
 $env:Providers__Moark__Models__0__UpstreamModel = "claude-sonnet-4-5"
 $env:Providers__Moark__Models__0__Name = "moark/claude-sonnet-4-5"
 $env:Providers__Moark__Models__0__Aliases__0 = "moark-sonnet"
-dotnet run --project src/VSCopilotSwitch --launch-profile http
 ```
 
 `Models` 可以不配置；未配置时 Adapter 会通过 `/v1/models` 拉取当前 API Key 可见的模型列表。
 
 ## Claude Official 配置
 
-Claude Official Adapter 默认使用 `https://api.anthropic.com`，访问 `/v1/models` 与 `/v1/messages`，并自动携带 `x-api-key` 和 `anthropic-version` 请求头。开发调试建议使用环境变量传入密钥：
+Claude Official Adapter 默认使用 `https://api.anthropic.com`，访问 `/v1/models` 与 `/v1/messages`，并自动携带 `x-api-key` 和 `anthropic-version` 请求头：
 
 ```powershell
 $env:Providers__Claude__ApiKey = "<anthropic-api-key>"
@@ -197,7 +198,6 @@ $env:Providers__Claude__MaxTokens = "4096"
 $env:Providers__Claude__Models__0__UpstreamModel = "claude-sonnet-4-5"
 $env:Providers__Claude__Models__0__Name = "claude/sonnet-4-5"
 $env:Providers__Claude__Models__0__Aliases__0 = "claude-sonnet"
-dotnet run --project src/VSCopilotSwitch --launch-profile http
 ```
 
 Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API 顶层 `system` 字段，普通 `user` / `assistant` 消息保持为消息数组。当前首版聚焦文本聊天，tool use 和多模态内容后续按 VS Code 实际需求扩展。
@@ -205,8 +205,8 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 ## 已实现 MVP API
 
 - `GET /health`：宿主健康检查。
-- `GET /api/tags`：Ollama 兼容模型列表；配置 sub2api / OpenAI / DeepSeek / NVIDIA NIM / MoArk / Claude 后返回对应远端模型，未配置时返回内置占位模型 `vscopilotswitch/default`。
-- `POST /api/chat`：Ollama 兼容非流式和流式聊天；配置真实 Provider 后转发到对应上游聊天接口，未配置时走内置 `InMemoryModelProvider` 回显。
+- `GET /api/tags`：Ollama 兼容模型列表；优先向 UI 当前启用供应商实时获取模型，未保存真实 API Key 或未配置真实供应商时返回内置占位模型 `vscopilotswitch/default`。
+- `POST /api/chat`：Ollama 兼容非流式和流式聊天；优先转发到 UI 当前启用供应商对应的上游聊天接口，未配置真实供应商时走内置 `InMemoryModelProvider` 回显。
 - `GET /internal/vscode/user-directories`：发现本机可能的 VS Code User 配置目录。
 - `POST /internal/vscode/apply-ollama`：对 `settings.json` 和 `chatLanguageModels.json` 做干运行预览或安全写入，写入前会备份已有文件。
 
@@ -232,7 +232,7 @@ dotnet run --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.Vs
 
 ## 当前状态
 
-阶段 5 首批 Provider Adapter 首版已完成：项目已具备 OmniHost-ready 工程骨架、Visual Studio SPA 模式的 Vue 3 + TypeScript 管理首页、VS Code 配置管理模块、Ollama 兼容代理 MVP、Win32 + WebView2 原生窗口承载能力，以及 sub2api / OpenAI Official / DeepSeek / NVIDIA NIM / MoArk / Claude Official 首版真实 Provider Adapter。下一步会进入稳定性与路由能力，并把 API Key 从临时配置迁入受保护本地存储。
+阶段 5 首批 Provider Adapter 首版已完成，阶段 5.5 正在把 UI、受保护供应商配置、Provider Adapter 和 Ollama 代理串成真实闭环：当前已支持 UI 启用供应商驱动 `/api/tags` 与 `/api/chat`，并在首页展示真实模型刷新状态和失败原因；下一步会补齐测试连接、VS Code 写入使用当前代理模型，以及托盘状态联动。
 
 ## 当前 OmniHost 接入状态
 

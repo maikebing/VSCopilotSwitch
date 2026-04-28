@@ -72,6 +72,14 @@ type RestoreResult = {
   Restored: boolean;
 };
 
+type VsCodeOllamaConfigStatus = {
+  UserDirectory: string;
+  Enabled: boolean;
+  SettingsManaged: boolean;
+  ChatLanguageModelsManaged: boolean;
+  Message: string;
+};
+
 type PortStatus = {
   Port: number;
   Available: boolean;
@@ -86,14 +94,21 @@ type RecoveryAdvice = {
 type ProviderCard = {
   id: string;
   name: string;
+  remark: string;
   url: string;
+  apiUrl: string;
+  model: string;
   avatar: string;
   vendor: 'codex' | 'claude';
   active: boolean;
   selected: boolean;
-  balance?: string;
-  lastChecked?: string;
-  failed?: boolean;
+  hasApiKey: boolean;
+  apiKeyPreview: string | null;
+  sortOrder: number;
+};
+
+type OmniBridge = {
+  invoke: (handler: string, data?: unknown) => Promise<unknown>;
 };
 
 const health = ref<HealthStatus | null>(null);
@@ -105,72 +120,32 @@ const applyResult = ref<ApplyResult | null>(null);
 const backups = ref<ConfigBackup[]>([]);
 const selectedBackupPath = ref('');
 const restoreResult = ref<RestoreResult | null>(null);
+const vscodeOllamaStatus = ref<VsCodeOllamaConfigStatus | null>(null);
 const portStatus = ref<PortStatus | null>(null);
 const loading = ref(false);
 const previewLoading = ref(false);
 const applyLoading = ref(false);
 const backupsLoading = ref(false);
 const restoreLoading = ref(false);
+const vscodeConfigSwitchLoading = ref(false);
 const portChecking = ref(false);
+const modelsLoading = ref(false);
 const applyConfirmationArmed = ref(false);
 const restoreConfirmationArmed = ref(false);
 const errorMessage = ref('');
+const modelErrorMessage = ref('');
+const modelsRefreshedAt = ref<string | null>(null);
 const recoveryAdvice = ref<RecoveryAdvice | null>(null);
-const currentView = ref<'list' | 'edit'>('list');
+const currentView = ref<'list' | 'edit' | 'settings'>('list');
+const settingsTab = ref<'general' | 'backups' | 'providers' | 'advanced'>('general');
 const showApiKey = ref(false);
 const showAdvancedOptions = ref(false);
+const isCreatingProvider = ref(false);
+const editingProviderId = ref<string | null>(null);
+const draggedProviderId = ref('');
+const dragOverProviderId = ref('');
 
-const providers = ref<ProviderCard[]>([
-  {
-    id: 'my-codex',
-    name: 'My Codex',
-    url: 'https://how88.top',
-    avatar: 'MC',
-    vendor: 'codex',
-    active: true,
-    selected: true
-  },
-  {
-    id: 'wuji',
-    name: '无极限超大杯',
-    url: 'https://2030.wujixian.fun',
-    avatar: '无',
-    vendor: 'codex',
-    active: false,
-    selected: false,
-    failed: true
-  },
-  {
-    id: 'ham',
-    name: '哈基米公益站',
-    url: 'https://ai.td.ee',
-    avatar: '哈',
-    vendor: 'codex',
-    active: false,
-    selected: false,
-    balance: '9.81 USD',
-    lastChecked: '34 分钟前'
-  },
-  {
-    id: 'openai-official',
-    name: 'OpenAI Official',
-    url: 'https://chatgpt.com/codex',
-    avatar: '◎',
-    vendor: 'codex',
-    active: false,
-    selected: false
-  },
-  {
-    id: 'sonnet-vip',
-    name: 'Sonnet VIP',
-    url: 'https://sonnet.vip/',
-    avatar: 'SV',
-    vendor: 'claude',
-    active: false,
-    selected: false,
-    failed: true
-  }
-]);
+const providers = ref<ProviderCard[]>([]);
 
 const providerName = ref('无极限超大杯');
 const providerRemark = ref('');
@@ -196,12 +171,53 @@ const selectedDirectoryDescription = computed(() => {
 const healthState = computed(() => health.value?.status ?? 'unknown');
 const activeModel = computed(() => models.value[0]?.name ?? providerModel.value);
 const activeProvider = computed(() => providers.value.find((provider) => provider.active));
+const modelRefreshText = computed(() => {
+  if (modelsLoading.value) {
+    return '刷新中';
+  }
+
+  return models.value.length > 0 ? `${models.value.length} 个模型` : '未获取模型';
+});
+const modelRefreshTimeText = computed(() => {
+  if (!modelsRefreshedAt.value) {
+    return '尚未刷新';
+  }
+
+  return new Date(modelsRefreshedAt.value).toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+});
+const usingFallbackModelProvider = computed(() =>
+  models.value.some((model) => model.details?.family === 'vscopilotswitch' || model.name.startsWith('vscopilotswitch/'))
+);
 const providerCountText = computed(() => `${providers.value.length} 个供应商 · ${existingDirectories.value.length} 个 VS Code 配置目录`);
+const visibleProviderRows = computed(() => Math.min(providers.value.length, 5));
+const providerListMaxHeight = computed(() => {
+  const cardHeight = 128;
+  const rowGap = 18;
+  return `${visibleProviderRows.value * cardHeight + Math.max(0, visibleProviderRows.value - 1) * rowGap}px`;
+});
 const previewChangedCount = computed(() => preview.value?.Changes.filter((change) => change.Changed).length ?? 0);
 const canApplyVsCodeConfig = computed(() => Boolean(preview.value?.DryRun && selectedDirectory.value && !applyResult.value));
 const selectedBackup = computed(() => backups.value.find((backup) => backup.BackupPath === selectedBackupPath.value));
 const applyConfirmText = computed(() => (applyConfirmationArmed.value ? '已预览风险，再次点击写入' : '确认写入 VS Code Ollama 配置'));
 const restoreConfirmText = computed(() => (restoreConfirmationArmed.value ? '已确认风险，再次点击恢复' : '恢复选中备份'));
+const vscodeConfigSwitchText = computed(() => {
+  if (vscodeConfigSwitchLoading.value) {
+    return '检查中';
+  }
+
+  return vscodeOllamaStatus.value?.Enabled ? '已开启' : '未开启';
+});
+const vscodeConfigSwitchTitle = computed(() => vscodeOllamaStatus.value?.Message ?? '检查 VS Code Ollama 配置状态');
+const editTitle = computed(() => (isCreatingProvider.value ? '新增供应商' : '编辑供应商'));
+const editDescription = computed(() =>
+  isCreatingProvider.value
+    ? '请填写新供应商信息；保存前不会写入 VS Code 配置。'
+    : '保存前仅在界面中预览，后续写入配置需经过差异预览和确认。'
+);
 
 function clearError() {
   errorMessage.value = '';
@@ -215,6 +231,16 @@ function setError(message: string, advice?: RecoveryAdvice) {
 
 function messageFromError(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+async function readPublicError(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as Record<string, unknown>;
+    const message = payload.error ?? payload.Error;
+    return typeof message === 'string' && message.trim() ? message : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function buildRecoveryAdvice(message: string): RecoveryAdvice {
@@ -279,31 +305,84 @@ async function loadDashboard() {
   clearError();
 
   try {
-    const [healthResponse, tagsResponse, directoriesResponse] = await Promise.all([
+    const [healthResponse, directoriesResponse, providersResponse] = await Promise.all([
       fetch('/health'),
-      fetch('/api/tags'),
-      fetch('/internal/vscode/user-directories')
+      fetch('/internal/vscode/user-directories'),
+      fetch('/internal/providers')
     ]);
 
-    if (!healthResponse.ok || !tagsResponse.ok || !directoriesResponse.ok) {
+    if (!healthResponse.ok || !directoriesResponse.ok || !providersResponse.ok) {
       throw new Error('后端 API 返回异常，请确认本地代理已经启动。');
     }
 
     health.value = await healthResponse.json();
-    const tagResult = (await tagsResponse.json()) as TagsResponse;
-    models.value = tagResult.models;
     directories.value = await directoriesResponse.json();
+    providers.value = mapProviderViews(await providersResponse.json());
     selectedDirectory.value = existingDirectories.value[0]?.Path ?? directories.value[0]?.Path ?? '';
     preview.value = null;
     applyResult.value = null;
     backups.value = [];
     selectedBackupPath.value = '';
     restoreResult.value = null;
+    await refreshModels(false);
+    await refreshVsCodeOllamaStatus(false);
   } catch (error) {
     setError(messageFromError(error, '加载状态失败。'));
   } finally {
     loading.value = false;
   }
+}
+
+async function refreshModels(showGlobalError = true) {
+  modelsLoading.value = true;
+  modelErrorMessage.value = '';
+
+  try {
+    const response = await fetch('/api/tags');
+    if (!response.ok) {
+      throw new Error(await readPublicError(response, '模型列表刷新失败，请检查当前供应商 API 地址、API Key 和模型权限。'));
+    }
+
+    const tagResult = (await response.json()) as TagsResponse;
+    models.value = Array.isArray(tagResult.models) ? tagResult.models : [];
+    modelsRefreshedAt.value = new Date().toISOString();
+  } catch (error) {
+    const message = messageFromError(error, '模型列表刷新失败。');
+    modelErrorMessage.value = message;
+    models.value = [];
+    if (showGlobalError) {
+      setError(message);
+    }
+  } finally {
+    modelsLoading.value = false;
+  }
+}
+
+function mapProviderViews(items: unknown): ProviderCard[] {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items.map((item) => {
+    const provider = item as Record<string, unknown>;
+    const vendor = provider.Vendor === 'claude' ? 'claude' : 'codex';
+    const active = provider.Active === true;
+    return {
+      id: String(provider.Id ?? ''),
+      name: String(provider.Name ?? ''),
+      remark: String(provider.Remark ?? ''),
+      url: String(provider.Url ?? ''),
+      apiUrl: String(provider.ApiUrl ?? ''),
+      model: String(provider.Model ?? ''),
+      avatar: String(provider.Avatar ?? '?'),
+      vendor,
+      active,
+      selected: active,
+      hasApiKey: provider.HasApiKey === true,
+      apiKeyPreview: provider.ApiKeyPreview ? String(provider.ApiKeyPreview) : null,
+      sortOrder: Number(provider.SortOrder ?? 0)
+    };
+  });
 }
 
 async function previewVsCodeConfig() {
@@ -378,11 +457,98 @@ async function applyVsCodeConfig() {
     applyResult.value = await response.json();
     preview.value = applyResult.value;
     applyConfirmationArmed.value = false;
+    await refreshVsCodeOllamaStatus(false);
     await loadBackups();
   } catch (error) {
     setError(messageFromError(error, 'VS Code 配置写入失败。'));
   } finally {
     applyLoading.value = false;
+  }
+}
+
+async function refreshVsCodeOllamaStatus(reportError = true) {
+  if (!selectedDirectory.value) {
+    vscodeOllamaStatus.value = null;
+    return;
+  }
+
+  try {
+    const response = await fetch('/internal/vscode/ollama-status', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        UserDirectory: selectedDirectory.value
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('VS Code Ollama 配置状态检查失败，请检查目录权限。');
+    }
+
+    vscodeOllamaStatus.value = await response.json();
+  } catch (error) {
+    vscodeOllamaStatus.value = null;
+    if (reportError) {
+      setError(messageFromError(error, 'VS Code Ollama 配置状态检查失败。'));
+    }
+  }
+}
+
+async function removeVsCodeOllamaConfig() {
+  if (!selectedDirectory.value) {
+    setError('没有可用的 VS Code User 配置目录，无法撤销配置。');
+    return;
+  }
+
+  clearError();
+
+  try {
+    const response = await fetch('/internal/vscode/remove-ollama', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        UserDirectory: selectedDirectory.value,
+        DryRun: false
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('撤销 VS Code Ollama 配置失败，原文件已保留，请检查权限或文件占用。');
+    }
+
+    applyResult.value = await response.json();
+    preview.value = applyResult.value;
+    applyConfirmationArmed.value = false;
+    await refreshVsCodeOllamaStatus(false);
+    await loadBackups();
+  } catch (error) {
+    setError(messageFromError(error, '撤销 VS Code Ollama 配置失败。'));
+  }
+}
+
+async function handleVsCodeConfigSwitchChanged(event: Event) {
+  const checked = (event.target as HTMLInputElement).checked;
+  vscodeConfigSwitchLoading.value = true;
+  clearError();
+
+  try {
+    if (checked) {
+      await refreshVsCodeOllamaStatus(true);
+      if (!vscodeOllamaStatus.value?.Enabled) {
+        settingsTab.value = 'general';
+        currentView.value = 'settings';
+        setError('未检测到完整的 VS Code Ollama 配置，请先在设置的“常规”选项卡中生成差异预览并确认写入。');
+      }
+      return;
+    }
+
+    await removeVsCodeOllamaConfig();
+  } finally {
+    vscodeConfigSwitchLoading.value = false;
   }
 }
 
@@ -492,29 +658,217 @@ function resetVsCodeWizard() {
   clearError();
 }
 
+function resetProviderForm() {
+  editingProviderId.value = null;
+  providerName.value = '';
+  providerRemark.value = '';
+  providerWebsite.value = '';
+  providerApiKey.value = '';
+  providerApiUrl.value = '';
+  providerModel.value = '';
+  showApiKey.value = false;
+  showAdvancedOptions.value = false;
+  portStatus.value = null;
+}
+
+function openCreateProvider() {
+  resetVsCodeWizard();
+  resetProviderForm();
+  isCreatingProvider.value = true;
+  currentView.value = 'edit';
+}
+
 function openEdit(provider?: ProviderCard) {
   resetVsCodeWizard();
 
   if (provider) {
+    isCreatingProvider.value = false;
+    editingProviderId.value = provider.id;
     providerName.value = provider.name;
     providerWebsite.value = provider.url;
-    providerApiUrl.value = provider.url;
-    providerRemark.value = provider.active ? '当前启用供应商' : '';
+    providerApiUrl.value = provider.apiUrl;
+    providerRemark.value = provider.remark;
+    providerApiKey.value = '';
+    providerModel.value = provider.model;
+  } else {
+    isCreatingProvider.value = true;
+    resetProviderForm();
   }
 
   currentView.value = 'edit';
+}
+
+async function saveProvider() {
+  clearError();
+
+  try {
+    const response = await fetch('/internal/providers', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        Id: editingProviderId.value,
+        Name: providerName.value,
+        Remark: providerRemark.value,
+        Url: providerWebsite.value,
+        ApiUrl: providerApiUrl.value,
+        Model: providerModel.value,
+        Vendor: 'codex',
+        ApiKey: providerApiKey.value || null,
+        Active: providers.value.length === 0 || providers.value.some((provider) => provider.id === editingProviderId.value && provider.active)
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('保存供应商失败，请检查名称、官网链接、API 地址和模型名称。');
+    }
+
+    providers.value = mapProviderViews(await response.json());
+    await refreshModels(false);
+    openList();
+  } catch (error) {
+    setError(messageFromError(error, '保存供应商失败。'));
+  }
 }
 
 function openList() {
   currentView.value = 'list';
 }
 
-function activateProvider(providerId: string) {
-  providers.value = providers.value.map((provider) => ({
-    ...provider,
-    active: provider.id === providerId,
-    selected: provider.id === providerId
-  }));
+function openSettings() {
+  settingsTab.value = 'general';
+  currentView.value = 'settings';
+}
+
+async function activateProvider(providerId: string) {
+  clearError();
+
+  try {
+    const response = await fetch(`/internal/providers/${encodeURIComponent(providerId)}/activate`, {
+      method: 'POST'
+    });
+
+    if (!response.ok) {
+      throw new Error('启用供应商失败，请刷新后重试。');
+    }
+
+    providers.value = mapProviderViews(await response.json());
+    await refreshModels(false);
+  } catch (error) {
+    setError(messageFromError(error, '启用供应商失败。'));
+  }
+}
+
+async function openExternalUrl(url: string) {
+  try {
+    const omni = (globalThis as { omni?: OmniBridge }).omni;
+    if (omni) {
+      await omni.invoke('host.openExternal', { Url: url });
+      return;
+    }
+  } catch (error) {
+    setError(messageFromError(error, '打开供应商链接失败。'));
+    return;
+  }
+
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+function beginProviderDrag(providerId: string, event: DragEvent) {
+  draggedProviderId.value = providerId;
+  dragOverProviderId.value = providerId;
+  event.dataTransfer?.setData('text/plain', providerId);
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+  }
+}
+
+function moveProviderNear(targetProviderId: string, event: DragEvent) {
+  const sourceProviderId = draggedProviderId.value;
+  if (!sourceProviderId || sourceProviderId === targetProviderId) {
+    return;
+  }
+
+  const nextProviders = [...providers.value];
+  const sourceIndex = nextProviders.findIndex((provider) => provider.id === sourceProviderId);
+  const targetIndex = nextProviders.findIndex((provider) => provider.id === targetProviderId);
+  if (sourceIndex < 0 || targetIndex < 0) {
+    return;
+  }
+
+  const targetElement = event.currentTarget as HTMLElement | null;
+  const targetRect = targetElement?.getBoundingClientRect();
+  const insertAfterTarget = targetRect ? event.clientY > targetRect.top + targetRect.height / 2 : false;
+
+  const movedProvider = nextProviders[sourceIndex];
+  if (!movedProvider) {
+    return;
+  }
+
+  nextProviders.splice(sourceIndex, 1);
+  let insertionIndex = targetIndex + (insertAfterTarget ? 1 : 0);
+  if (sourceIndex < insertionIndex) {
+    insertionIndex -= 1;
+  }
+
+  nextProviders.splice(insertionIndex, 0, movedProvider);
+  providers.value = nextProviders;
+  dragOverProviderId.value = targetProviderId;
+}
+
+async function finishProviderDrag() {
+  const shouldPersist = Boolean(draggedProviderId.value);
+  draggedProviderId.value = '';
+  dragOverProviderId.value = '';
+
+  if (!shouldPersist) {
+    return;
+  }
+
+  try {
+    const response = await fetch('/internal/providers/reorder', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        ProviderIds: providers.value.map((provider) => provider.id)
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('保存供应商排序失败，请刷新后重试。');
+    }
+
+    providers.value = mapProviderViews(await response.json());
+  } catch (error) {
+    setError(messageFromError(error, '保存供应商排序失败。'));
+  }
+}
+
+async function deleteProvider(providerId: string) {
+  const provider = providers.value.find((item) => item.id === providerId);
+  if (!provider || !window.confirm(`删除供应商“${provider.name}”？`)) {
+    return;
+  }
+
+  clearError();
+
+  try {
+    const response = await fetch(`/internal/providers/${encodeURIComponent(providerId)}`, {
+      method: 'DELETE'
+    });
+
+    if (!response.ok) {
+      throw new Error('删除供应商失败，请刷新后重试。');
+    }
+
+    providers.value = mapProviderViews(await response.json());
+    await refreshModels(false);
+  } catch (error) {
+    setError(messageFromError(error, '删除供应商失败。'));
+  }
 }
 
 function handleDirectoryChanged() {
@@ -522,6 +876,7 @@ function handleDirectoryChanged() {
   backups.value = [];
   selectedBackupPath.value = '';
   restoreConfirmationArmed.value = false;
+  void refreshVsCodeOllamaStatus(false);
 }
 
 function handleBackupChanged() {
@@ -541,7 +896,7 @@ onMounted(loadDashboard);
           <h1>VSCopilotSwitch</h1>
           <p>{{ providerCountText }}</p>
         </div>
-        <button class="icon-button" type="button" title="设置">⚙</button>
+        <button class="icon-button" type="button" title="设置" @click="openSettings">⚙</button>
         <button class="icon-button ghost" type="button" title="统计">▥</button>
       </section>
 
@@ -550,16 +905,28 @@ onMounted(loadDashboard);
         <button class="pill selected" type="button"><span class="ide-icon vscode-icon">⌁</span> VSCode</button>
       </section>
 
+      <label class="top-config-switch" :title="vscodeConfigSwitchTitle">
+        <input
+          type="checkbox"
+          :checked="vscodeOllamaStatus?.Enabled === true"
+          :disabled="vscodeConfigSwitchLoading || !selectedDirectory"
+          @change="handleVsCodeConfigSwitchChanged"
+        />
+        <span aria-hidden="true"></span>
+        <strong>VS Code Ollama</strong>
+        <small>{{ vscodeConfigSwitchText }}</small>
+      </label>
+
       <section class="toolbar" aria-label="工具栏">
-        <button class="icon-button" type="button" title="代理设置">🔧</button>
-        <button class="icon-button" type="button" title="配置预览" @click="openEdit()">▣</button>
+        <button class="icon-button" type="button" title="代理设置" @click="openSettings">🔧</button>
+        <button class="icon-button" type="button" title="配置预览" @click="openSettings">▣</button>
         <button class="icon-button" type="button" :disabled="loading" title="刷新" @click="loadDashboard">↻</button>
         <button class="icon-button" type="button" title="附件">⌁</button>
-        <button class="add-button" type="button" title="添加供应商" @click="openEdit()">＋</button>
+        <button class="add-button" type="button" title="添加供应商" @click="openCreateProvider">＋</button>
       </section>
     </header>
 
-    <main class="page-surface">
+    <main class="page-surface" :class="currentView === 'list' ? 'list-surface' : 'edit-surface'">
       <p v-if="errorMessage" class="notice error">{{ errorMessage }}</p>
       <section v-if="recoveryAdvice" class="recovery-advice" aria-label="失败修复建议">
         <strong>{{ recoveryAdvice.title }}</strong>
@@ -588,28 +955,61 @@ onMounted(loadDashboard);
           </article>
         </div>
 
-        <div class="provider-list" aria-label="供应商列表">
+        <section class="model-panel" aria-label="当前供应商模型列表">
+          <div class="model-panel-head">
+            <div>
+              <span>模型列表</span>
+              <strong>{{ modelRefreshText }}</strong>
+              <small>上次刷新：{{ modelRefreshTimeText }}</small>
+            </div>
+            <button class="secondary-button compact" type="button" :disabled="modelsLoading" @click="refreshModels(true)">
+              {{ modelsLoading ? '刷新中...' : '刷新模型列表' }}
+            </button>
+          </div>
+          <p v-if="modelErrorMessage" class="model-error">{{ modelErrorMessage }}</p>
+          <p v-else-if="usingFallbackModelProvider" class="model-warning">未保存真实 API Key 或当前供应商不可用于运行时路由，正在显示内置占位模型。</p>
+          <div v-else-if="models.length > 0" class="model-list" aria-label="真实模型">
+            <button
+              v-for="model in models.slice(0, 8)"
+              :key="model.name"
+              class="model-chip"
+              type="button"
+              :title="model.details?.family ?? model.name"
+            >
+              {{ model.name }}
+            </button>
+          </div>
+          <p v-else class="model-empty">当前供应商尚未返回可用模型。</p>
+        </section>
+
+        <div class="provider-list" :style="{ maxHeight: providerListMaxHeight }" aria-label="供应商列表">
           <article
             v-for="provider in providers"
             :key="provider.id"
             class="provider-card"
-            :class="{ active: provider.active, selected: provider.selected }"
+            :class="{
+              active: provider.active,
+              selected: provider.selected,
+              dragging: draggedProviderId === provider.id,
+              'drag-over': dragOverProviderId === provider.id && draggedProviderId !== provider.id
+            }"
+            draggable="true"
+            @dragstart="beginProviderDrag(provider.id, $event)"
+            @dragover.prevent="moveProviderNear(provider.id, $event)"
+            @drop.prevent="finishProviderDrag"
+            @dragend="finishProviderDrag"
           >
-            <button class="drag-handle" type="button" title="拖拽排序">⠿</button>
+            <button class="drag-handle" type="button" title="拖拽排序" draggable="true">⠿</button>
             <div class="avatar" :class="provider.vendor">{{ provider.avatar }}</div>
             <div class="provider-main">
               <h2>{{ provider.name }}</h2>
-              <a :href="provider.url" target="_blank" rel="noreferrer">{{ provider.url }}</a>
+              <a :href="provider.url" rel="noreferrer" @click.prevent="openExternalUrl(provider.url)">{{ provider.url }}</a>
             </div>
             <div class="provider-meta">
-              <template v-if="provider.failed">
-                <button class="status-button danger" type="button">ⓘ 查询失败</button>
-                <button class="icon-button small" type="button" title="重新查询">↻</button>
-              </template>
-              <template v-else-if="provider.balance">
-                <span class="time">◷ {{ provider.lastChecked }}</span>
-                <span>余额：<strong class="money">{{ provider.balance }}</strong></span>
-              </template>
+              <span>{{ provider.model }}</span>
+              <span>
+                密钥：<strong class="money">{{ provider.hasApiKey ? (provider.apiKeyPreview ?? '已保存') : '未保存' }}</strong>
+              </span>
             </div>
             <div class="provider-actions">
               <button class="enable-button" type="button" :disabled="provider.active" @click="activateProvider(provider.id)">
@@ -619,22 +1019,22 @@ onMounted(loadDashboard);
               <button class="icon-button small" type="button" title="复制">▣</button>
               <button class="icon-button small" type="button" title="测试">↗</button>
               <button class="icon-button small" type="button" title="统计">▥</button>
-              <button class="icon-button small" type="button" title="删除">♲</button>
+              <button class="icon-button small" type="button" title="删除" @click="deleteProvider(provider.id)">♲</button>
             </div>
           </article>
         </div>
       </section>
 
-      <section v-else class="edit-page">
+      <section v-else-if="currentView === 'edit'" class="edit-page">
         <div class="edit-header">
           <button class="back-button" type="button" @click="openList">←</button>
           <div>
-            <h2>编辑供应商</h2>
-            <p>保存前仅在界面中预览，后续写入配置需经过差异预览和确认。</p>
+            <h2>{{ editTitle }}</h2>
+            <p>{{ editDescription }}</p>
           </div>
         </div>
 
-        <form class="provider-form" @submit.prevent="openList">
+        <form class="provider-form" @submit.prevent="saveProvider">
           <div class="logo-preview" aria-hidden="true">{{ providerName.slice(0, 1) || '无' }}</div>
 
           <div class="form-grid two">
@@ -655,7 +1055,12 @@ onMounted(loadDashboard);
 
           <label class="form-field api-key-field">
             <span>API Key</span>
-            <input v-model="providerApiKey" :type="showApiKey ? 'text' : 'password'" autocomplete="off" />
+            <input
+              v-model="providerApiKey"
+              :type="showApiKey ? 'text' : 'password'"
+              :placeholder="isCreatingProvider ? '请输入 API Key' : '留空则保留已保存密钥'"
+              autocomplete="off"
+            />
             <button type="button" @click="showApiKey = !showApiKey">{{ showApiKey ? '隐藏' : '显示' }}</button>
           </label>
 
@@ -719,131 +1124,205 @@ onMounted(loadDashboard);
             <button class="link-button format" type="button">✣ 格式化</button>
           </section>
 
-          <section class="config-wizard" aria-label="VS Code Ollama 配置写入向导">
-            <div class="wizard-title">
-              <div>
-                <span>VS Code 配置向导</span>
-                <h3>写入前必须先预览差异</h3>
-              </div>
-              <button class="link-button" type="button" @click="resetVsCodeWizard">重置</button>
-            </div>
-
-            <ol class="wizard-steps">
-              <li :class="{ done: selectedDirectory }">
-                <strong>1</strong>
-                <span>选择目录</span>
-              </li>
-              <li :class="{ done: preview }">
-                <strong>2</strong>
-                <span>预览差异</span>
-              </li>
-              <li :class="{ done: applyResult }">
-                <strong>3</strong>
-                <span>确认写入</span>
-              </li>
-              <li :class="{ done: applyResult }">
-                <strong>4</strong>
-                <span>查看结果</span>
-              </li>
-            </ol>
-
-            <label class="form-field">
-              <span>目标 VS Code User 目录</span>
-              <select v-model="selectedDirectory" @change="handleDirectoryChanged">
-                <option v-for="directory in directories" :key="directory.Path" :value="directory.Path">
-                  {{ directory.Description }} · {{ directory.Exists ? '已存在' : '将创建' }}
-                </option>
-              </select>
-            </label>
-            <p class="helper">{{ selectedDirectory || '当前没有发现 Windows VS Code User 配置目录。' }}</p>
-
-            <div class="wizard-actions">
-              <button class="secondary-button" type="button" :disabled="previewLoading || !selectedDirectory" @click="previewVsCodeConfig">
-                {{ previewLoading ? '生成预览中...' : '生成差异预览' }}
-              </button>
-              <button class="save-button" type="button" :disabled="applyLoading || !canApplyVsCodeConfig" @click="applyVsCodeConfig">
-                {{ applyLoading ? '写入中...' : applyConfirmText }}
-              </button>
-            </div>
-
-            <div v-if="applyConfirmationArmed" class="risk-confirmation">
-              <strong>请再次确认写入</strong>
-              <span>将修改所选 VS Code User 目录中的 Ollama 相关字段；已存在文件会先创建备份，未知字段会保留。</span>
-            </div>
-
-            <div v-if="preview" class="wizard-summary">
-              <strong>{{ applyResult ? '写入完成' : '预览完成' }}</strong>
-              <span>{{ previewChangedCount }} 个文件需要更新，{{ preview.Changes.length - previewChangedCount }} 个文件无需变更。</span>
-              <small>写入前会备份已存在文件；未变更文件不会重复写入，避免配置漂移。</small>
-            </div>
-
-            <div v-if="preview" class="preview-list">
-              <div v-for="change in preview.Changes" :key="change.FilePath" class="preview-item">
-                <strong>{{ change.Changed ? (applyResult ? '已更新' : '将更新') : '无需变更' }}</strong>
-                <span>{{ change.FilePath }}</span>
-                <small>{{ change.ExistedBefore ? '保留未知字段，只调整本项目托管的 Ollama 字段' : '文件不存在，确认写入时会创建' }}</small>
-                <small v-if="change.BackupPath">备份位置：{{ change.BackupPath }}</small>
-                <div class="field-diff-list" aria-label="字段级差异">
-                  <div v-for="field in change.FieldChanges" :key="field.Path" class="field-diff" :class="{ changed: field.Changed }">
-                    <code>{{ field.Path }}</code>
-                    <span>{{ field.Changed ? '将变更' : '不变' }}</span>
-                    <small>原值：{{ field.BeforeValue }}</small>
-                    <small>新值：{{ field.AfterValue }}</small>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section class="rollback-panel" aria-label="VS Code 配置回滚">
-            <div class="wizard-title">
-              <div>
-                <span>回滚入口</span>
-                <h3>从最近备份恢复配置</h3>
-              </div>
-              <button class="secondary-button" type="button" :disabled="backupsLoading || !selectedDirectory" @click="loadBackups">
-                {{ backupsLoading ? '读取中...' : '刷新备份' }}
-              </button>
-            </div>
-
-            <p class="helper">只显示 VSCopilotSwitch 为 `settings.json` 和 `chatLanguageModels.json` 创建的备份，恢复前会先为当前文件创建安全备份。</p>
-
-            <div v-if="backups.length" class="rollback-list">
-              <label v-for="backup in backups" :key="backup.BackupPath" class="rollback-item">
-                <input v-model="selectedBackupPath" type="radio" name="vscode-backup" :value="backup.BackupPath" @change="handleBackupChanged" />
-                <span>
-                  <strong>{{ backup.FileName }}</strong>
-                  <small>{{ new Date(backup.CreatedAt).toLocaleString() }} · {{ Math.max(1, Math.round(backup.SizeBytes / 1024)) }} KB</small>
-                  <small>{{ backup.BackupPath }}</small>
-                </span>
-              </label>
-            </div>
-            <p v-else class="empty-backups">当前目录还没有可回滚的 VSCopilotSwitch 备份。</p>
-
-            <div class="wizard-actions">
-              <button class="save-button danger" type="button" :disabled="restoreLoading || !selectedBackup" @click="restoreBackup">
-                {{ restoreLoading ? '恢复中...' : restoreConfirmText }}
-              </button>
-            </div>
-
-            <div v-if="restoreConfirmationArmed" class="risk-confirmation danger">
-              <strong>请再次确认恢复</strong>
-              <span>将用选中备份覆盖当前 {{ selectedBackup?.FileName }}；恢复前会为当前文件创建一份安全备份。</span>
-            </div>
-
-            <div v-if="restoreResult" class="wizard-summary rollback-result">
-              <strong>恢复完成</strong>
-              <span>{{ restoreResult.FilePath }}</span>
-              <small>使用备份：{{ restoreResult.BackupPath }}</small>
-              <small v-if="restoreResult.SafetyBackupPath">恢复前安全备份：{{ restoreResult.SafetyBackupPath }}</small>
-            </div>
-          </section>
-
           <footer class="form-footer">
             <button class="secondary-button" type="button" @click="openList">取消</button>
             <button class="save-button" type="submit">▣ 保存</button>
           </footer>
         </form>
+      </section>
+
+      <section v-else class="settings-page">
+        <div class="edit-header">
+          <button class="back-button" type="button" @click="openList">←</button>
+          <div>
+            <h2>设置</h2>
+            <p>集中管理本地代理、VS Code 配置写入和后续高级能力。</p>
+          </div>
+        </div>
+
+        <div class="settings-layout">
+          <nav class="settings-tabs" aria-label="设置选项卡">
+            <button type="button" :class="{ active: settingsTab === 'general' }" @click="settingsTab = 'general'">
+              <strong>常规</strong>
+              <span>VS Code 配置写入、代理基础状态</span>
+            </button>
+            <button type="button" :class="{ active: settingsTab === 'backups' }" @click="settingsTab = 'backups'">
+              <strong>备份</strong>
+              <span>配置备份列表和回滚恢复</span>
+            </button>
+            <button type="button" :class="{ active: settingsTab === 'providers' }" @click="settingsTab = 'providers'">
+              <strong>供应商</strong>
+              <span>供应商列表和默认路由</span>
+            </button>
+            <button type="button" :class="{ active: settingsTab === 'advanced' }" @click="settingsTab = 'advanced'">
+              <strong>高级</strong>
+              <span>熔断、重试和备用路由</span>
+            </button>
+          </nav>
+
+          <div class="settings-panel">
+            <template v-if="settingsTab === 'general'">
+              <section class="settings-section">
+                <div>
+                  <span>常规</span>
+                  <h3>VS Code Ollama 配置</h3>
+                </div>
+                <p>先选择 VS Code User 目录并生成 dry-run 差异预览，确认目标文件和字段变化后再写入。</p>
+              </section>
+
+              <section class="config-wizard" aria-label="VS Code Ollama 配置写入向导">
+                <div class="wizard-title">
+                  <div>
+                    <span>VS Code 配置向导</span>
+                    <h3>写入前必须先预览差异</h3>
+                  </div>
+                  <button class="link-button" type="button" @click="resetVsCodeWizard">重置</button>
+                </div>
+
+                <ol class="wizard-steps">
+                  <li :class="{ done: selectedDirectory }">
+                    <strong>1</strong>
+                    <span>选择目录</span>
+                  </li>
+                  <li :class="{ done: preview }">
+                    <strong>2</strong>
+                    <span>预览差异</span>
+                  </li>
+                  <li :class="{ done: applyResult }">
+                    <strong>3</strong>
+                    <span>确认写入</span>
+                  </li>
+                  <li :class="{ done: applyResult }">
+                    <strong>4</strong>
+                    <span>查看结果</span>
+                  </li>
+                </ol>
+
+                <label class="form-field">
+                  <span>目标 VS Code User 目录</span>
+                  <select v-model="selectedDirectory" @change="handleDirectoryChanged">
+                    <option v-for="directory in directories" :key="directory.Path" :value="directory.Path">
+                      {{ directory.Description }} · {{ directory.Exists ? '已存在' : '将创建' }}
+                    </option>
+                  </select>
+                </label>
+                <p class="helper">{{ selectedDirectory || '当前没有发现 Windows VS Code User 配置目录。' }}</p>
+
+                <div class="wizard-actions">
+                  <button class="secondary-button" type="button" :disabled="previewLoading || !selectedDirectory" @click="previewVsCodeConfig">
+                    {{ previewLoading ? '生成预览中...' : '生成差异预览' }}
+                  </button>
+                  <button class="save-button" type="button" :disabled="applyLoading || !canApplyVsCodeConfig" @click="applyVsCodeConfig">
+                    {{ applyLoading ? '写入中...' : applyConfirmText }}
+                  </button>
+                </div>
+
+                <div v-if="applyConfirmationArmed" class="risk-confirmation">
+                  <strong>请再次确认写入</strong>
+                  <span>将修改所选 VS Code User 目录中的 Ollama 相关字段；已存在文件会先创建备份，未知字段会保留。</span>
+                </div>
+
+                <div v-if="preview" class="wizard-summary">
+                  <strong>{{ applyResult ? '写入完成' : '预览完成' }}</strong>
+                  <span>{{ previewChangedCount }} 个文件需要更新，{{ preview.Changes.length - previewChangedCount }} 个文件无需变更。</span>
+                  <small>写入前会备份已存在文件；未变更文件不会重复写入，避免配置漂移。</small>
+                </div>
+
+                <div v-if="preview" class="preview-list">
+                  <div v-for="change in preview.Changes" :key="change.FilePath" class="preview-item">
+                    <strong>{{ change.Changed ? (applyResult ? '已更新' : '将更新') : '无需变更' }}</strong>
+                    <span>{{ change.FilePath }}</span>
+                    <small>{{ change.ExistedBefore ? '保留未知字段，只调整本项目托管的 Ollama 字段' : '文件不存在，确认写入时会创建' }}</small>
+                    <small v-if="change.BackupPath">备份位置：{{ change.BackupPath }}</small>
+                    <div class="field-diff-list" aria-label="字段级差异">
+                      <div v-for="field in change.FieldChanges" :key="field.Path" class="field-diff" :class="{ changed: field.Changed }">
+                        <code>{{ field.Path }}</code>
+                        <span>{{ field.Changed ? '将变更' : '不变' }}</span>
+                        <small>原值：{{ field.BeforeValue }}</small>
+                        <small>新值：{{ field.AfterValue }}</small>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+            </template>
+
+            <template v-else-if="settingsTab === 'backups'">
+              <section class="settings-section">
+                <div>
+                  <span>备份</span>
+                  <h3>VS Code 配置回滚</h3>
+                </div>
+                <p>只恢复 VSCopilotSwitch 创建的备份；恢复前会再次备份当前文件，方便撤销误操作。</p>
+              </section>
+
+              <section class="rollback-panel" aria-label="VS Code 配置回滚">
+                <div class="wizard-title">
+                  <div>
+                    <span>回滚入口</span>
+                    <h3>从最近备份恢复配置</h3>
+                  </div>
+                  <button class="secondary-button" type="button" :disabled="backupsLoading || !selectedDirectory" @click="loadBackups">
+                    {{ backupsLoading ? '读取中...' : '刷新备份' }}
+                  </button>
+                </div>
+
+                <p class="helper">只显示 VSCopilotSwitch 为 `settings.json` 和 `chatLanguageModels.json` 创建的备份，恢复前会先为当前文件创建安全备份。</p>
+
+                <div v-if="backups.length" class="rollback-list">
+                  <label v-for="backup in backups" :key="backup.BackupPath" class="rollback-item">
+                    <input v-model="selectedBackupPath" type="radio" name="vscode-backup" :value="backup.BackupPath" @change="handleBackupChanged" />
+                    <span>
+                      <strong>{{ backup.FileName }}</strong>
+                      <small>{{ new Date(backup.CreatedAt).toLocaleString() }} · {{ Math.max(1, Math.round(backup.SizeBytes / 1024)) }} KB</small>
+                      <small>{{ backup.BackupPath }}</small>
+                    </span>
+                  </label>
+                </div>
+                <p v-else class="empty-backups">当前目录还没有可回滚的 VSCopilotSwitch 备份。</p>
+
+                <div class="wizard-actions">
+                  <button class="save-button danger" type="button" :disabled="restoreLoading || !selectedBackup" @click="restoreBackup">
+                    {{ restoreLoading ? '恢复中...' : restoreConfirmText }}
+                  </button>
+                </div>
+
+                <div v-if="restoreConfirmationArmed" class="risk-confirmation danger">
+                  <strong>请再次确认恢复</strong>
+                  <span>将用选中备份覆盖当前 {{ selectedBackup?.FileName }}；恢复前会为当前文件创建一份安全备份。</span>
+                </div>
+
+                <div v-if="restoreResult" class="wizard-summary rollback-result">
+                  <strong>恢复完成</strong>
+                  <span>{{ restoreResult.FilePath }}</span>
+                  <small>使用备份：{{ restoreResult.BackupPath }}</small>
+                  <small v-if="restoreResult.SafetyBackupPath">恢复前安全备份：{{ restoreResult.SafetyBackupPath }}</small>
+                </div>
+              </section>
+            </template>
+
+            <template v-else-if="settingsTab === 'providers'">
+              <section class="settings-section">
+                <div>
+                  <span>供应商</span>
+                  <h3>供应商管理入口</h3>
+                </div>
+                <p>供应商增删改、排序和启用状态仍在首页处理，后续会在这里补默认路由和导入导出。</p>
+              </section>
+            </template>
+
+            <template v-else>
+              <section class="settings-section">
+                <div>
+                  <span>高级</span>
+                  <h3>稳定性参数</h3>
+                </div>
+                <p>熔断、重试、备用路由和健康检查会随阶段 6 继续补齐。</p>
+              </section>
+            </template>
+          </div>
+        </div>
       </section>
     </main>
   </div>

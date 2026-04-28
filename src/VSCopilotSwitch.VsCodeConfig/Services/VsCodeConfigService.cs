@@ -6,9 +6,18 @@ namespace VSCopilotSwitch.VsCodeConfig.Services;
 
 public interface IVsCodeConfigService
 {
+    Task<VsCodeOllamaConfigStatus> GetOllamaConfigStatusAsync(
+        string userDirectory,
+        CancellationToken cancellationToken = default);
+
     Task<VsCodeConfigApplyResult> ApplyOllamaConfigAsync(
         string userDirectory,
         ManagedOllamaConfig config,
+        bool dryRun,
+        CancellationToken cancellationToken = default);
+
+    Task<VsCodeConfigApplyResult> RemoveOllamaConfigAsync(
+        string userDirectory,
         bool dryRun,
         CancellationToken cancellationToken = default);
 
@@ -45,6 +54,62 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         {
             await BuildSettingsChangeAsync(fullUserDirectory, config, dryRun, cancellationToken),
             await BuildChatLanguageModelsChangeAsync(fullUserDirectory, config, dryRun, cancellationToken)
+        };
+
+        if (!dryRun)
+        {
+            Directory.CreateDirectory(fullUserDirectory);
+            foreach (var change in changes.Where(change => change.Changed))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(change.FilePath)!);
+                if (change.ExistedBefore)
+                {
+                    File.Copy(change.FilePath, change.BackupPath!, overwrite: false);
+                }
+
+                await File.WriteAllTextAsync(change.FilePath, change.AfterContent, cancellationToken);
+            }
+        }
+
+        return new VsCodeConfigApplyResult(fullUserDirectory, dryRun, changes);
+    }
+
+    public async Task<VsCodeOllamaConfigStatus> GetOllamaConfigStatusAsync(
+        string userDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        var fullUserDirectory = ResolveUserDirectory(userDirectory);
+        var settingsPath = Path.Combine(fullUserDirectory, "settings.json");
+        var chatLanguageModelsPath = Path.Combine(fullUserDirectory, "chatLanguageModels.json");
+
+        var settingsManaged = File.Exists(settingsPath)
+            && HasManagedSettingsConfig(await File.ReadAllTextAsync(settingsPath, cancellationToken));
+        var chatLanguageModelsManaged = File.Exists(chatLanguageModelsPath)
+            && HasManagedChatLanguageModelsConfig(await File.ReadAllTextAsync(chatLanguageModelsPath, cancellationToken));
+
+        var enabled = settingsManaged && chatLanguageModelsManaged;
+        var message = enabled
+            ? "已检测到 VSCopilotSwitch 管理的 VS Code Ollama 配置。"
+            : "未检测到完整的 VSCopilotSwitch VS Code Ollama 配置。";
+
+        return new VsCodeOllamaConfigStatus(
+            fullUserDirectory,
+            enabled,
+            settingsManaged,
+            chatLanguageModelsManaged,
+            message);
+    }
+
+    public async Task<VsCodeConfigApplyResult> RemoveOllamaConfigAsync(
+        string userDirectory,
+        bool dryRun,
+        CancellationToken cancellationToken = default)
+    {
+        var fullUserDirectory = ResolveUserDirectory(userDirectory);
+        var changes = new List<VsCodeConfigFileChange>
+        {
+            await BuildSettingsRemovalChangeAsync(fullUserDirectory, dryRun, cancellationToken),
+            await BuildChatLanguageModelsRemovalChangeAsync(fullUserDirectory, dryRun, cancellationToken)
         };
 
         if (!dryRun)
@@ -162,6 +227,95 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
             CreateFieldChange("vscopilotswitch.models", before, after)
         };
         return CreateChange(filePath, before, after, dryRun, fieldChanges);
+    }
+
+    private static async Task<VsCodeConfigFileChange> BuildSettingsRemovalChangeAsync(
+        string userDirectory,
+        bool dryRun,
+        CancellationToken cancellationToken)
+    {
+        var filePath = Path.Combine(userDirectory, "settings.json");
+        var before = await ReadOrDefaultAsync(filePath, "{}", cancellationToken);
+        var root = ParseObjectOrEmpty(before);
+
+        root.Remove("vscopilotswitch.managedBy");
+        root.Remove("vscopilotswitch.ollama.baseUrl");
+        root.Remove("vscopilotswitch.ollama.enabled");
+
+        var after = ToJson(root);
+        var fieldChanges = new[]
+        {
+            CreateFieldChange("vscopilotswitch.managedBy", before, after),
+            CreateFieldChange("vscopilotswitch.ollama.baseUrl", before, after),
+            CreateFieldChange("vscopilotswitch.ollama.enabled", before, after)
+        };
+        return CreateChange(filePath, before, after, dryRun, fieldChanges);
+    }
+
+    private static async Task<VsCodeConfigFileChange> BuildChatLanguageModelsRemovalChangeAsync(
+        string userDirectory,
+        bool dryRun,
+        CancellationToken cancellationToken)
+    {
+        var filePath = Path.Combine(userDirectory, "chatLanguageModels.json");
+        var before = await ReadOrDefaultAsync(filePath, "{}", cancellationToken);
+        var root = ParseObjectOrEmpty(before);
+        var managedByThisApp = HasManagedChatLanguageModelsConfig(before);
+
+        if (managedByThisApp)
+        {
+            root.Remove("vscopilotswitch");
+        }
+
+        var after = ToJson(root);
+        var fieldChanges = new[]
+        {
+            CreateFieldChange("vscopilotswitch", before, after),
+            CreateFieldChange("vscopilotswitch.managedBy", before, after),
+            CreateFieldChange("vscopilotswitch.provider", before, after),
+            CreateFieldChange("vscopilotswitch.models", before, after)
+        };
+        return CreateChange(filePath, before, after, dryRun, fieldChanges);
+    }
+
+    private static bool HasManagedSettingsConfig(string content)
+    {
+        var root = ParseObjectOrEmpty(content);
+        return string.Equals(ReadString(root["vscopilotswitch.managedBy"]), ManagedBy, StringComparison.Ordinal)
+            && ReadBool(root["vscopilotswitch.ollama.enabled"]) == true
+            && !string.IsNullOrWhiteSpace(ReadString(root["vscopilotswitch.ollama.baseUrl"]));
+    }
+
+    private static bool HasManagedChatLanguageModelsConfig(string content)
+    {
+        var root = ParseObjectOrEmpty(content);
+        var managed = root["vscopilotswitch"] as JsonObject;
+        return string.Equals(ReadString(managed?["managedBy"]), ManagedBy, StringComparison.Ordinal)
+            && string.Equals(ReadString(managed?["provider"]), "ollama", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ReadString(JsonNode? node)
+    {
+        try
+        {
+            return node?.GetValue<string>();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool? ReadBool(JsonNode? node)
+    {
+        try
+        {
+            return node?.GetValue<bool>();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static async Task<string> ReadOrDefaultAsync(string filePath, string defaultContent, CancellationToken cancellationToken)

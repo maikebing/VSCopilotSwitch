@@ -1,6 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
-using System.Globalization;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows.Forms;
@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -18,12 +17,7 @@ using OmniHost.WebView2;
 using OmniHost.Windows;
 using VSCopilotSwitch.Core.Ollama;
 using VSCopilotSwitch.Core.Providers;
-using VSCopilotSwitch.Core.Providers.Claude;
-using VSCopilotSwitch.Core.Providers.DeepSeek;
-using VSCopilotSwitch.Core.Providers.Moark;
-using VSCopilotSwitch.Core.Providers.Nvidia;
-using VSCopilotSwitch.Core.Providers.OpenAI;
-using VSCopilotSwitch.Core.Providers.Sub2Api;
+using VSCopilotSwitch.Services;
 using VSCopilotSwitch.VsCodeConfig.Models;
 using VSCopilotSwitch.VsCodeConfig.Services;
 using Application = System.Windows.Forms.Application;
@@ -38,20 +32,10 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 });
 
-var configuredProviders = LoadConfiguredModelProviders(builder.Configuration);
-if (configuredProviders.Count == 0)
-{
-    builder.Services.AddSingleton<IModelProvider, InMemoryModelProvider>();
-}
-else
-{
-    foreach (var provider in configuredProviders)
-    {
-        builder.Services.AddSingleton<IModelProvider>(provider);
-    }
-}
-
-builder.Services.AddSingleton<IOllamaProxyService, OllamaProxyService>();
+builder.Services.AddSingleton<IProviderConfigService, ProviderConfigService>();
+builder.Services.AddSingleton<IModelProvider, ActiveProviderModelProvider>();
+builder.Services.AddSingleton<IOllamaProxyService>(serviceProvider =>
+    new OllamaProxyService(serviceProvider.GetServices<IModelProvider>()));
 builder.Services.AddSingleton<IVsCodeConfigLocator, VsCodeConfigLocator>();
 builder.Services.AddSingleton<IVsCodeConfigService, VsCodeConfigService>();
 
@@ -133,6 +117,45 @@ webApp.MapGet("/internal/vscode/user-directories", (IVsCodeConfigLocator locator
     return Results.Ok(locator.FindUserDirectories());
 });
 
+webApp.MapGet("/internal/providers", async (
+    IProviderConfigService service,
+    CancellationToken cancellationToken) =>
+{
+    return Results.Ok(await service.ListAsync(cancellationToken));
+});
+
+webApp.MapPost("/internal/providers", async (
+    SaveProviderConfigRequest request,
+    IProviderConfigService service,
+    CancellationToken cancellationToken) =>
+{
+    return Results.Ok(await service.SaveAsync(request, cancellationToken));
+});
+
+webApp.MapPost("/internal/providers/reorder", async (
+    ReorderProvidersRequest request,
+    IProviderConfigService service,
+    CancellationToken cancellationToken) =>
+{
+    return Results.Ok(await service.ReorderAsync(request, cancellationToken));
+});
+
+webApp.MapPost("/internal/providers/{providerId}/activate", async (
+    string providerId,
+    IProviderConfigService service,
+    CancellationToken cancellationToken) =>
+{
+    return Results.Ok(await service.ActivateAsync(providerId, cancellationToken));
+});
+
+webApp.MapDelete("/internal/providers/{providerId}", async (
+    string providerId,
+    IProviderConfigService service,
+    CancellationToken cancellationToken) =>
+{
+    return Results.Ok(await service.DeleteAsync(providerId, cancellationToken));
+});
+
 webApp.MapPost("/internal/vscode/apply-ollama", async (
     ApplyVsCodeOllamaConfigRequest request,
     IVsCodeConfigService service,
@@ -140,6 +163,24 @@ webApp.MapPost("/internal/vscode/apply-ollama", async (
 {
     var config = request.Config ?? ManagedOllamaConfig.Default;
     var result = await service.ApplyOllamaConfigAsync(request.UserDirectory, config, request.DryRun, cancellationToken);
+    return Results.Ok(result);
+});
+
+webApp.MapPost("/internal/vscode/ollama-status", async (
+    VsCodeUserDirectoryRequest request,
+    IVsCodeConfigService service,
+    CancellationToken cancellationToken) =>
+{
+    var result = await service.GetOllamaConfigStatusAsync(request.UserDirectory, cancellationToken);
+    return Results.Ok(result);
+});
+
+webApp.MapPost("/internal/vscode/remove-ollama", async (
+    RemoveVsCodeOllamaConfigRequest request,
+    IVsCodeConfigService service,
+    CancellationToken cancellationToken) =>
+{
+    var result = await service.RemoveOllamaConfigAsync(request.UserDirectory, request.DryRun, cancellationToken);
     return Results.Ok(result);
 });
 
@@ -221,349 +262,6 @@ static bool IsTcpPortAvailable(int targetPort)
     {
         return false;
     }
-}
-
-static IReadOnlyList<IModelProvider> LoadConfiguredModelProviders(IConfiguration configuration)
-{
-    var providers = new List<IModelProvider>();
-
-    var sub2ApiOptions = LoadSub2ApiOptions(configuration);
-    if (sub2ApiOptions is not null)
-    {
-        providers.Add(new Sub2ApiModelProvider(new HttpClient(), sub2ApiOptions));
-    }
-
-    var openAiOptions = LoadOpenAiOptions(configuration);
-    if (openAiOptions is not null)
-    {
-        providers.Add(new OpenAiModelProvider(new HttpClient(), openAiOptions));
-    }
-
-    var deepSeekOptions = LoadDeepSeekOptions(configuration);
-    if (deepSeekOptions is not null)
-    {
-        providers.Add(new DeepSeekModelProvider(new HttpClient(), deepSeekOptions));
-    }
-
-    var nvidiaNimOptions = LoadNvidiaNimOptions(configuration);
-    if (nvidiaNimOptions is not null)
-    {
-        providers.Add(new NvidiaNimModelProvider(new HttpClient(), nvidiaNimOptions));
-    }
-
-    var moarkOptions = LoadMoarkOptions(configuration);
-    if (moarkOptions is not null)
-    {
-        providers.Add(new MoarkModelProvider(new HttpClient(), moarkOptions));
-    }
-
-    var claudeOptions = LoadClaudeOptions(configuration);
-    if (claudeOptions is not null)
-    {
-        providers.Add(new ClaudeModelProvider(new HttpClient(), claudeOptions));
-    }
-
-    return providers;
-}
-
-static Sub2ApiProviderOptions? LoadSub2ApiOptions(IConfiguration configuration)
-{
-    var section = configuration.GetSection("Providers:Sub2Api");
-    var baseUrl = section["BaseUrl"];
-    var apiKey = section["ApiKey"];
-    if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(apiKey))
-    {
-        return null;
-    }
-
-    return new Sub2ApiProviderOptions
-    {
-        ProviderName = string.IsNullOrWhiteSpace(section["ProviderName"]) ? "sub2api" : section["ProviderName"]!,
-        BaseUrl = baseUrl,
-        ApiKey = apiKey,
-        Timeout = LoadTimeout(section),
-        Models = LoadSub2ApiModels(section.GetSection("Models"))
-    };
-}
-
-static OpenAiProviderOptions? LoadOpenAiOptions(IConfiguration configuration)
-{
-    var section = configuration.GetSection("Providers:OpenAI");
-    var apiKey = section["ApiKey"];
-    if (string.IsNullOrWhiteSpace(apiKey))
-    {
-        return null;
-    }
-
-    return new OpenAiProviderOptions
-    {
-        ProviderName = string.IsNullOrWhiteSpace(section["ProviderName"]) ? "openai" : section["ProviderName"]!,
-        BaseUrl = string.IsNullOrWhiteSpace(section["BaseUrl"]) ? "https://api.openai.com" : section["BaseUrl"]!,
-        ApiKey = apiKey,
-        OrganizationId = section["OrganizationId"],
-        ProjectId = section["ProjectId"],
-        Timeout = LoadTimeout(section),
-        Models = LoadOpenAiModels(section.GetSection("Models"))
-    };
-}
-
-static DeepSeekProviderOptions? LoadDeepSeekOptions(IConfiguration configuration)
-{
-    var section = configuration.GetSection("Providers:DeepSeek");
-    var apiKey = section["ApiKey"];
-    if (string.IsNullOrWhiteSpace(apiKey))
-    {
-        return null;
-    }
-
-    return new DeepSeekProviderOptions
-    {
-        ProviderName = string.IsNullOrWhiteSpace(section["ProviderName"]) ? "deepseek" : section["ProviderName"]!,
-        BaseUrl = string.IsNullOrWhiteSpace(section["BaseUrl"]) ? "https://api.deepseek.com" : section["BaseUrl"]!,
-        ApiKey = apiKey,
-        Timeout = LoadTimeout(section),
-        Models = LoadDeepSeekModels(section.GetSection("Models"))
-    };
-}
-
-static NvidiaNimProviderOptions? LoadNvidiaNimOptions(IConfiguration configuration)
-{
-    var section = configuration.GetSection("Providers:NvidiaNim");
-    var apiKey = section["ApiKey"];
-    if (string.IsNullOrWhiteSpace(apiKey))
-    {
-        return null;
-    }
-
-    return new NvidiaNimProviderOptions
-    {
-        ProviderName = string.IsNullOrWhiteSpace(section["ProviderName"]) ? "nvidia-nim" : section["ProviderName"]!,
-        BaseUrl = string.IsNullOrWhiteSpace(section["BaseUrl"]) ? "https://integrate.api.nvidia.com" : section["BaseUrl"]!,
-        ApiKey = apiKey,
-        Timeout = LoadTimeout(section),
-        Models = LoadNvidiaNimModels(section.GetSection("Models"))
-    };
-}
-
-static MoarkProviderOptions? LoadMoarkOptions(IConfiguration configuration)
-{
-    var section = configuration.GetSection("Providers:Moark");
-    var apiKey = section["ApiKey"];
-    if (string.IsNullOrWhiteSpace(apiKey))
-    {
-        return null;
-    }
-
-    return new MoarkProviderOptions
-    {
-        ProviderName = string.IsNullOrWhiteSpace(section["ProviderName"]) ? "moark" : section["ProviderName"]!,
-        BaseUrl = string.IsNullOrWhiteSpace(section["BaseUrl"]) ? "https://moark.ai/v1" : section["BaseUrl"]!,
-        ApiKey = apiKey,
-        Timeout = LoadTimeout(section),
-        Models = LoadMoarkModels(section.GetSection("Models"))
-    };
-}
-
-static ClaudeProviderOptions? LoadClaudeOptions(IConfiguration configuration)
-{
-    var section = configuration.GetSection("Providers:Claude");
-    var apiKey = section["ApiKey"];
-    if (string.IsNullOrWhiteSpace(apiKey))
-    {
-        return null;
-    }
-
-    return new ClaudeProviderOptions
-    {
-        ProviderName = string.IsNullOrWhiteSpace(section["ProviderName"]) ? "claude" : section["ProviderName"]!,
-        BaseUrl = string.IsNullOrWhiteSpace(section["BaseUrl"]) ? "https://api.anthropic.com" : section["BaseUrl"]!,
-        ApiKey = apiKey,
-        AnthropicVersion = string.IsNullOrWhiteSpace(section["AnthropicVersion"]) ? "2023-06-01" : section["AnthropicVersion"]!,
-        MaxTokens = LoadPositiveInt(section["MaxTokens"], 4096),
-        Timeout = LoadTimeout(section),
-        Models = LoadClaudeModels(section.GetSection("Models"))
-    };
-}
-
-static TimeSpan LoadTimeout(IConfigurationSection section)
-{
-    return double.TryParse(section["TimeoutSeconds"], NumberStyles.Float, CultureInfo.InvariantCulture, out var timeoutSeconds)
-        && timeoutSeconds > 0
-        ? TimeSpan.FromSeconds(timeoutSeconds)
-        : TimeSpan.FromSeconds(120);
-}
-
-static int LoadPositiveInt(string? rawValue, int defaultValue)
-{
-    return int.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value > 0
-        ? value
-        : defaultValue;
-}
-
-static IReadOnlyList<Sub2ApiModelOptions> LoadSub2ApiModels(IConfigurationSection section)
-{
-    return section.GetChildren()
-        .Select(modelSection =>
-        {
-            var upstreamModel = modelSection["UpstreamModel"] ?? modelSection["Model"] ?? modelSection["Id"];
-            if (string.IsNullOrWhiteSpace(upstreamModel))
-            {
-                return null;
-            }
-
-            var aliases = modelSection.GetSection("Aliases")
-                .GetChildren()
-                .Select(alias => alias.Value)
-                .Where(alias => !string.IsNullOrWhiteSpace(alias))
-                .Select(alias => alias!.Trim())
-                .ToArray();
-
-            return new Sub2ApiModelOptions(
-                upstreamModel.Trim(),
-                modelSection["Name"],
-                modelSection["DisplayName"],
-                aliases.Length > 0 ? aliases : null);
-        })
-        .Where(model => model is not null)
-        .Cast<Sub2ApiModelOptions>()
-        .ToArray();
-}
-
-static IReadOnlyList<OpenAiModelOptions> LoadOpenAiModels(IConfigurationSection section)
-{
-    return section.GetChildren()
-        .Select(modelSection =>
-        {
-            var upstreamModel = modelSection["UpstreamModel"] ?? modelSection["Model"] ?? modelSection["Id"];
-            if (string.IsNullOrWhiteSpace(upstreamModel))
-            {
-                return null;
-            }
-
-            var aliases = modelSection.GetSection("Aliases")
-                .GetChildren()
-                .Select(alias => alias.Value)
-                .Where(alias => !string.IsNullOrWhiteSpace(alias))
-                .Select(alias => alias!.Trim())
-                .ToArray();
-
-            return new OpenAiModelOptions(
-                upstreamModel.Trim(),
-                modelSection["Name"],
-                modelSection["DisplayName"],
-                aliases.Length > 0 ? aliases : null);
-        })
-        .Where(model => model is not null)
-        .Cast<OpenAiModelOptions>()
-        .ToArray();
-}
-
-static IReadOnlyList<DeepSeekModelOptions> LoadDeepSeekModels(IConfigurationSection section)
-{
-    return section.GetChildren()
-        .Select(modelSection =>
-        {
-            var upstreamModel = modelSection["UpstreamModel"] ?? modelSection["Model"] ?? modelSection["Id"];
-            if (string.IsNullOrWhiteSpace(upstreamModel))
-            {
-                return null;
-            }
-
-            var aliases = modelSection.GetSection("Aliases")
-                .GetChildren()
-                .Select(alias => alias.Value)
-                .Where(alias => !string.IsNullOrWhiteSpace(alias))
-                .Select(alias => alias!.Trim())
-                .ToArray();
-
-            return new DeepSeekModelOptions(
-                upstreamModel.Trim(),
-                modelSection["Name"],
-                modelSection["DisplayName"],
-                aliases.Length > 0 ? aliases : null);
-        })
-        .Where(model => model is not null)
-        .Cast<DeepSeekModelOptions>()
-        .ToArray();
-}
-
-static IReadOnlyList<NvidiaNimModelOptions> LoadNvidiaNimModels(IConfigurationSection section)
-{
-    return section.GetChildren()
-        .Select(modelSection =>
-        {
-            var upstreamModel = modelSection["UpstreamModel"] ?? modelSection["Model"] ?? modelSection["Id"];
-            if (string.IsNullOrWhiteSpace(upstreamModel))
-            {
-                return null;
-            }
-
-            var aliases = LoadAliases(modelSection);
-            return new NvidiaNimModelOptions(
-                upstreamModel.Trim(),
-                modelSection["Name"],
-                modelSection["DisplayName"],
-                aliases.Length > 0 ? aliases : null);
-        })
-        .Where(model => model is not null)
-        .Cast<NvidiaNimModelOptions>()
-        .ToArray();
-}
-
-static IReadOnlyList<MoarkModelOptions> LoadMoarkModels(IConfigurationSection section)
-{
-    return section.GetChildren()
-        .Select(modelSection =>
-        {
-            var upstreamModel = modelSection["UpstreamModel"] ?? modelSection["Model"] ?? modelSection["Id"];
-            if (string.IsNullOrWhiteSpace(upstreamModel))
-            {
-                return null;
-            }
-
-            var aliases = LoadAliases(modelSection);
-            return new MoarkModelOptions(
-                upstreamModel.Trim(),
-                modelSection["Name"],
-                modelSection["DisplayName"],
-                aliases.Length > 0 ? aliases : null);
-        })
-        .Where(model => model is not null)
-        .Cast<MoarkModelOptions>()
-        .ToArray();
-}
-
-static IReadOnlyList<ClaudeModelOptions> LoadClaudeModels(IConfigurationSection section)
-{
-    return section.GetChildren()
-        .Select(modelSection =>
-        {
-            var upstreamModel = modelSection["UpstreamModel"] ?? modelSection["Model"] ?? modelSection["Id"];
-            if (string.IsNullOrWhiteSpace(upstreamModel))
-            {
-                return null;
-            }
-
-            var aliases = LoadAliases(modelSection);
-            return new ClaudeModelOptions(
-                upstreamModel.Trim(),
-                modelSection["Name"],
-                modelSection["DisplayName"],
-                aliases.Length > 0 ? aliases : null);
-        })
-        .Where(model => model is not null)
-        .Cast<ClaudeModelOptions>()
-        .ToArray();
-}
-
-static string[] LoadAliases(IConfigurationSection modelSection)
-{
-    return modelSection.GetSection("Aliases")
-        .GetChildren()
-        .Select(alias => alias.Value)
-        .Where(alias => !string.IsNullOrWhiteSpace(alias))
-        .Select(alias => alias!.Trim())
-        .ToArray();
 }
 
 static IResult ToOllamaErrorResult(Exception exception)
@@ -649,6 +347,10 @@ public sealed record ApplyVsCodeOllamaConfigRequest(
     ManagedOllamaConfig? Config,
     bool DryRun = true);
 
+public sealed record VsCodeUserDirectoryRequest(string UserDirectory);
+
+public sealed record RemoveVsCodeOllamaConfigRequest(string UserDirectory, bool DryRun = true);
+
 public sealed record ListVsCodeConfigBackupsRequest(string UserDirectory);
 
 public sealed record RestoreVsCodeConfigBackupRequest(string UserDirectory, string BackupPath);
@@ -667,6 +369,7 @@ sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IWindowAwareDesktopAp
             serverUrl,
             platform = "windows-win32-webview2"
         })));
+        adapter.JsBridge.RegisterHandler("host.openExternal", OpenExternalUrlAsync);
         return Task.CompletedTask;
     }
 
@@ -749,4 +452,27 @@ sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IWindowAwareDesktopAp
 
         Application.Exit();
     }
+
+    private static Task<string> OpenExternalUrlAsync(string payload)
+    {
+        var request = JsonSerializer.Deserialize<OpenExternalUrlRequest>(payload);
+        if (request is null || !Uri.TryCreate(request.Url, UriKind.Absolute, out var uri))
+        {
+            throw new InvalidOperationException("外部链接地址无效。");
+        }
+
+        if (uri.Scheme is not ("http" or "https"))
+        {
+            throw new InvalidOperationException("只允许打开 http 或 https 外部链接。");
+        }
+
+        Process.Start(new ProcessStartInfo(uri.AbsoluteUri)
+        {
+            UseShellExecute = true
+        });
+
+        return Task.FromResult(JsonSerializer.Serialize(new { opened = true }));
+    }
+
+    private sealed record OpenExternalUrlRequest(string Url);
 }
