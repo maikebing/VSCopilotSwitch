@@ -11,7 +11,7 @@ public interface IRequestAnalyticsService
 {
     Task InvokeAsync(HttpContext context, Func<Task> next);
 
-    RequestAnalyticsSnapshot GetSnapshot(string listeningUrl, bool ollamaPortAvailable);
+    RequestAnalyticsSnapshot GetSnapshot(string listeningUrl);
 
     void Clear();
 }
@@ -68,7 +68,7 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
         }
     }
 
-    public RequestAnalyticsSnapshot GetSnapshot(string listeningUrl, bool ollamaPortAvailable)
+    public RequestAnalyticsSnapshot GetSnapshot(string listeningUrl)
     {
         var entries = _entries.ToArray().OrderByDescending(entry => entry.Timestamp).ToArray();
         var totalRequests = entries.Length;
@@ -88,8 +88,7 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
             new ListenerStatus(
                 listeningUrl,
                 TryGetPort(listeningUrl),
-                "运行中",
-                ollamaPortAvailable),
+                "运行中"),
             entries.Take(200).ToArray());
     }
 
@@ -432,8 +431,7 @@ public sealed record RequestAnalyticsSummary(
 public sealed record ListenerStatus(
     string Url,
     int Port,
-    string Status,
-    bool OllamaPortAvailable);
+    string Status);
 
 public sealed record RequestLogEntry(
     DateTimeOffset Timestamp,

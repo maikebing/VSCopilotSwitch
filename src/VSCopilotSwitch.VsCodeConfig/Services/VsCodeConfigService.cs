@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using VSCopilotSwitch.VsCodeConfig.Models;
 
@@ -32,6 +32,8 @@ public interface IVsCodeConfigService
 public sealed class VsCodeConfigService : IVsCodeConfigService
 {
     public const string ManagedBy = "VSCopilotSwitch";
+    public const string ManagedProviderName = "vscc";
+    public const string OllamaVendor = "ollama";
 
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
@@ -44,15 +46,9 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         bool dryRun,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(userDirectory))
-        {
-            throw new ArgumentException("VS Code user directory is required.", nameof(userDirectory));
-        }
-
-        var fullUserDirectory = Path.GetFullPath(userDirectory);
+        var fullUserDirectory = ResolveUserDirectory(userDirectory);
         var changes = new List<VsCodeConfigFileChange>
         {
-            await BuildSettingsChangeAsync(fullUserDirectory, config, dryRun, cancellationToken),
             await BuildChatLanguageModelsChangeAsync(fullUserDirectory, config, dryRun, cancellationToken)
         };
 
@@ -79,23 +75,18 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         CancellationToken cancellationToken = default)
     {
         var fullUserDirectory = ResolveUserDirectory(userDirectory);
-        var settingsPath = Path.Combine(fullUserDirectory, "settings.json");
         var chatLanguageModelsPath = Path.Combine(fullUserDirectory, "chatLanguageModels.json");
-
-        var settingsManaged = File.Exists(settingsPath)
-            && HasManagedSettingsConfig(await File.ReadAllTextAsync(settingsPath, cancellationToken));
         var chatLanguageModelsManaged = File.Exists(chatLanguageModelsPath)
             && HasManagedChatLanguageModelsConfig(await File.ReadAllTextAsync(chatLanguageModelsPath, cancellationToken));
 
-        var enabled = settingsManaged && chatLanguageModelsManaged;
-        var message = enabled
-            ? "已检测到 VSCopilotSwitch 管理的 VS Code Ollama 配置。"
-            : "未检测到完整的 VSCopilotSwitch VS Code Ollama 配置。";
+        var message = chatLanguageModelsManaged
+            ? "已检测到 VSCopilotSwitch 管理的 VS Code Ollama Provider。"
+            : "未检测到 VSCopilotSwitch 管理的 VS Code Ollama Provider。";
 
         return new VsCodeOllamaConfigStatus(
             fullUserDirectory,
-            enabled,
-            settingsManaged,
+            chatLanguageModelsManaged,
+            false,
             chatLanguageModelsManaged,
             message);
     }
@@ -108,7 +99,6 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         var fullUserDirectory = ResolveUserDirectory(userDirectory);
         var changes = new List<VsCodeConfigFileChange>
         {
-            await BuildSettingsRemovalChangeAsync(fullUserDirectory, dryRun, cancellationToken),
             await BuildChatLanguageModelsRemovalChangeAsync(fullUserDirectory, dryRun, cancellationToken)
         };
 
@@ -157,7 +147,7 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         var targetPath = GetTargetPathFromBackup(fullBackupPath);
         var safetyBackupPath = File.Exists(targetPath) ? CreateRestoreSafetyBackupPath(targetPath) : null;
 
-        Directory.CreateDirectory(fullUserDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
         if (safetyBackupPath is not null)
         {
             File.Copy(targetPath, safetyBackupPath, overwrite: false);
@@ -170,30 +160,6 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         return new VsCodeConfigRestoreResult(fullUserDirectory, targetPath, fullBackupPath, safetyBackupPath, Restored: true);
     }
 
-    private static async Task<VsCodeConfigFileChange> BuildSettingsChangeAsync(
-        string userDirectory,
-        ManagedOllamaConfig config,
-        bool dryRun,
-        CancellationToken cancellationToken)
-    {
-        var filePath = Path.Combine(userDirectory, "settings.json");
-        var before = await ReadOrDefaultAsync(filePath, "{}", cancellationToken);
-        var root = ParseObjectOrEmpty(before);
-
-        root["vscopilotswitch.managedBy"] = ManagedBy;
-        root["vscopilotswitch.ollama.baseUrl"] = config.BaseUrl;
-        root["vscopilotswitch.ollama.enabled"] = true;
-
-        var after = ToJson(root);
-        var fieldChanges = new[]
-        {
-            CreateFieldChange("vscopilotswitch.managedBy", before, after),
-            CreateFieldChange("vscopilotswitch.ollama.baseUrl", before, after),
-            CreateFieldChange("vscopilotswitch.ollama.enabled", before, after)
-        };
-        return CreateChange(filePath, before, after, dryRun, fieldChanges);
-    }
-
     private static async Task<VsCodeConfigFileChange> BuildChatLanguageModelsChangeAsync(
         string userDirectory,
         ManagedOllamaConfig config,
@@ -201,54 +167,12 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         CancellationToken cancellationToken)
     {
         var filePath = Path.Combine(userDirectory, "chatLanguageModels.json");
-        var before = await ReadOrDefaultAsync(filePath, "{}", cancellationToken);
-        var root = ParseObjectOrEmpty(before);
+        var before = await ReadOrDefaultAsync(filePath, "[]", cancellationToken);
+        var beforeArray = ParseArrayOrEmpty(before);
+        var afterArray = UpsertManagedProvider(beforeArray, config.BaseUrl);
+        var after = ToJson(afterArray);
 
-        var managed = new JsonObject
-        {
-            ["managedBy"] = ManagedBy,
-            ["provider"] = "ollama",
-            ["baseUrl"] = config.BaseUrl,
-            ["models"] = new JsonArray(config.Models.Select(model => new JsonObject
-            {
-                ["id"] = model.Id,
-                ["displayName"] = model.DisplayName,
-                ["providerModelId"] = model.ProviderModelId
-            }).ToArray<JsonNode?>())
-        };
-
-        root["vscopilotswitch"] = managed;
-        var after = ToJson(root);
-        var fieldChanges = new[]
-        {
-            CreateFieldChange("vscopilotswitch.managedBy", before, after),
-            CreateFieldChange("vscopilotswitch.provider", before, after),
-            CreateFieldChange("vscopilotswitch.baseUrl", before, after),
-            CreateFieldChange("vscopilotswitch.models", before, after)
-        };
-        return CreateChange(filePath, before, after, dryRun, fieldChanges);
-    }
-
-    private static async Task<VsCodeConfigFileChange> BuildSettingsRemovalChangeAsync(
-        string userDirectory,
-        bool dryRun,
-        CancellationToken cancellationToken)
-    {
-        var filePath = Path.Combine(userDirectory, "settings.json");
-        var before = await ReadOrDefaultAsync(filePath, "{}", cancellationToken);
-        var root = ParseObjectOrEmpty(before);
-
-        root.Remove("vscopilotswitch.managedBy");
-        root.Remove("vscopilotswitch.ollama.baseUrl");
-        root.Remove("vscopilotswitch.ollama.enabled");
-
-        var after = ToJson(root);
-        var fieldChanges = new[]
-        {
-            CreateFieldChange("vscopilotswitch.managedBy", before, after),
-            CreateFieldChange("vscopilotswitch.ollama.baseUrl", before, after),
-            CreateFieldChange("vscopilotswitch.ollama.enabled", before, after)
-        };
+        var fieldChanges = CreateProviderFieldChanges(before, after);
         return CreateChange(filePath, before, after, dryRun, fieldChanges);
     }
 
@@ -258,40 +182,112 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         CancellationToken cancellationToken)
     {
         var filePath = Path.Combine(userDirectory, "chatLanguageModels.json");
-        var before = await ReadOrDefaultAsync(filePath, "{}", cancellationToken);
-        var root = ParseObjectOrEmpty(before);
-        var managedByThisApp = HasManagedChatLanguageModelsConfig(before);
+        var before = await ReadOrDefaultAsync(filePath, "[]", cancellationToken);
+        var beforeArray = ParseArrayOrEmpty(before);
+        var afterArray = RemoveManagedProvider(beforeArray);
+        var after = ToJson(afterArray);
 
-        if (managedByThisApp)
-        {
-            root.Remove("vscopilotswitch");
-        }
-
-        var after = ToJson(root);
-        var fieldChanges = new[]
-        {
-            CreateFieldChange("vscopilotswitch", before, after),
-            CreateFieldChange("vscopilotswitch.managedBy", before, after),
-            CreateFieldChange("vscopilotswitch.provider", before, after),
-            CreateFieldChange("vscopilotswitch.models", before, after)
-        };
+        var fieldChanges = CreateProviderFieldChanges(before, after);
         return CreateChange(filePath, before, after, dryRun, fieldChanges);
     }
 
-    private static bool HasManagedSettingsConfig(string content)
+    private static JsonArray UpsertManagedProvider(JsonArray source, string baseUrl)
     {
-        var root = ParseObjectOrEmpty(content);
-        return string.Equals(ReadString(root["vscopilotswitch.managedBy"]), ManagedBy, StringComparison.Ordinal)
-            && ReadBool(root["vscopilotswitch.ollama.enabled"]) == true
-            && !string.IsNullOrWhiteSpace(ReadString(root["vscopilotswitch.ollama.baseUrl"]));
+        var result = new JsonArray();
+        var inserted = false;
+
+        foreach (var node in source)
+        {
+            if (IsManagedProvider(node))
+            {
+                if (!inserted)
+                {
+                    result.Add(CreateManagedProvider(baseUrl));
+                    inserted = true;
+                }
+
+                continue;
+            }
+
+            result.Add(node?.DeepClone());
+        }
+
+        if (!inserted)
+        {
+            result.Add(CreateManagedProvider(baseUrl));
+        }
+
+        return result;
     }
 
-    private static bool HasManagedChatLanguageModelsConfig(string content)
+    private static JsonArray RemoveManagedProvider(JsonArray source)
     {
-        var root = ParseObjectOrEmpty(content);
-        var managed = root["vscopilotswitch"] as JsonObject;
-        return string.Equals(ReadString(managed?["managedBy"]), ManagedBy, StringComparison.Ordinal)
-            && string.Equals(ReadString(managed?["provider"]), "ollama", StringComparison.OrdinalIgnoreCase);
+        var result = new JsonArray();
+        foreach (var node in source)
+        {
+            if (!IsManagedProvider(node))
+            {
+                result.Add(node?.DeepClone());
+            }
+        }
+
+        return result;
+    }
+
+    private static JsonObject CreateManagedProvider(string baseUrl)
+        => new()
+        {
+            ["name"] = ManagedProviderName,
+            ["vendor"] = OllamaVendor,
+            ["url"] = baseUrl
+        };
+
+    private static IReadOnlyList<VsCodeConfigFieldChange> CreateProviderFieldChanges(string before, string after)
+    {
+        var beforeProvider = FindManagedProvider(ParseArrayOrEmpty(before));
+        var afterProvider = FindManagedProvider(ParseArrayOrEmpty(after));
+
+        return new[]
+        {
+            CreateFieldChange(
+                $"chatLanguageModels[{ManagedProviderName}]",
+                SerializeProviderForDiff(beforeProvider),
+                SerializeProviderForDiff(afterProvider)),
+            CreateFieldChange(
+                $"chatLanguageModels[{ManagedProviderName}].url",
+                SerializeValueForDiff(beforeProvider?["url"]),
+                SerializeValueForDiff(afterProvider?["url"]))
+        };
+    }
+
+    private static VsCodeConfigFieldChange CreateFieldChange(string path, string beforeValue, string afterValue)
+        => new(path, beforeValue, afterValue, beforeValue != afterValue);
+
+    private static bool HasManagedChatLanguageModelsConfig(string content)
+        => FindManagedProvider(ParseArrayOrEmpty(content)) is not null;
+
+    private static JsonObject? FindManagedProvider(JsonArray root)
+    {
+        foreach (var node in root)
+        {
+            if (IsManagedProvider(node) && node is JsonObject provider)
+            {
+                return provider;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsManagedProvider(JsonNode? node)
+    {
+        if (node is not JsonObject provider)
+        {
+            return false;
+        }
+
+        return string.Equals(ReadString(provider["name"]), ManagedProviderName, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(ReadString(provider["vendor"]), OllamaVendor, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? ReadString(JsonNode? node)
@@ -299,18 +295,6 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         try
         {
             return node?.GetValue<string>();
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static bool? ReadBool(JsonNode? node)
-    {
-        try
-        {
-            return node?.GetValue<bool>();
         }
         catch
         {
@@ -328,15 +312,31 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         return await File.ReadAllTextAsync(filePath, cancellationToken);
     }
 
-    private static JsonObject ParseObjectOrEmpty(string content)
+    private static JsonArray ParseArrayOrEmpty(string content)
     {
         try
         {
-            return JsonNode.Parse(string.IsNullOrWhiteSpace(content) ? "{}" : content) as JsonObject ?? new JsonObject();
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                return new JsonArray();
+            }
+
+            var node = JsonNode.Parse(content);
+            if (node is JsonArray array)
+            {
+                return array;
+            }
+
+            if (node is JsonObject { Count: 0 })
+            {
+                return new JsonArray();
+            }
+
+            throw new InvalidOperationException("VS Code chatLanguageModels.json must be a JSON array. Please choose the VS Code User directory or fix the file before applying changes.");
         }
         catch (JsonException ex)
         {
-            throw new InvalidOperationException("The VS Code JSON file could not be parsed. Make a backup and fix invalid JSON before applying changes.", ex);
+            throw new InvalidOperationException("The VS Code chatLanguageModels.json file could not be parsed. Make a backup and fix invalid JSON before applying changes.", ex);
         }
     }
 
@@ -353,42 +353,12 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         return new VsCodeConfigFileChange(filePath, existedBefore, changed, backupPath, before, after, fieldChanges);
     }
 
-    private static VsCodeConfigFieldChange CreateFieldChange(string path, string before, string after)
-    {
-        var beforeValue = ReadJsonPath(before, path);
-        var afterValue = ReadJsonPath(after, path);
-        return new VsCodeConfigFieldChange(path, beforeValue, afterValue, beforeValue != afterValue);
-    }
-
-    private static string ReadJsonPath(string content, string path)
-    {
-        try
-        {
-            var node = JsonNode.Parse(string.IsNullOrWhiteSpace(content) ? "{}" : content);
-            if (node is JsonObject root && root.TryGetPropertyValue(path, out var directValue))
-            {
-                return directValue is null ? "未设置" : JsonSerializer.Serialize(directValue);
-            }
-
-            foreach (var segment in path.Split('.', StringSplitOptions.RemoveEmptyEntries))
-            {
-                node = node?[segment];
-            }
-
-            return node is null ? "未设置" : JsonSerializer.Serialize(node);
-        }
-        catch
-        {
-            return "无法解析";
-        }
-    }
-
     private static bool JsonEquivalent(string left, string right)
     {
         try
         {
-            var leftNode = JsonNode.Parse(left);
-            var rightNode = JsonNode.Parse(right);
+            var leftNode = JsonNode.Parse(string.IsNullOrWhiteSpace(left) ? "[]" : left);
+            var rightNode = JsonNode.Parse(string.IsNullOrWhiteSpace(right) ? "[]" : right);
             return JsonSerializer.Serialize(leftNode) == JsonSerializer.Serialize(rightNode);
         }
         catch
@@ -396,6 +366,12 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
             return string.Equals(left, right, StringComparison.Ordinal);
         }
     }
+
+    private static string SerializeProviderForDiff(JsonObject? provider)
+        => provider is null ? "未设置" : JsonSerializer.Serialize(provider, WriteOptions);
+
+    private static string SerializeValueForDiff(JsonNode? value)
+        => value is null ? "未设置" : JsonSerializer.Serialize(value);
 
     private static string CreateBackupPath(string filePath)
     {
@@ -470,5 +446,5 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         return $"{filePath}.vscopilotswitch.restore-safety.{timestamp}.bak";
     }
 
-    private static string ToJson(JsonObject root) => JsonSerializer.Serialize(root, WriteOptions) + Environment.NewLine;
+    private static string ToJson(JsonArray root) => JsonSerializer.Serialize(root, WriteOptions) + Environment.NewLine;
 }

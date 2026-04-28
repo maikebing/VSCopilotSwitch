@@ -5,7 +5,7 @@ public sealed record ManagedOllamaConfig(
     IReadOnlyList<ManagedOllamaModel> Models)
 {
     public static ManagedOllamaConfig Default => new(
-        "http://127.0.0.1:11434",
+        "http://127.0.0.1:5124",
         new[]
         {
             new ManagedOllamaModel("vscopilotswitch/default", "VSCopilotSwitch Default", "vscopilotswitch/default")

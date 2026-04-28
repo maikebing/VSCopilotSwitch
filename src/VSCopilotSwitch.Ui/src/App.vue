@@ -138,7 +138,6 @@ type AnalyticsListener = {
   Url: string;
   Port: number;
   Status: string;
-  OllamaPortAvailable: boolean;
 };
 
 type RequestLogEntry = {
@@ -227,7 +226,7 @@ const providerApiKey = ref('sk-demo-placeholder-c087');
 const providerApiUrl = ref('https://2030.wujixian.fun');
 const providerModel = ref('gpt-5.5');
 const providerProtocol = ref('sub2api');
-const proxyAddress = ref('http://127.0.0.1:11434');
+const proxyAddress = ref('http://127.0.0.1:5124');
 const circuitBreakerThreshold = ref(5);
 const retryCount = ref(2);
 const fallbackRoute = ref('暂不启用备用路由');
@@ -406,7 +405,7 @@ function buildRecoveryAdvice(message: string): RecoveryAdvice {
     return {
       title: 'JSON 文件格式异常',
       steps: [
-        '先不要写入配置，手动打开对应的 settings.json 或 chatLanguageModels.json。',
+        '先不要写入配置，手动打开对应的 chatLanguageModels.json。',
         '检查是否存在多余逗号、未闭合引号或注释；当前阶段暂不支持 JSON with comments。',
         '修复后重新点击“生成差异预览”。'
       ]
@@ -428,7 +427,7 @@ function buildRecoveryAdvice(message: string): RecoveryAdvice {
     return {
       title: '配置文件可能被占用',
       steps: [
-        '关闭正在编辑 settings.json 或 chatLanguageModels.json 的窗口。',
+        '关闭正在编辑 chatLanguageModels.json 的窗口。',
         '退出 VS Code 后重新打开 VSCopilotSwitch 再试一次。',
         '如果仍失败，先复制备份路径，手动恢复配置。'
       ]
@@ -441,7 +440,7 @@ function buildRecoveryAdvice(message: string): RecoveryAdvice {
       title: '本地端口不可用',
       steps: [
         '确认 127.0.0.1 本地代理没有被防火墙拦截。',
-        '如果手动指定了 11434，请关闭其他 Ollama 或代理进程后重试。',
+        '如果手动指定了 5124，请确认没有其他 VSCopilotSwitch 或代理进程占用该端口。',
         '可在高级选项中使用“检测端口占用”确认目标端口状态。'
       ]
     };
@@ -886,7 +885,7 @@ async function checkProxyPort() {
 function parseProxyPort(value: string): { valid: true; port: number } | { valid: false; message: string } {
   const raw = value.trim();
   if (!raw) {
-    return { valid: false, message: '请输入本地代理端口，例如 11434 或 http://127.0.0.1:11434。' };
+    return { valid: false, message: '请输入本地代理端口，例如 5124 或 http://127.0.0.1:5124。' };
   }
 
   if (/^\d+$/.test(raw)) {
@@ -897,16 +896,16 @@ function parseProxyPort(value: string): { valid: true; port: number } | { valid:
   try {
     const parsedUrl = new URL(withScheme);
     if (!parsedUrl.hostname) {
-      return { valid: false, message: '本地代理地址缺少主机名，请填写 127.0.0.1:11434。' };
+      return { valid: false, message: '本地代理地址缺少主机名，请填写 127.0.0.1:5124。' };
     }
 
     if (!parsedUrl.port) {
-      return { valid: false, message: '本地代理地址缺少端口，请填写 127.0.0.1:11434。' };
+      return { valid: false, message: '本地代理地址缺少端口，请填写 127.0.0.1:5124。' };
     }
 
     return normalizePort(Number(parsedUrl.port));
   } catch {
-    return { valid: false, message: '本地代理地址格式无效，请填写 11434、127.0.0.1:11434 或 http://127.0.0.1:11434。' };
+    return { valid: false, message: '本地代理地址格式无效，请填写 5124、127.0.0.1:5124 或 http://127.0.0.1:5124。' };
   }
 }
 
@@ -1465,8 +1464,7 @@ onMounted(loadDashboard);
             <span>监听端口</span>
             <strong>{{ analytics?.Listener.Url ?? '未连接' }}</strong>
             <small>
-              状态：{{ analytics?.Listener.Status ?? '未知' }} · Ollama 11434：
-              {{ analytics?.Listener.OllamaPortAvailable ? '可用' : '已占用或不可用' }}
+              状态：{{ analytics?.Listener.Status ?? '未知' }} · 专用端口：{{ analytics?.Listener.Port ?? 0 }}
             </small>
           </div>
           <div class="analytics-actions">
@@ -1711,7 +1709,7 @@ onMounted(loadDashboard);
                   <span>常规</span>
                   <h3>VS Code Ollama 配置</h3>
                 </div>
-                <p>先选择 VS Code User 目录并生成 dry-run 差异预览，确认目标文件和字段变化后再写入。</p>
+                <p>先选择 VS Code User 目录并生成 dry-run 差异预览，确认 vscc Ollama Provider 条目变化后再写入。</p>
               </section>
 
               <section class="config-wizard" aria-label="VS Code Ollama 配置写入向导">
@@ -1763,22 +1761,22 @@ onMounted(loadDashboard);
 
                 <div v-if="applyConfirmationArmed" class="risk-confirmation">
                   <strong>请再次确认写入</strong>
-                  <span>将修改所选 VS Code User 目录中的 Ollama 相关字段；已存在文件会先创建备份，未知字段会保留。</span>
+                  <span>将修改所选 VS Code User 目录中的 vscc Ollama Provider 条目；已存在文件会先创建备份，未知 Provider 会保留。</span>
                 </div>
 
                 <div v-if="preview" class="wizard-summary">
                   <strong>{{ applyResult ? '写入完成' : '预览完成' }}</strong>
                   <span>{{ previewChangedCount }} 个文件需要更新，{{ preview.Changes.length - previewChangedCount }} 个文件无需变更。</span>
-                  <small>写入前会备份已存在文件；未变更文件不会重复写入，避免配置漂移。</small>
+                  <small>写入前会备份已存在文件；只维护 vscc Ollama Provider 条目，避免配置漂移。</small>
                 </div>
 
                 <div v-if="preview" class="preview-list">
                   <div v-for="change in preview.Changes" :key="change.FilePath" class="preview-item">
                     <strong>{{ change.Changed ? (applyResult ? '已更新' : '将更新') : '无需变更' }}</strong>
                     <span>{{ change.FilePath }}</span>
-                    <small>{{ change.ExistedBefore ? '保留未知字段，只调整本项目托管的 Ollama 字段' : '文件不存在，确认写入时会创建' }}</small>
+                    <small>{{ change.ExistedBefore ? '保留未知 Provider，只调整本项目托管的 vscc Ollama 条目' : '文件不存在，确认写入时会创建' }}</small>
                     <small v-if="change.BackupPath">备份位置：{{ change.BackupPath }}</small>
-                    <div class="field-diff-list" aria-label="字段级差异">
+                    <div class="field-diff-list" aria-label="Provider 条目差异">
                       <div v-for="field in change.FieldChanges" :key="field.Path" class="field-diff" :class="{ changed: field.Changed }">
                         <code>{{ field.Path }}</code>
                         <span>{{ field.Changed ? '将变更' : '不变' }}</span>
@@ -1812,7 +1810,7 @@ onMounted(loadDashboard);
                   </button>
                 </div>
 
-                <p class="helper">只显示 VSCopilotSwitch 为 `settings.json` 和 `chatLanguageModels.json` 创建的备份，恢复前会先为当前文件创建安全备份。</p>
+                <p class="helper">只显示 VSCopilotSwitch 为 `chatLanguageModels.json` 创建的备份，恢复前会先为当前文件创建安全备份。</p>
 
                 <div v-if="backups.length" class="rollback-list">
                   <label v-for="backup in backups" :key="backup.BackupPath" class="rollback-item">

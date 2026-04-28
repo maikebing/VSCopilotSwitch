@@ -3,9 +3,10 @@ using VSCopilotSwitch.VsCodeConfig.Services;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
-    ("ApplyOllamaConfigAsync is idempotent", ApplyOllamaConfigAsync_IsIdempotent),
-    ("GetOllamaConfigStatusAsync detects managed config", GetOllamaConfigStatusAsync_DetectsManagedConfig),
-    ("RemoveOllamaConfigAsync removes only managed fields", RemoveOllamaConfigAsync_RemovesOnlyManagedFields),
+    ("ApplyOllamaConfigAsync writes provider array entry idempotently", ApplyOllamaConfigAsync_WritesProviderArrayEntryIdempotently),
+    ("GetOllamaConfigStatusAsync detects managed provider", GetOllamaConfigStatusAsync_DetectsManagedProvider),
+    ("RemoveOllamaConfigAsync removes only managed provider", RemoveOllamaConfigAsync_RemovesOnlyManagedProvider),
+    ("ApplyOllamaConfigAsync removes duplicate managed providers", ApplyOllamaConfigAsync_RemovesDuplicateManagedProviders),
     ("ListBackups returns recent backups", ListBackups_ReturnsRecentBackups),
     ("RestoreBackupAsync creates safety backup", RestoreBackupAsync_CreatesSafetyBackup)
 };
@@ -27,33 +28,39 @@ foreach (var test in tests)
 
 return failed == 0 ? 0 : 1;
 
-static async Task ApplyOllamaConfigAsync_IsIdempotent()
+static async Task ApplyOllamaConfigAsync_WritesProviderArrayEntryIdempotently()
 {
     using var workspace = TestWorkspace.Create();
     var service = new VsCodeConfigService();
 
     var first = await service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: false);
     var second = await service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: false);
+    var content = File.ReadAllText(Path.Combine(workspace.UserDirectory, "chatLanguageModels.json"));
 
+    Assert.True(first.Changes.Count == 1, "新规则只应写入 chatLanguageModels.json。");
     Assert.True(first.Changes.Any(change => change.Changed), "第一次写入应产生变更。");
     Assert.True(second.Changes.All(change => !change.Changed), "重复写入不应产生配置漂移。");
+    Assert.Contains("\"name\": \"vscc\"", content, "应写入 VS Code 语言模型 Ollama Provider 名称。");
+    Assert.Contains("\"vendor\": \"ollama\"", content, "应写入 Ollama Provider 类型。");
+    Assert.Contains("\"url\": \"http://127.0.0.1:5124\"", content, "应写入当前本地代理地址。");
 }
 
 static async Task ListBackups_ReturnsRecentBackups()
 {
     using var workspace = TestWorkspace.Create();
     var service = new VsCodeConfigService();
+    var chatLanguageModelsPath = Path.Combine(workspace.UserDirectory, "chatLanguageModels.json");
 
-    File.WriteAllText(Path.Combine(workspace.UserDirectory, "settings.json"), "{\"editor.fontSize\": 14}");
+    File.WriteAllText(chatLanguageModelsPath, "[{\"name\":\"OpenAI\",\"vendor\":\"openai\"}]");
     await service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: false);
 
     var backups = service.ListBackups(workspace.UserDirectory);
 
     Assert.True(backups.Count >= 1, "写入已有文件前应创建备份。");
-    Assert.True(backups.Any(backup => backup.FileName == "settings.json"), "备份列表应包含 settings.json。");
+    Assert.True(backups.Any(backup => backup.FileName == "chatLanguageModels.json"), "备份列表应包含 chatLanguageModels.json。");
 }
 
-static async Task GetOllamaConfigStatusAsync_DetectsManagedConfig()
+static async Task GetOllamaConfigStatusAsync_DetectsManagedProvider()
 {
     using var workspace = TestWorkspace.Create();
     var service = new VsCodeConfigService();
@@ -62,46 +69,77 @@ static async Task GetOllamaConfigStatusAsync_DetectsManagedConfig()
     await service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: false);
     var after = await service.GetOllamaConfigStatusAsync(workspace.UserDirectory);
 
-    Assert.True(!before.Enabled, "写入前不应检测到完整托管配置。");
-    Assert.True(after.Enabled, "写入后应检测到完整托管配置。");
+    Assert.True(!before.Enabled, "写入前不应检测到托管 Provider。");
+    Assert.True(after.Enabled, "写入后应检测到托管 Provider。");
+    Assert.True(!after.SettingsManaged, "新规则下 settings.json 不再参与状态判断。");
+    Assert.True(after.ChatLanguageModelsManaged, "应通过 chatLanguageModels.json 检测托管 Provider。");
 }
 
-static async Task RemoveOllamaConfigAsync_RemovesOnlyManagedFields()
+static async Task RemoveOllamaConfigAsync_RemovesOnlyManagedProvider()
 {
     using var workspace = TestWorkspace.Create();
     var service = new VsCodeConfigService();
-    var settingsPath = Path.Combine(workspace.UserDirectory, "settings.json");
     var chatLanguageModelsPath = Path.Combine(workspace.UserDirectory, "chatLanguageModels.json");
 
-    File.WriteAllText(settingsPath, "{\"editor.fontSize\":14}");
-    File.WriteAllText(chatLanguageModelsPath, "{\"customProvider\":{\"name\":\"keep\"}}");
+    File.WriteAllText(chatLanguageModelsPath, "[{\"name\":\"OpenAI\",\"vendor\":\"openai\"},{\"name\":\"UserOllama\",\"vendor\":\"ollama\",\"url\":\"http://localhost:11434\"}]");
     await service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: false);
 
     var result = await service.RemoveOllamaConfigAsync(workspace.UserDirectory, dryRun: false);
     var status = await service.GetOllamaConfigStatusAsync(workspace.UserDirectory);
+    var content = File.ReadAllText(chatLanguageModelsPath);
 
-    Assert.True(result.Changes.Any(change => change.Changed), "撤销托管配置应产生变更。");
-    Assert.True(!status.Enabled, "撤销后不应再检测到完整托管配置。");
-    Assert.Contains("\"editor.fontSize\": 14", File.ReadAllText(settingsPath), "撤销不应删除用户 settings.json 字段。");
-    Assert.Contains("\"customProvider\"", File.ReadAllText(chatLanguageModelsPath), "撤销不应删除用户 chatLanguageModels.json 字段。");
+    Assert.True(result.Changes.Any(change => change.Changed), "撤销托管 Provider 应产生变更。");
+    Assert.True(!status.Enabled, "撤销后不应再检测到托管 Provider。");
+    Assert.Contains("\"name\": \"OpenAI\"", content, "撤销不应删除用户已有 OpenAI Provider。");
+    Assert.Contains("\"name\": \"UserOllama\"", content, "撤销不应删除用户手工添加的其他 Ollama Provider。");
+    Assert.DoesNotContain("\"name\": \"vscc\"", content, "撤销应删除本项目管理的 vscc Provider。");
+}
+
+static async Task ApplyOllamaConfigAsync_RemovesDuplicateManagedProviders()
+{
+    using var workspace = TestWorkspace.Create();
+    var service = new VsCodeConfigService();
+    var chatLanguageModelsPath = Path.Combine(workspace.UserDirectory, "chatLanguageModels.json");
+
+    File.WriteAllText(chatLanguageModelsPath, "[{\"name\":\"vscc\",\"vendor\":\"ollama\",\"url\":\"http://old-one\"},{\"name\":\"OpenAI\",\"vendor\":\"openai\"},{\"name\":\"vscc\",\"vendor\":\"ollama\",\"url\":\"http://old-two\"}]");
+
+    await service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: false);
+    var content = File.ReadAllText(chatLanguageModelsPath);
+
+    Assert.Equal(1, CountOccurrences(content, "\"name\": \"vscc\""), "重复写入应收敛为一个 vscc Provider。");
+    Assert.Contains("\"url\": \"http://127.0.0.1:5124\"", content, "应更新为当前代理地址。");
+    Assert.Contains("\"name\": \"OpenAI\"", content, "去重时应保留其他 Provider。");
 }
 
 static async Task RestoreBackupAsync_CreatesSafetyBackup()
 {
     using var workspace = TestWorkspace.Create();
     var service = new VsCodeConfigService();
-    var settingsPath = Path.Combine(workspace.UserDirectory, "settings.json");
-    const string original = "{\"editor.fontSize\": 14}";
+    var chatLanguageModelsPath = Path.Combine(workspace.UserDirectory, "chatLanguageModels.json");
+    const string original = "[{\"name\":\"OpenAI\",\"vendor\":\"openai\"}]";
 
-    File.WriteAllText(settingsPath, original);
+    File.WriteAllText(chatLanguageModelsPath, original);
     await service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: false);
-    var backup = service.ListBackups(workspace.UserDirectory).First(item => item.FileName == "settings.json");
+    var backup = service.ListBackups(workspace.UserDirectory).First(item => item.FileName == "chatLanguageModels.json");
 
     var result = await service.RestoreBackupAsync(workspace.UserDirectory, backup.BackupPath);
 
     Assert.True(result.Restored, "恢复结果应标记成功。");
     Assert.True(File.Exists(result.SafetyBackupPath), "恢复前应为当前文件创建安全备份。");
-    Assert.Equal(original, File.ReadAllText(settingsPath), "恢复后文件内容应等于原始备份内容。");
+    Assert.Equal(original, File.ReadAllText(chatLanguageModelsPath), "恢复后文件内容应等于原始备份内容。");
+}
+
+static int CountOccurrences(string content, string value)
+{
+    var count = 0;
+    var index = 0;
+    while ((index = content.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+    {
+        count++;
+        index += value.Length;
+    }
+
+    return count;
 }
 
 internal sealed class TestWorkspace : IDisposable
@@ -147,9 +185,25 @@ internal static class Assert
         }
     }
 
+    public static void Equal(int expected, int actual, string message)
+    {
+        if (expected != actual)
+        {
+            throw new InvalidOperationException(message);
+        }
+    }
+
     public static void Contains(string expectedSubstring, string actual, string message)
     {
         if (!actual.Contains(expectedSubstring, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(message);
+        }
+    }
+
+    public static void DoesNotContain(string unexpectedSubstring, string actual, string message)
+    {
+        if (actual.Contains(unexpectedSubstring, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(message);
         }

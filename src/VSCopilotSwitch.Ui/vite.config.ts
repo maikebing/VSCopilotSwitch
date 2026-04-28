@@ -4,7 +4,7 @@ import { defineConfig } from 'vite';
 import plugin from '@vitejs/plugin-vue';
 import { env } from 'process';
 
-const target = env.ASPNETCORE_URLS ? env.ASPNETCORE_URLS.split(';')[0] : 'http://localhost:5124';
+const target = env.ASPNETCORE_URLS ? env.ASPNETCORE_URLS.split(';')[0] : 'http://127.0.0.1:5124';
 
 // Vite 调试服务固定使用 HTTP，避免本地证书和 HTTPS 端口干扰。
 export default defineConfig({

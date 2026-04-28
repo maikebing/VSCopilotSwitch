@@ -58,7 +58,7 @@ webApp.MapGet("/health", () => Results.Ok(new
     mode = webApp.Environment.EnvironmentName
 }));
 
-webApp.MapGet("/internal/network/port-status", (int port = 11434) =>
+webApp.MapGet("/internal/network/port-status", (int port = 5124) =>
 {
     if (port is < 1 or > 65535)
     {
@@ -68,21 +68,21 @@ webApp.MapGet("/internal/network/port-status", (int port = 11434) =>
     var available = IsTcpPortAvailable(port);
     var message = available
         ? $"127.0.0.1:{port} 当前可用。"
-        : $"127.0.0.1:{port} 已被占用，请关闭其他 Ollama 或代理进程，或改用其他端口。";
+        : $"127.0.0.1:{port} 已被占用，请关闭其他代理进程，或改用其他端口。";
     return Results.Ok(new PortStatusResponse(port, available, message));
 });
 
 webApp.MapGet("/internal/analytics", (
     IRequestAnalyticsService analytics) =>
 {
-    return Results.Ok(analytics.GetSnapshot(configuredServerUrl, IsTcpPortAvailable(11434)));
+    return Results.Ok(analytics.GetSnapshot(configuredServerUrl));
 });
 
 webApp.MapPost("/internal/analytics/clear", (
     IRequestAnalyticsService analytics) =>
 {
     analytics.Clear();
-    return Results.Ok(analytics.GetSnapshot(configuredServerUrl, IsTcpPortAvailable(11434)));
+    return Results.Ok(analytics.GetSnapshot(configuredServerUrl));
 });
 
 webApp.MapMethods("/api/version", new[] { HttpMethods.Get, HttpMethods.Head }, () =>
@@ -328,8 +328,7 @@ static string ResolveServerUrl()
         return uri.AbsoluteUri.TrimEnd('/');
     }
 
-    var port = GetFreeTcpPort();
-    return $"http://127.0.0.1:{port}";
+    return "http://127.0.0.1:5124";
 }
 
 static bool IsTcpPortAvailable(int targetPort)
@@ -468,6 +467,7 @@ static string NormalizePublicBaseUrl(string baseUrl)
 
     var builder = new UriBuilder(uri)
     {
+        Host = string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase) ? "127.0.0.1" : uri.Host,
         Path = string.Empty,
         Query = string.Empty,
         Fragment = string.Empty
