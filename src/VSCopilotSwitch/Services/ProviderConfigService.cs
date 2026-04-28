@@ -27,6 +27,8 @@ public interface IProviderConfigService
     Task<IReadOnlyList<ProviderConfigView>> ReorderAsync(
         ReorderProvidersRequest request,
         CancellationToken cancellationToken = default);
+
+    Task<ProviderConfigExportDocument> ExportAsync(CancellationToken cancellationToken = default);
 }
 
 public sealed partial class ProviderConfigService : IProviderConfigService
@@ -36,9 +38,21 @@ public sealed partial class ProviderConfigService : IProviderConfigService
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public ProviderConfigService()
+        : this(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "VSCopilotSwitch",
+            "providers.json"))
     {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        _filePath = Path.Combine(appData, "VSCopilotSwitch", "providers.json");
+    }
+
+    public ProviderConfigService(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            throw new ArgumentException("供应商配置文件路径不能为空。", nameof(filePath));
+        }
+
+        _filePath = Path.GetFullPath(filePath);
     }
 
     public async Task<IReadOnlyList<ProviderConfigView>> ListAsync(CancellationToken cancellationToken = default)
@@ -226,10 +240,45 @@ public sealed partial class ProviderConfigService : IProviderConfigService
             }
 
             ordered.AddRange(byId.Values.OrderBy(provider => provider.SortOrder));
-            document.Providers = ordered;
-            NormalizeSortOrder(document.Providers);
+            document.Providers = ordered
+                .Select((provider, index) => provider with { SortOrder = index })
+                .ToList();
             await SaveDocumentAsync(document, cancellationToken);
             return ToViews(document.Providers);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<ProviderConfigExportDocument> ExportAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var document = await LoadDocumentAsync(cancellationToken);
+            var providers = document.Providers
+                .OrderBy(provider => provider.SortOrder)
+                .Select(provider => new ProviderConfigExportItem(
+                    provider.Id,
+                    provider.Name,
+                    provider.Remark,
+                    provider.Url,
+                    provider.ApiUrl,
+                    provider.Model,
+                    provider.Vendor,
+                    provider.Avatar,
+                    provider.Active,
+                    provider.SortOrder,
+                    provider.EncryptedApiKey is not null))
+                .ToArray();
+
+            return new ProviderConfigExportDocument(
+                Version: CurrentVersion,
+                ExportedAt: DateTimeOffset.UtcNow,
+                IncludesSecrets: false,
+                Providers: providers);
         }
         finally
         {
@@ -477,3 +526,22 @@ public sealed record SaveProviderConfigRequest(
     bool Active);
 
 public sealed record ReorderProvidersRequest(IReadOnlyList<string> ProviderIds);
+
+public sealed record ProviderConfigExportDocument(
+    int Version,
+    DateTimeOffset ExportedAt,
+    bool IncludesSecrets,
+    IReadOnlyList<ProviderConfigExportItem> Providers);
+
+public sealed record ProviderConfigExportItem(
+    string Id,
+    string Name,
+    string Remark,
+    string Url,
+    string ApiUrl,
+    string Model,
+    string Vendor,
+    string Avatar,
+    bool Active,
+    int SortOrder,
+    bool HasApiKey);

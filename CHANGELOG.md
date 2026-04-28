@@ -63,14 +63,19 @@
 - ✅️ 新增失败修复建议面板，针对权限不足、JSON 无效、文件占用和端口冲突给出可执行处理步骤。
 - ✅️ 新增默认折叠的高级选项面板，集中放置代理地址、熔断阈值、重试次数和备用路由。
 - ✅️ 新增 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份。
+- ✅️ 新增供应商配置 API 最小测试项目，覆盖保存不回传密钥、启用唯一供应商、排序幂等和删除后自动选择可用供应商。
+- ✅️ 修复供应商排序 API 仍按旧 SortOrder 回排的问题，拖拽排序现在会按请求顺序稳定归一化。
+- ✅️ 新增供应商配置导出 API 和首页导出入口，默认导出不包含 API Key 原文、脱敏预览或加密密文，只保留密钥存在状态。
 - ✅️ 新增本地端口占用检测 API 与高级选项中的端口检测提示。
 - ✅️ 新增 Windows 托盘菜单最小增强，支持打开或聚焦主界面、查看当前提供商和代理状态、退出并停止本地代理。
+- ✅️ Win32 原生托盘菜单接入当前启用供应商和模型状态，并支持对已保存密钥和模型名的真实供应商做快速切换。
 - ✅️ 重新设计 VSCopilotSwitch 专属 SVG logo，并替换首页左上角 `CC Switch` 品牌展示。
 - ✅️ 首页右上角快速入口从 `Claude` / `Codex` 调整为 `VS2026` / `VSCode`，并替换为对应 IDE 风格图标。
 - ✅️ 接入 OmniHost Windows 原生宿主：`src/VSCopilotSwitch` 直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.NativeWebView2`，启动本地 ASP.NET Core 服务后由 Win32 + Native WebView2 窗口承载 Vue 管理界面。
 - ✅️ 将 OmniHost 直接依赖和传递依赖加入 `VSCopilotSwitch.slnx`，修复 Visual Studio 生成主项目时未先生成 `OmniHost.Abstractions` / `OmniHost.Core` 等外部项目导致的 `CS0006`。
 - ✅️ 设置页移除供应商和高级熔断占位页面，仅保留 VS Code 配置写入与备份回滚入口，减少未完成能力对用户的干扰。
 - ✅️ 使用 `src/assets/logo.svg` 重新生成 `public/favicon.ico`，让浏览器 favicon、程序 ICO、窗口和托盘图标统一使用 VSCopilotSwitch 标识。
+- ✅️ 顶部 VS Code Ollama 开关打开时只做状态检测；缺失配置时跳转到写入向导并显示明确预览/确认流程，不静默修改 VS Code 配置。
 - ✅️ 完成一次 Windows `win-x64` AOT 单文件发布验证：先构建 Vue SPA，再通过 `publish:aot` 生成 Release 自包含发布目录，并把唯一 exe 复制到干净目录通过 `/health` 最小冒烟。
 - ✅️ `/api/chat` 支持 Ollama 兼容流式 NDJSON 响应，`stream: true` 时按分块返回并追加最终 `done` 分块。
 - ✅️ Ollama 代理新增 Provider 路由和模型别名解析，支持按完整模型名、上游模型名或别名定位目标 Provider。

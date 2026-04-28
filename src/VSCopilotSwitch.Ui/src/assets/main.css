@@ -460,6 +460,14 @@ a {
   min-width: 0;
 }
 
+.model-panel-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .model-panel-head span,
 .model-panel-head small,
 .model-empty {
@@ -1200,6 +1208,34 @@ a {
   border-radius: 18px;
   background: #f8fbff;
   padding: 18px;
+}
+
+.switch-guidance {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #bfead9;
+  border-radius: 18px;
+  background: #f0fff8;
+  padding: 18px;
+}
+
+.switch-guidance span {
+  color: #16745a;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.switch-guidance h3 {
+  margin: 4px 0 0;
+  font-size: 18px;
+}
+
+.switch-guidance p {
+  margin: 8px 0 0;
+  color: #3d7664;
+  line-height: 1.55;
 }
 
 .rollback-panel {

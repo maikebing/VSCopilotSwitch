@@ -183,9 +183,11 @@ const loading = ref(false);
 const analyticsLoading = ref(false);
 const previewLoading = ref(false);
 const applyLoading = ref(false);
+const exportConfigLoading = ref(false);
 const backupsLoading = ref(false);
 const restoreLoading = ref(false);
 const vscodeConfigSwitchLoading = ref(false);
+const vscodeSetupPromptVisible = ref(false);
 const portChecking = ref(false);
 const modelsLoading = ref(false);
 const providerTestLoadingId = ref('');
@@ -556,6 +558,33 @@ async function clearAnalytics() {
   }
 }
 
+async function exportProviderConfig() {
+  exportConfigLoading.value = true;
+  clearError();
+
+  try {
+    const response = await fetch('/internal/providers/export');
+    if (!response.ok) {
+      throw new Error(await readPublicError(response, '导出供应商配置失败。'));
+    }
+
+    const payload = await response.json();
+    const content = `${JSON.stringify(payload, null, 2)}\n`;
+    const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    link.href = url;
+    link.download = `vscopilotswitch-providers-${timestamp}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    setError(messageFromError(error, '导出供应商配置失败。'));
+  } finally {
+    exportConfigLoading.value = false;
+  }
+}
+
 function mapProviderViews(items: unknown): ProviderCard[] {
   if (!Array.isArray(items)) {
     return [];
@@ -609,6 +638,7 @@ async function previewVsCodeConfig() {
 
   previewLoading.value = true;
   clearError();
+  vscodeSetupPromptVisible.value = false;
   preview.value = null;
   applyResult.value = null;
 
@@ -673,6 +703,7 @@ async function applyVsCodeConfig() {
     applyResult.value = await response.json();
     preview.value = applyResult.value;
     applyConfirmationArmed.value = false;
+    vscodeSetupPromptVisible.value = false;
     await refreshVsCodeOllamaStatus(false);
     await loadBackups();
   } catch (error) {
@@ -704,6 +735,9 @@ async function refreshVsCodeOllamaStatus(reportError = true) {
     }
 
     vscodeOllamaStatus.value = await response.json();
+    if (vscodeOllamaStatus.value?.Enabled) {
+      vscodeSetupPromptVisible.value = false;
+    }
   } catch (error) {
     vscodeOllamaStatus.value = null;
     if (reportError) {
@@ -755,9 +789,7 @@ async function handleVsCodeConfigSwitchChanged(event: Event) {
     if (checked) {
       await refreshVsCodeOllamaStatus(true);
       if (!vscodeOllamaStatus.value?.Enabled) {
-        settingsTab.value = 'general';
-        currentView.value = 'settings';
-        setError('未检测到完整的 VS Code Ollama 配置，请先在设置的“常规”选项卡中生成差异预览并确认写入。');
+        openVsCodeConfigWizardFromSwitch();
       }
       return;
     }
@@ -766,6 +798,21 @@ async function handleVsCodeConfigSwitchChanged(event: Event) {
   } finally {
     vscodeConfigSwitchLoading.value = false;
   }
+}
+
+function openVsCodeConfigWizardFromSwitch() {
+  settingsTab.value = 'general';
+  currentView.value = 'settings';
+  vscodeSetupPromptVisible.value = true;
+  applyConfirmationArmed.value = false;
+  setError('未检测到完整的 VS Code Ollama 配置。已为你打开写入向导，请先生成差异预览，再二次确认写入。', {
+    title: '需要明确确认后才会写入',
+    steps: [
+      '点击“生成差异预览”查看将修改的 chatLanguageModels.json 条目。',
+      '确认只会维护 vscc Ollama Provider 后，再点击“确认写入 VS Code Ollama 配置”。',
+      '写入前会自动创建备份；未确认前不会修改 VS Code 配置。'
+    ]
+  });
 }
 
 async function loadBackups() {
@@ -925,6 +972,7 @@ function resetVsCodeWizard() {
   preview.value = null;
   applyResult.value = null;
   restoreResult.value = null;
+  vscodeSetupPromptVisible.value = false;
   applyConfirmationArmed.value = false;
   clearError();
 }
@@ -1108,6 +1156,7 @@ function openList() {
 function openSettings() {
   settingsTab.value = 'general';
   currentView.value = 'settings';
+  vscodeSetupPromptVisible.value = false;
 }
 
 async function openAnalytics() {
@@ -1359,9 +1408,14 @@ onMounted(loadDashboard);
               <strong>{{ modelRefreshText }}</strong>
               <small>上次刷新：{{ modelRefreshTimeText }}</small>
             </div>
-            <button class="secondary-button compact" type="button" :disabled="modelsLoading" @click="refreshModels(true)">
-              {{ modelsLoading ? '刷新中...' : '刷新模型列表' }}
-            </button>
+            <div class="model-panel-actions">
+              <button class="secondary-button compact" type="button" :disabled="exportConfigLoading" @click="exportProviderConfig">
+                {{ exportConfigLoading ? '导出中...' : '导出配置（不含密钥）' }}
+              </button>
+              <button class="secondary-button compact" type="button" :disabled="modelsLoading" @click="refreshModels(true)">
+                {{ modelsLoading ? '刷新中...' : '刷新模型列表' }}
+              </button>
+            </div>
           </div>
           <p v-if="modelErrorMessage" class="model-error">{{ modelErrorMessage }}</p>
           <p v-else-if="usingFallbackModelProvider" class="model-warning">未保存真实 API Key 或当前供应商不可用于运行时路由，正在显示内置占位模型。</p>
@@ -1706,6 +1760,22 @@ onMounted(loadDashboard);
                   <h3>VS Code Ollama 配置</h3>
                 </div>
                 <p>先选择 VS Code User 目录并生成 dry-run 差异预览，确认 vscc Ollama Provider 条目变化后再写入。</p>
+              </section>
+
+              <section v-if="vscodeSetupPromptVisible" class="switch-guidance" aria-label="VS Code Ollama 开关写入向导">
+                <div>
+                  <span>来自顶部开关</span>
+                  <h3>检测到 VS Code Ollama 配置缺失</h3>
+                  <p>顶部开关不会直接写入配置。请先生成差异预览，确认目标文件和 vscc Provider 条目后，再二次确认写入。</p>
+                </div>
+                <div class="wizard-actions">
+                  <button class="secondary-button" type="button" :disabled="previewLoading || !selectedDirectory" @click="previewVsCodeConfig">
+                    {{ previewLoading ? '生成预览中...' : '生成差异预览' }}
+                  </button>
+                  <button class="save-button" type="button" :disabled="applyLoading || !canApplyVsCodeConfig" @click="applyVsCodeConfig">
+                    {{ applyLoading ? '写入中...' : applyConfirmText }}
+                  </button>
+                </div>
               </section>
 
               <section class="config-wizard" aria-label="VS Code Ollama 配置写入向导">

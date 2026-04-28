@@ -36,6 +36,7 @@ builder.Services.AddSingleton<IProviderConfigService, ProviderConfigService>();
 builder.Services.AddSingleton<IModelProvider, ActiveProviderModelProvider>();
 builder.Services.AddSingleton<ProviderConnectionTester>();
 builder.Services.AddSingleton<IRequestAnalyticsService, RequestAnalyticsService>();
+builder.Services.AddSingleton<ITrayMenuService, TrayMenuService>();
 builder.Services.AddSingleton<IOllamaProxyService>(serviceProvider =>
     new OllamaProxyService(serviceProvider.GetServices<IModelProvider>()));
 builder.Services.AddSingleton<IVsCodeConfigLocator, VsCodeConfigLocator>();
@@ -59,6 +60,10 @@ var app = builder
         options.TrayToolTip = "VSCopilotSwitch";
         options.TrayOpenText = "打开 VSCopilotSwitch";
         options.TrayExitText = "退出 VSCopilotSwitch";
+        var trayMenu = webApp.Services.GetRequiredService<ITrayMenuService>();
+        options.TrayToolTipProvider = trayMenu.GetToolTip;
+        options.TrayMenuProvider = trayMenu.GetMenuItems;
+        options.TrayCommandHandler = trayMenu.HandleCommandAsync;
         options.UserDataFolder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "VSCopilotSwitch",
@@ -234,6 +239,13 @@ webApp.MapPost("/internal/providers/reorder", async (
     CancellationToken cancellationToken) =>
 {
     return Results.Ok(await service.ReorderAsync(request, cancellationToken));
+});
+
+webApp.MapGet("/internal/providers/export", async (
+    IProviderConfigService service,
+    CancellationToken cancellationToken) =>
+{
+    return Results.Ok(await service.ExportAsync(cancellationToken));
 });
 
 webApp.MapPost("/internal/providers/{providerId}/activate", async (
