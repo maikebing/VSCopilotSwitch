@@ -228,6 +228,7 @@
 - ✅️ 新增 `OmniApplication` 组合宿主生成器：外层 API 对齐 ASP.NET Core 的 `CreateBuilder` / `CreateSlimBuilder` / `CreateEmptyBuilder`，内部组合本地 Web 服务和桌面窗口生命周期，避免应用入口手动维护两套启动/退出流程。
 - ✅️ 新增 Native WebView2 适配器：基于 `WebView2Aot` 生成式 COM binding 创建环境和 HWND controller，提供导航、尺寸同步和 JS bridge，并嵌入 WebView2 Loader 以支持 AOT 单文件发布。
 - ✅️ 收敛 Native AOT JSON 警告：主程序、Provider 配置、OpenAI-compatible / Claude Provider、VS Code 配置写入和 OmniHost 窗口事件均改为源生成或显式 `JsonNode.WriteTo`，AOT 单文件发布不再出现 IL2026 / IL3050。
+- ✅️ 修复 Native WebView2 JS bridge 初始化闪退：不再释放 `AddScriptToExecuteOnDocumentCreated` 完成回调返回的脚本 ID，发布版窗口可持续运行。
 - 🟡 可并行 实现主窗口生命周期。
 - ✅️ 实现 Windows 托盘图标最小增强：打开或聚焦主界面。
 - ✅️ 实现 Windows 托盘菜单最小增强：显示当前提供商和代理服务状态；当前模型后续接入真实路由状态。
