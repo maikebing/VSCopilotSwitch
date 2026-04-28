@@ -399,7 +399,24 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
             throw new ArgumentException("必须选择 VS Code User 配置目录。", nameof(userDirectory));
         }
 
-        return Path.GetFullPath(userDirectory);
+        var fullPath = Path.GetFullPath(userDirectory);
+        // 兼容早期界面误传的 VS Code 产品根目录，实际可写配置必须落在 User 子目录。
+        return IsVsCodeProductRootDirectory(fullPath)
+            ? Path.Combine(fullPath, "User")
+            : fullPath;
+    }
+
+    private static bool IsVsCodeProductRootDirectory(string directory)
+    {
+        var directoryName = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.Equals(directoryName, "User", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return string.Equals(directoryName, "Code", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(directoryName, "Code - Insiders", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(directoryName, "VSCodium", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveBackupPath(string userDirectory, string backupPath)

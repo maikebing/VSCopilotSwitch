@@ -7,6 +7,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("GetOllamaConfigStatusAsync detects managed provider", GetOllamaConfigStatusAsync_DetectsManagedProvider),
     ("RemoveOllamaConfigAsync removes only managed provider", RemoveOllamaConfigAsync_RemovesOnlyManagedProvider),
     ("ApplyOllamaConfigAsync removes duplicate managed providers", ApplyOllamaConfigAsync_RemovesDuplicateManagedProviders),
+    ("ApplyOllamaConfigAsync normalizes VS Code product root to User directory", ApplyOllamaConfigAsync_NormalizesProductRootToUserDirectory),
     ("ApplyOllamaConfigAsync reports invalid chatLanguageModels JSON", ApplyOllamaConfigAsync_ReportsInvalidChatLanguageModelsJson),
     ("ListBackups returns recent backups", ListBackups_ReturnsRecentBackups),
     ("RestoreBackupAsync creates safety backup", RestoreBackupAsync_CreatesSafetyBackup)
@@ -110,6 +111,25 @@ static async Task ApplyOllamaConfigAsync_RemovesDuplicateManagedProviders()
     Assert.Equal(1, CountOccurrences(content, "\"name\": \"vscc\""), "重复写入应收敛为一个 vscc Provider。");
     Assert.Contains("\"url\": \"http://127.0.0.1:5124\"", content, "应更新为当前代理地址。");
     Assert.Contains("\"name\": \"OpenAI\"", content, "去重时应保留其他 Provider。");
+}
+
+static async Task ApplyOllamaConfigAsync_NormalizesProductRootToUserDirectory()
+{
+    using var workspace = TestWorkspace.Create();
+    var service = new VsCodeConfigService();
+    var codeRoot = Path.Combine(workspace.Root, "Code");
+    var userDirectory = Path.Combine(codeRoot, "User");
+    var rootChatLanguageModelsPath = Path.Combine(codeRoot, "chatLanguageModels.json");
+    var userChatLanguageModelsPath = Path.Combine(userDirectory, "chatLanguageModels.json");
+
+    Directory.CreateDirectory(userDirectory);
+    File.WriteAllText(rootChatLanguageModelsPath, "{\"legacy\":true}");
+
+    var result = await service.ApplyOllamaConfigAsync(codeRoot, ManagedOllamaConfig.Default, dryRun: true);
+
+    Assert.Equal(userDirectory, result.UserDirectory, "误传 VS Code 产品根目录时应自动规范化到 User 子目录。");
+    Assert.Equal(userChatLanguageModelsPath, result.Changes.Single().FilePath, "差异预览应读取并写入 User 子目录下的 chatLanguageModels.json。");
+    Assert.Equal("{\"legacy\":true}", File.ReadAllText(rootChatLanguageModelsPath), "不应读取或修改上一级残留配置文件。");
 }
 
 static async Task ApplyOllamaConfigAsync_ReportsInvalidChatLanguageModelsJson()

@@ -199,7 +199,7 @@ const providerConnectionResult = ref<ProviderConnectionTestResult | null>(null);
 const modelsRefreshedAt = ref<string | null>(null);
 const recoveryAdvice = ref<RecoveryAdvice | null>(null);
 const currentView = ref<'list' | 'edit' | 'settings' | 'analytics'>('list');
-const settingsTab = ref<'general' | 'backups' | 'providers' | 'advanced'>('general');
+const settingsTab = ref<'general' | 'backups'>('general');
 const showApiKey = ref(false);
 const showAdvancedOptions = ref(false);
 const isCreatingProvider = ref(false);
@@ -1682,7 +1682,7 @@ onMounted(loadDashboard);
           <button class="back-button" type="button" @click="openList">←</button>
           <div>
             <h2>设置</h2>
-            <p>集中管理本地代理、VS Code 配置写入和后续高级能力。</p>
+            <p>集中管理本地代理状态、VS Code 配置写入和配置回滚。</p>
           </div>
         </div>
 
@@ -1695,14 +1695,6 @@ onMounted(loadDashboard);
             <button type="button" :class="{ active: settingsTab === 'backups' }" @click="settingsTab = 'backups'">
               <strong>备份</strong>
               <span>配置备份列表和回滚恢复</span>
-            </button>
-            <button type="button" :class="{ active: settingsTab === 'providers' }" @click="settingsTab = 'providers'">
-              <strong>供应商</strong>
-              <span>供应商列表和默认路由</span>
-            </button>
-            <button type="button" :class="{ active: settingsTab === 'advanced' }" @click="settingsTab = 'advanced'">
-              <strong>高级</strong>
-              <span>熔断、重试和备用路由</span>
             </button>
           </nav>
 
@@ -1848,25 +1840,6 @@ onMounted(loadDashboard);
               </section>
             </template>
 
-            <template v-else-if="settingsTab === 'providers'">
-              <section class="settings-section">
-                <div>
-                  <span>供应商</span>
-                  <h3>供应商管理入口</h3>
-                </div>
-                <p>供应商增删改、排序和启用状态仍在首页处理，后续会在这里补默认路由和导入导出。</p>
-              </section>
-            </template>
-
-            <template v-else>
-              <section class="settings-section">
-                <div>
-                  <span>高级</span>
-                  <h3>稳定性参数</h3>
-                </div>
-                <p>熔断、重试、备用路由和健康检查会随阶段 6 继续补齐。</p>
-              </section>
-            </template>
           </div>
         </div>
       </section>

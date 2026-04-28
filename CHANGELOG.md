@@ -69,6 +69,9 @@
 - ✅️ 首页右上角快速入口从 `Claude` / `Codex` 调整为 `VS2026` / `VSCode`，并替换为对应 IDE 风格图标。
 - ✅️ 接入 OmniHost Windows 原生宿主：`src/VSCopilotSwitch` 直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.NativeWebView2`，启动本地 ASP.NET Core 服务后由 Win32 + Native WebView2 窗口承载 Vue 管理界面。
 - ✅️ 将 OmniHost 直接依赖和传递依赖加入 `VSCopilotSwitch.slnx`，修复 Visual Studio 生成主项目时未先生成 `OmniHost.Abstractions` / `OmniHost.Core` 等外部项目导致的 `CS0006`。
+- ✅️ 设置页移除供应商和高级熔断占位页面，仅保留 VS Code 配置写入与备份回滚入口，减少未完成能力对用户的干扰。
+- ✅️ 使用 `src/assets/logo.svg` 重新生成 `public/favicon.ico`，让浏览器 favicon、程序 ICO、窗口和托盘图标统一使用 VSCopilotSwitch 标识。
+- ✅️ 完成一次 Windows `win-x64` AOT 单文件发布验证：先构建 Vue SPA，再通过 `publish:aot` 生成 Release 自包含发布目录，并把唯一 exe 复制到干净目录通过 `/health` 最小冒烟。
 - ✅️ `/api/chat` 支持 Ollama 兼容流式 NDJSON 响应，`stream: true` 时按分块返回并追加最终 `done` 分块。
 - ✅️ Ollama 代理新增 Provider 路由和模型别名解析，支持按完整模型名、上游模型名或别名定位目标 Provider。
 - ✅️ Ollama 代理新增基础错误映射，未知模型、重复别名、Provider 鉴权、限流、超时和上游错误会返回脱敏后的 `{ error, code }`。
@@ -113,6 +116,7 @@
 
 ### Fixed
 
+- ✅️ 修复 VS Code 配置目录发现误返回 `...\Code` 产品根目录的问题；现在会返回 `...\Code\User`，并兼容旧界面传入根目录时自动规范化到 User 子目录，避免生成差异预览误读上一级残留 `chatLanguageModels.json`。
 - ✅️ 修复右上角新增供应商入口：新增模式会清空标题和表单内容，编辑已有供应商时才带入原数据。
 - ✅️ 修复首页供应商链接打开方式：桌面壳内通过系统默认浏览器打开外部链接，避免在 WebView 内跳走。
 - ✅️ 新增首页供应商卡片上下拖拽排序，拖动卡片可调整供应商列表顺序。

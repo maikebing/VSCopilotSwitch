@@ -22,9 +22,9 @@ public sealed class VsCodeConfigLocator : IVsCodeConfigLocator
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            AddIfNotWhiteSpace(directories, appData, "Code", VsCodeProfile.Stable, "VS Code Stable user settings");
-            AddIfNotWhiteSpace(directories, appData, "Code - Insiders", VsCodeProfile.Insiders, "VS Code Insiders user settings");
-            AddIfNotWhiteSpace(directories, appData, "VSCodium", VsCodeProfile.Vscodium, "VSCodium user settings");
+            AddIfNotWhiteSpace(directories, appData, "Code/User", VsCodeProfile.Stable, "VS Code Stable User 配置目录");
+            AddIfNotWhiteSpace(directories, appData, "Code - Insiders/User", VsCodeProfile.Insiders, "VS Code Insiders User 配置目录");
+            AddIfNotWhiteSpace(directories, appData, "VSCodium/User", VsCodeProfile.Vscodium, "VSCodium User 配置目录");
         }
 
         return directories;
