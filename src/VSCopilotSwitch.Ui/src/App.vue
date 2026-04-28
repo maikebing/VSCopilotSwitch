@@ -914,6 +914,10 @@ function normalizePort(port: number): { valid: true; port: number } | { valid: f
     return { valid: false, message: '端口号必须是 1 到 65535 之间的整数。' };
   }
 
+  if (port === 11434) {
+    return { valid: false, message: '11434 是 Ollama 默认端口，VSCopilotSwitch 请使用 5124 或其他非 11434 端口。' };
+  }
+
   return { valid: true, port };
 }
 

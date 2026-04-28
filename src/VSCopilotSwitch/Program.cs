@@ -65,6 +65,11 @@ webApp.MapGet("/internal/network/port-status", (int port = 5124) =>
         return Results.BadRequest(new PortStatusResponse(port, false, "端口必须在 1 到 65535 之间。"));
     }
 
+    if (port == 11434)
+    {
+        return Results.BadRequest(new PortStatusResponse(port, false, "11434 是 Ollama 默认端口，VSCopilotSwitch 不再使用该端口作为 VS Code Provider URL。"));
+    }
+
     var available = IsTcpPortAvailable(port);
     var message = available
         ? $"127.0.0.1:{port} 当前可用。"
@@ -307,13 +312,6 @@ finally
     await webApp.DisposeAsync();
 }
 
-static int GetFreeTcpPort()
-{
-    using var listener = new TcpListener(IPAddress.Loopback, 0);
-    listener.Start();
-    return ((IPEndPoint)listener.LocalEndpoint).Port;
-}
-
 static string ResolveServerUrl()
 {
     var configuredUrls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
@@ -325,7 +323,12 @@ static string ResolveServerUrl()
         && uri.Scheme is "http" or "https"
         && uri.Port is >= 1 and <= 65535)
     {
-        return uri.AbsoluteUri.TrimEnd('/');
+        if (uri.Port == 11434)
+        {
+            throw new InvalidOperationException("11434 是 Ollama 默认端口，VSCopilotSwitch 请使用 http://127.0.0.1:5124 或其他非 11434 端口。");
+        }
+
+        return NormalizePublicBaseUrl(uri.AbsoluteUri);
     }
 
     return "http://127.0.0.1:5124";
