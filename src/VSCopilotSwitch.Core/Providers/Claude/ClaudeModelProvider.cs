@@ -6,13 +6,8 @@ using System.Text.Json.Serialization;
 
 namespace VSCopilotSwitch.Core.Providers.Claude;
 
-public sealed class ClaudeModelProvider : IModelProvider
+public sealed partial class ClaudeModelProvider : IModelProvider
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-    };
-
     private readonly HttpClient _httpClient;
     private readonly ClaudeProviderOptions _options;
     private readonly Uri _baseUri;
@@ -54,7 +49,10 @@ public sealed class ClaudeModelProvider : IModelProvider
         }
 
         await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var payload = await JsonSerializer.DeserializeAsync<ClaudeModelListResponse>(contentStream, JsonOptions, cancellationToken);
+        var payload = await JsonSerializer.DeserializeAsync(
+            contentStream,
+            ClaudeProviderJsonContext.Default.ClaudeModelListResponse,
+            cancellationToken);
         var models = payload?.Data?
             .Select(model => model.Id?.Trim())
             .Where(modelId => !string.IsNullOrWhiteSpace(modelId))
@@ -81,7 +79,10 @@ public sealed class ClaudeModelProvider : IModelProvider
         }
 
         await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var payload = await JsonSerializer.DeserializeAsync<ClaudeMessageResponse>(contentStream, JsonOptions, cancellationToken);
+        var payload = await JsonSerializer.DeserializeAsync(
+            contentStream,
+            ClaudeProviderJsonContext.Default.ClaudeMessageResponse,
+            cancellationToken);
         ThrowIfErrorPayload(payload?.Error);
 
         var content = ExtractText(payload?.Content);
@@ -122,7 +123,9 @@ public sealed class ClaudeModelProvider : IModelProvider
             ClaudeStreamEvent? streamEvent;
             try
             {
-                streamEvent = JsonSerializer.Deserialize<ClaudeStreamEvent>(data, JsonOptions);
+                streamEvent = JsonSerializer.Deserialize(
+                    data,
+                    ClaudeProviderJsonContext.Default.ClaudeStreamEvent);
             }
             catch (JsonException ex)
             {
@@ -210,7 +213,9 @@ public sealed class ClaudeModelProvider : IModelProvider
     private HttpRequestMessage CreateJsonRequest(ClaudeMessagesRequest upstreamRequest)
     {
         var request = CreateRequest(HttpMethod.Post, "messages");
-        var json = JsonSerializer.Serialize(upstreamRequest, JsonOptions);
+        var json = JsonSerializer.Serialize(
+            upstreamRequest,
+            ClaudeProviderJsonContext.Default.ClaudeMessagesRequest);
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
         return request;
     }
@@ -298,7 +303,9 @@ public sealed class ClaudeModelProvider : IModelProvider
 
         try
         {
-            var payload = JsonSerializer.Deserialize<ClaudeErrorEnvelope>(rawContent, JsonOptions);
+            var payload = JsonSerializer.Deserialize(
+                rawContent,
+                ClaudeProviderJsonContext.Default.ClaudeErrorEnvelope);
             if (!string.IsNullOrWhiteSpace(payload?.Error?.Message))
             {
                 return payload.Error.Message;
@@ -487,4 +494,12 @@ public sealed class ClaudeModelProvider : IModelProvider
     private sealed record ClaudeError(
         [property: JsonPropertyName("type")] string? Type,
         [property: JsonPropertyName("message")] string? Message);
+
+    [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonSerializable(typeof(ClaudeModelListResponse))]
+    [JsonSerializable(typeof(ClaudeMessagesRequest))]
+    [JsonSerializable(typeof(ClaudeMessageResponse))]
+    [JsonSerializable(typeof(ClaudeStreamEvent))]
+    [JsonSerializable(typeof(ClaudeErrorEnvelope))]
+    private sealed partial class ClaudeProviderJsonContext : JsonSerializerContext;
 }

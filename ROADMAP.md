@@ -227,6 +227,7 @@
 - ✅️ 集成 OmniHost 工程结构，宿主项目直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.NativeWebView2` 三个源码项目。
 - ✅️ 新增 `OmniApplication` 组合宿主生成器：外层 API 对齐 ASP.NET Core 的 `CreateBuilder` / `CreateSlimBuilder` / `CreateEmptyBuilder`，内部组合本地 Web 服务和桌面窗口生命周期，避免应用入口手动维护两套启动/退出流程。
 - ✅️ 新增 Native WebView2 适配器：基于 `WebView2Aot` 生成式 COM binding 创建环境和 HWND controller，提供导航、尺寸同步和 JS bridge，并嵌入 WebView2 Loader 以支持 AOT 单文件发布。
+- ✅️ 收敛 Native AOT JSON 警告：主程序、Provider 配置、OpenAI-compatible / Claude Provider、VS Code 配置写入和 OmniHost 窗口事件均改为源生成或显式 `JsonNode.WriteTo`，AOT 单文件发布不再出现 IL2026 / IL3050。
 - 🟡 可并行 实现主窗口生命周期。
 - ✅️ 实现 Windows 托盘图标最小增强：打开或聚焦主界面。
 - ✅️ 实现 Windows 托盘菜单最小增强：显示当前提供商和代理服务状态；当前模型后续接入真实路由状态。
@@ -239,7 +240,7 @@
 - ✅️ 接入 VS Code Workbench 风格主题层，预留 OmniHost 宿主主题变量注入接口。
 - ✅️ 宿主标题栏切换为系统原生样式，页面配色默认跟随操作系统深浅色偏好。
 - 🔧 运行时优先从嵌入式资源加载 SPA。
-- 🔧 支持 AOT 发布：当前已能生成 Native AOT 单文件主程序，并切换到 Native WebView2；剩余工作是收敛业务层 JSON/JsonNode 的 AOT 警告和补运行期验收清单。
+- 🔧 支持 AOT 发布：当前已能生成 Native AOT 单文件主程序，并切换到 Native WebView2；业务层 JSON/JsonNode 的 AOT 警告已收敛，剩余工作是补运行期验收清单。
 
 UI 方向：
 

@@ -29,17 +29,11 @@ public interface IProviderConfigService
         CancellationToken cancellationToken = default);
 }
 
-public sealed class ProviderConfigService : IProviderConfigService
+public sealed partial class ProviderConfigService : IProviderConfigService
 {
     private const int CurrentVersion = 1;
     private readonly string _filePath;
     private readonly SemaphoreSlim _gate = new(1, 1);
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-    };
 
     public ProviderConfigService()
     {
@@ -251,7 +245,10 @@ public sealed class ProviderConfigService : IProviderConfigService
         }
 
         await using var stream = File.OpenRead(_filePath);
-        var document = await JsonSerializer.DeserializeAsync<ProviderConfigDocument>(stream, JsonOptions, cancellationToken)
+        var document = await JsonSerializer.DeserializeAsync(
+            stream,
+            ProviderConfigJsonContext.Default.ProviderConfigDocument,
+            cancellationToken)
             ?? new ProviderConfigDocument(CurrentVersion, new List<ProviderConfig>());
         document.Providers ??= new List<ProviderConfig>();
         NormalizeSortOrder(document.Providers);
@@ -264,7 +261,11 @@ public sealed class ProviderConfigService : IProviderConfigService
         var tempPath = $"{_filePath}.tmp";
         await using (var stream = File.Create(tempPath))
         {
-            await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken);
+            await JsonSerializer.SerializeAsync(
+                stream,
+                document,
+                ProviderConfigJsonContext.Default.ProviderConfigDocument,
+                cancellationToken);
         }
 
         File.Move(tempPath, _filePath, overwrite: true);
@@ -427,6 +428,11 @@ public sealed class ProviderConfigService : IProviderConfigService
         bool Active,
         int SortOrder,
         string? EncryptedApiKey);
+
+    [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, WriteIndented = true)]
+    [JsonSerializable(typeof(ProviderConfigDocument))]
+    [JsonSerializable(typeof(ProviderConfig))]
+    private sealed partial class ProviderConfigJsonContext : JsonSerializerContext;
 }
 
 public sealed record ProviderConfigView(

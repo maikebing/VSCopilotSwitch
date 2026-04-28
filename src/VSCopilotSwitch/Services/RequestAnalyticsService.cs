@@ -20,6 +20,7 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
 {
     private const int MaxEntries = 500;
     private const int MaxBodyCaptureBytes = 16 * 1024;
+    private static readonly JsonWriterOptions RedactedJsonWriterOptions = new() { Indented = true };
     private readonly ConcurrentQueue<RequestLogEntry> _entries = new();
     private static readonly Regex ApiKeyPattern = new(@"sk-[A-Za-z0-9_\-]{8,}", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex BearerPattern = new(@"Bearer\s+[A-Za-z0-9._~+\-/]+=*", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -249,7 +250,7 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
         {
             var node = JsonNode.Parse(text);
             RedactJsonNode(node);
-            return node?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? string.Empty;
+            return node is null ? string.Empty : WriteJsonNode(node, RedactedJsonWriterOptions);
         }
         catch
         {
@@ -265,7 +266,13 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
             {
                 if (IsSensitiveName(property.Key))
                 {
-                    jsonObject[property.Key] = "[已脱敏]";
+                    jsonObject[property.Key] = JsonValue.Create("[已脱敏]");
+                    continue;
+                }
+
+                if (TryCreateRedactedStringValue(property.Value, out var redactedValue))
+                {
+                    jsonObject[property.Key] = redactedValue;
                     continue;
                 }
 
@@ -274,19 +281,46 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
         }
         else if (node is JsonArray jsonArray)
         {
-            foreach (var child in jsonArray)
+            for (var index = 0; index < jsonArray.Count; index++)
             {
-                RedactJsonNode(child);
+                if (TryCreateRedactedStringValue(jsonArray[index], out var redactedValue))
+                {
+                    jsonArray[index] = redactedValue;
+                    continue;
+                }
+
+                RedactJsonNode(jsonArray[index]);
             }
         }
-        else if (node is JsonValue value && value.TryGetValue<string>(out var stringValue))
+    }
+
+    private static bool TryCreateRedactedStringValue(JsonNode? node, out JsonValue? redactedValue)
+    {
+        redactedValue = null;
+        if (node is not JsonValue value || !value.TryGetValue<string>(out var stringValue))
         {
-            var redacted = RedactSecrets(stringValue);
-            if (!string.Equals(redacted, stringValue, StringComparison.Ordinal))
-            {
-                value.ReplaceWith(redacted);
-            }
+            return false;
         }
+
+        var redacted = RedactSecrets(stringValue);
+        if (string.Equals(redacted, stringValue, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        redactedValue = JsonValue.Create(redacted);
+        return true;
+    }
+
+    private static string WriteJsonNode(JsonNode node, JsonWriterOptions options)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, options))
+        {
+            node.WriteTo(writer);
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
     }
 
     private static bool IsSensitiveName(string name)

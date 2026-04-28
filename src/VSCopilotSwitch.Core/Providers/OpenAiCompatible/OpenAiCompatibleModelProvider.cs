@@ -7,13 +7,8 @@ using System.Text.Json.Serialization;
 
 namespace VSCopilotSwitch.Core.Providers.OpenAiCompatible;
 
-public sealed class OpenAiCompatibleModelProvider : IModelProvider
+public sealed partial class OpenAiCompatibleModelProvider : IModelProvider
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-    };
-
     private readonly HttpClient _httpClient;
     private readonly OpenAiCompatibleProviderOptions _options;
     private readonly Uri _baseUri;
@@ -56,7 +51,10 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider
         }
 
         await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var payload = await JsonSerializer.DeserializeAsync<OpenAiModelListResponse>(contentStream, JsonOptions, cancellationToken);
+        var payload = await JsonSerializer.DeserializeAsync(
+            contentStream,
+            OpenAiProviderJsonContext.Default.OpenAiModelListResponse,
+            cancellationToken);
         var models = payload?.Data?
             .Select(model => model.Id?.Trim())
             .Where(modelId => !string.IsNullOrWhiteSpace(modelId))
@@ -83,7 +81,10 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider
         }
 
         await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var payload = await JsonSerializer.DeserializeAsync<OpenAiChatCompletionResponse>(contentStream, JsonOptions, cancellationToken);
+        var payload = await JsonSerializer.DeserializeAsync(
+            contentStream,
+            OpenAiProviderJsonContext.Default.OpenAiChatCompletionResponse,
+            cancellationToken);
         ThrowIfErrorPayload(payload?.Error);
 
         var choice = payload?.Choices?.FirstOrDefault();
@@ -138,7 +139,9 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider
             OpenAiChatCompletionResponse? payload;
             try
             {
-                payload = JsonSerializer.Deserialize<OpenAiChatCompletionResponse>(data, JsonOptions);
+                payload = JsonSerializer.Deserialize(
+                    data,
+                    OpenAiProviderJsonContext.Default.OpenAiChatCompletionResponse);
             }
             catch (JsonException ex)
             {
@@ -208,7 +211,9 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider
     private HttpRequestMessage CreateJsonRequest(OpenAiChatCompletionRequest upstreamRequest)
     {
         var request = CreateRequest(HttpMethod.Post, "chat/completions");
-        var json = JsonSerializer.Serialize(upstreamRequest, JsonOptions);
+        var json = JsonSerializer.Serialize(
+            upstreamRequest,
+            OpenAiProviderJsonContext.Default.OpenAiChatCompletionRequest);
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
         return request;
     }
@@ -338,7 +343,9 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider
 
         try
         {
-            var payload = JsonSerializer.Deserialize<OpenAiErrorEnvelope>(rawContent, JsonOptions);
+            var payload = JsonSerializer.Deserialize(
+                rawContent,
+                OpenAiProviderJsonContext.Default.OpenAiErrorEnvelope);
             if (!string.IsNullOrWhiteSpace(payload?.Error?.Message))
             {
                 return payload.Error.Message;
@@ -489,4 +496,11 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider
         [property: JsonPropertyName("message")] string? Message,
         [property: JsonPropertyName("type")] string? Type,
         [property: JsonPropertyName("code")] JsonElement? Code);
+
+    [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonSerializable(typeof(OpenAiModelListResponse))]
+    [JsonSerializable(typeof(OpenAiChatCompletionRequest))]
+    [JsonSerializable(typeof(OpenAiChatCompletionResponse))]
+    [JsonSerializable(typeof(OpenAiErrorEnvelope))]
+    private sealed partial class OpenAiProviderJsonContext : JsonSerializerContext;
 }

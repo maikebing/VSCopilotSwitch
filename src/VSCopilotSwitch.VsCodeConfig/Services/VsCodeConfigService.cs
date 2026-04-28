@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using VSCopilotSwitch.VsCodeConfig.Models;
@@ -35,9 +36,9 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
     public const string ManagedProviderName = "vscc";
     public const string OllamaVendor = "ollama";
 
-    private static readonly JsonSerializerOptions WriteOptions = new()
+    private static readonly JsonWriterOptions WriteOptions = new()
     {
-        WriteIndented = true
+        Indented = true
     };
 
     public async Task<VsCodeConfigApplyResult> ApplyOllamaConfigAsync(
@@ -202,7 +203,7 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
             {
                 if (!inserted)
                 {
-                    result.Add(CreateManagedProvider(baseUrl));
+                    result.Add((JsonNode)CreateManagedProvider(baseUrl));
                     inserted = true;
                 }
 
@@ -214,7 +215,7 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
 
         if (!inserted)
         {
-            result.Add(CreateManagedProvider(baseUrl));
+            result.Add((JsonNode)CreateManagedProvider(baseUrl));
         }
 
         return result;
@@ -359,7 +360,7 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         {
             var leftNode = JsonNode.Parse(string.IsNullOrWhiteSpace(left) ? "[]" : left);
             var rightNode = JsonNode.Parse(string.IsNullOrWhiteSpace(right) ? "[]" : right);
-            return JsonSerializer.Serialize(leftNode) == JsonSerializer.Serialize(rightNode);
+            return WriteJsonNode(leftNode) == WriteJsonNode(rightNode);
         }
         catch
         {
@@ -368,10 +369,10 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
     }
 
     private static string SerializeProviderForDiff(JsonObject? provider)
-        => provider is null ? "未设置" : JsonSerializer.Serialize(provider, WriteOptions);
+        => provider is null ? "未设置" : WriteJsonNode(provider, WriteOptions);
 
     private static string SerializeValueForDiff(JsonNode? value)
-        => value is null ? "未设置" : JsonSerializer.Serialize(value);
+        => value is null ? "未设置" : WriteJsonNode(value);
 
     private static string CreateBackupPath(string filePath)
     {
@@ -446,5 +447,21 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         return $"{filePath}.vscopilotswitch.restore-safety.{timestamp}.bak";
     }
 
-    private static string ToJson(JsonArray root) => JsonSerializer.Serialize(root, WriteOptions) + Environment.NewLine;
+    private static string ToJson(JsonArray root) => WriteJsonNode(root, WriteOptions) + Environment.NewLine;
+
+    private static string WriteJsonNode(JsonNode? node, JsonWriterOptions options = default)
+    {
+        if (node is null)
+        {
+            return "null";
+        }
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, options))
+        {
+            node.WriteTo(writer);
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
 }

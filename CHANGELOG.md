@@ -55,6 +55,7 @@
 - ✅️ 宿主发布运行时改为从程序集内嵌 `Spa\...` 资源加载 Vue 静态产物，AOT 单文件包不再依赖外部 `wwwroot` 目录。
 - ✅️ 新增 `OmniApplication` 组合宿主入口，提供 `CreateBuilder`、`CreateSlimBuilder`、`CreateEmptyBuilder` / `CreateEmpty`，让本地 ASP.NET Core 服务和 OmniHost 桌面壳由同一个应用生命周期统一启动和停止。
 - ✅️ 新增 `OmniHost.NativeWebView2` 项目，基于 `WebView2Aot` 对接原生 WebView2 COM binding，并将 `WebView2Loader.dll` 嵌入资源；VSCopilotSwitch 启动界面已切换到 `NativeWebView2AdapterFactory`，避免 Native AOT 下 classic WebView2 wrapper 的 COM marshalling 问题。
+- ✅️ 将主程序、Provider 配置、上游 Provider、VS Code 配置写入和 OmniHost 生命周期事件的 JSON 读写改为 Native AOT 友好的源生成或显式 `JsonNode.WriteTo` 路径，消除 AOT 发布中的 IL2026 / IL3050 警告。
 - ✅️ 新增失败修复建议面板，针对权限不足、JSON 无效、文件占用和端口冲突给出可执行处理步骤。
 - ✅️ 新增默认折叠的高级选项面板，集中放置代理地址、熔断阈值、重试次数和备用路由。
 - ✅️ 新增 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份。

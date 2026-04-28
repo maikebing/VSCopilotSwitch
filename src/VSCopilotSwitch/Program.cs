@@ -12,7 +12,6 @@ using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 using OmniHost;
 using OmniHost.NativeWebView2;
 using OmniHost.Windows;
@@ -157,21 +156,24 @@ webApp.MapPost("/api/chat", async (
     OllamaChatRequest request,
     IOllamaProxyService ollama,
     HttpContext httpContext,
-    IOptions<JsonOptions> jsonOptions,
     CancellationToken cancellationToken) =>
 {
     try
     {
         if (request.Stream == true)
         {
-            await WriteOllamaStreamAsync(httpContext, ollama.ChatStreamAsync(request, cancellationToken), jsonOptions.Value.SerializerOptions, cancellationToken);
+            await WriteOllamaStreamAsync(httpContext, ollama.ChatStreamAsync(request, cancellationToken), cancellationToken);
             return;
         }
 
         var response = await ollama.ChatAsync(request, cancellationToken);
         httpContext.Response.StatusCode = StatusCodes.Status200OK;
         httpContext.Response.ContentType = "application/json; charset=utf-8";
-        await JsonSerializer.SerializeAsync(httpContext.Response.Body, response, jsonOptions.Value.SerializerOptions, cancellationToken);
+        await JsonSerializer.SerializeAsync(
+            httpContext.Response.Body,
+            response,
+            VSCopilotSwitchJsonContext.Default.OllamaChatResponse,
+            cancellationToken);
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
     {
@@ -179,7 +181,7 @@ webApp.MapPost("/api/chat", async (
     }
     catch (Exception ex)
     {
-        await WriteOllamaErrorAsync(httpContext, ex, jsonOptions.Value.SerializerOptions, cancellationToken);
+        await WriteOllamaErrorAsync(httpContext, ex, cancellationToken);
     }
 });
 
@@ -346,13 +348,12 @@ static bool IsTcpPortAvailable(int targetPort)
 static IResult ToOllamaErrorResult(Exception exception)
 {
     var (statusCode, response) = MapOllamaException(exception);
-    return Results.Json(response, statusCode: statusCode);
+    return new OllamaErrorResult(statusCode, response);
 }
 
 static async Task WriteOllamaStreamAsync(
     HttpContext httpContext,
     IAsyncEnumerable<OllamaChatResponse> stream,
-    JsonSerializerOptions jsonOptions,
     CancellationToken cancellationToken)
 {
     httpContext.Response.StatusCode = StatusCodes.Status200OK;
@@ -362,7 +363,11 @@ static async Task WriteOllamaStreamAsync(
     {
         await foreach (var chunk in stream.WithCancellation(cancellationToken))
         {
-            await JsonSerializer.SerializeAsync(httpContext.Response.Body, chunk, jsonOptions, cancellationToken);
+            await JsonSerializer.SerializeAsync(
+                httpContext.Response.Body,
+                chunk,
+                VSCopilotSwitchJsonContext.Default.OllamaChatResponse,
+                cancellationToken);
             await httpContext.Response.WriteAsync("\n", cancellationToken);
             await httpContext.Response.Body.FlushAsync(cancellationToken);
         }
@@ -374,7 +379,11 @@ static async Task WriteOllamaStreamAsync(
     catch (Exception ex) when (httpContext.Response.HasStarted)
     {
         var (_, response) = MapOllamaException(ex);
-        await JsonSerializer.SerializeAsync(httpContext.Response.Body, response, jsonOptions, cancellationToken);
+        await JsonSerializer.SerializeAsync(
+            httpContext.Response.Body,
+            response,
+            VSCopilotSwitchJsonContext.Default.OllamaErrorResponse,
+            cancellationToken);
         await httpContext.Response.WriteAsync("\n", cancellationToken);
         await httpContext.Response.Body.FlushAsync(cancellationToken);
     }
@@ -383,7 +392,6 @@ static async Task WriteOllamaStreamAsync(
 static async Task WriteOllamaErrorAsync(
     HttpContext httpContext,
     Exception exception,
-    JsonSerializerOptions jsonOptions,
     CancellationToken cancellationToken)
 {
     if (httpContext.Response.HasStarted)
@@ -394,7 +402,11 @@ static async Task WriteOllamaErrorAsync(
     var (statusCode, response) = MapOllamaException(exception);
     httpContext.Response.StatusCode = statusCode;
     httpContext.Response.ContentType = "application/json; charset=utf-8";
-    await JsonSerializer.SerializeAsync(httpContext.Response.Body, response, jsonOptions, cancellationToken);
+    await JsonSerializer.SerializeAsync(
+        httpContext.Response.Body,
+        response,
+        VSCopilotSwitchJsonContext.Default.OllamaErrorResponse,
+        cancellationToken);
 }
 
 static (int StatusCode, OllamaErrorResponse Response) MapOllamaException(Exception exception)
@@ -544,6 +556,20 @@ public sealed record RemoveVsCodeOllamaConfigRequest(string UserDirectory, bool 
 public sealed record ListVsCodeConfigBackupsRequest(string UserDirectory);
 
 public sealed record RestoreVsCodeConfigBackupRequest(string UserDirectory, string BackupPath);
+
+sealed class OllamaErrorResult(int statusCode, OllamaErrorResponse response) : IResult
+{
+    public async Task ExecuteAsync(HttpContext httpContext)
+    {
+        httpContext.Response.StatusCode = statusCode;
+        httpContext.Response.ContentType = "application/json; charset=utf-8";
+        await JsonSerializer.SerializeAsync(
+            httpContext.Response.Body,
+            response,
+            VSCopilotSwitchJsonContext.Default.OllamaErrorResponse,
+            httpContext.RequestAborted);
+    }
+}
 
 sealed class VSCopilotSwitchDesktopApp(string serverUrl) : IWindowAwareDesktopApp
 {
