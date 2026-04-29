@@ -6,6 +6,7 @@
 
 ### Added
 
+- ✅️ 新增阶段 5.6 Copilot Ollama Provider 真实协议补强路线：确认继续采用 `vscc` Ollama Provider 接入，但优先实现 Copilot 当前真实聊天入口 `/v1/chat/completions`、工具调用转发和精确能力声明，暂缓未被 Copilot 真实消费的 `/api/chat` thinking 扩展。
 - ✅️ 阶段 5 启动首个真实 Provider Adapter：新增 sub2api 中转站协议接入，支持 `/v1/models` 模型列表获取、OpenAI Chat Completions 非流式请求转换和 SSE 流式响应转换。
 - ✅️ 宿主支持通过 `Providers:Sub2Api` 配置启用 sub2api；未配置 `BaseUrl` / `ApiKey` 时继续使用内置占位 Provider，便于本地开发安全启动。
 - ✅️ 新增 sub2api 最小集成测试，覆盖模型列表、上游模型名转换、流式分块解析和 HTTP 错误映射。

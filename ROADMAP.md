@@ -22,7 +22,7 @@
 - ⬜ 表示尚未开始编码，不能在变更日志或验收说明中描述成已完成。
 - UI 骨架、静态假数据、仅 appsettings 配置可用、仅单元层通过，都不能等同于产品闭环完成。
 
-当前主线：🔴 现在做 阶段 5.5 真实功能闭环。已把“界面保存并启用的供应商”接入 Ollama 代理路由，并将 VS Code 配置写入重写为维护 `%APPDATA%\Code\User\chatLanguageModels.json` 的 `vscc` Ollama Provider 条目，默认指向 `http://127.0.0.1:5124` 专用端口；下一步优先补齐顶部开关打开时的明确写入流程。
+当前主线：🔴 现在做 阶段 5.6 Copilot Ollama Provider 真实协议补强。继续采用“伪装为 Ollama Provider”的接入方式，但实现顺序以 Copilot Chat 当前真实调用路径为准：发现阶段维护 `/api/version`、`/api/tags`、`/api/show`，聊天阶段优先补齐 `/v1/chat/completions`，再做工具调用、模型能力精确声明和实测验收；Ollama 官方 `/api/chat` 的 `tools` / `think` 扩展暂不作为当前主线。
 
 ## 阶段 0：项目基线
 
@@ -203,6 +203,33 @@
 - 未配置真实供应商时才允许回退到内置占位 Provider，且 UI 必须清楚提示。
 - 任意 Provider 错误返回给 UI 和 Ollama 客户端时不得泄露 API Key、Authorization Header 或 Cookie。
 - 供应商配置写入、删除、排序和启用多次执行后不会产生重复条目或状态漂移。
+
+## 阶段 5.6：Copilot Ollama Provider 真实协议补强
+
+目标：继续保持无需 VS Code 扩展的 Ollama Provider 接入方式，但以 Copilot Chat 当前真实消费路径为准补齐协议面，避免优先实现 Copilot 不会调用的 Ollama 官方扩展字段。
+
+阶段状态：🔴 现在做。先让 Copilot Chat 能通过 `vscc` Ollama Provider 稳定完成模型发现、普通聊天和 Agent 工具调用，再评估 thinking / reasoning 是否有真实调用入口。
+
+### 实现顺序
+
+1. ✅️ 完成 Copilot Ollama Provider 调用路径核对：当前发现阶段会访问 `/api/version`、`/api/tags`、`/api/show`，真实聊天阶段走 OpenAI-compatible 的 `/v1/chat/completions`，模型能力主要读取 `/api/show` 的 `capabilities` 与 `model_info`。
+2. 🔧 实现本地 `/v1/chat/completions` 入口：支持 OpenAI Chat Completions 非流式和 SSE 流式响应，复用当前启用供应商路由、模型后缀剥离、错误脱敏和取消流程。
+3. ⬜ 扩展核心 Chat 请求/响应中间模型：支持 `tools`、`tool_choice`、assistant `tool_calls`、tool result 消息、`finish_reason`、usage 和流式 delta，避免继续把 Provider 抽象限制在纯文本 `role/content`。
+4. ⬜ 将 Copilot 传入的 OpenAI function tools 转发到 Provider Adapter：OpenAI-compatible、OpenAI Official、DeepSeek、NVIDIA NIM、MoArk 先走 OpenAI 工具协议；Claude 单独映射到 Anthropic tool use。
+5. ⬜ 补齐工具调用响应回传：上游 `tool_calls` 需要稳定转换为 OpenAI-compatible `/v1/chat/completions` 的 `choices[].message.tool_calls` 或流式 `choices[].delta.tool_calls`，确保 Copilot Agent 模式能继续执行工具结果回合。
+6. ⬜ 精确调整 `/api/show` 与 `/api/tags` 能力声明：按 Copilot 当前读取方式返回 `capabilities` 中的 `tools` / `vision`，并提供 `model_info["general.architecture"]`、`model_info["general.basename"]`、`model_info["{architecture}.context_length"]`；移除或降级未被真实使用的自定义能力字段。
+7. ⬜ 建立按供应商和模型的能力矩阵：DeepSeek V4 默认 text-only，不声明 `vision`；只有确认支持工具调用的模型才声明 `tools`；thinking / reasoning 先作为内部候选能力，不默认影响 Copilot 模型选择。
+8. ⬜ 增加 Copilot 兼容验收清单和最小自动化探针：覆盖模型出现在选择器、普通聊天、Agent 模式工具调用、上游错误脱敏、流式响应结束、模型列表失败降级。
+9. ⬜ 在真实 VS Code 请求日志确认 Copilot 会发送 reasoning / thinking 相关字段后，再实现 DeepSeek thinking 专用链路：`reasoning_content` 缓存、跨轮恢复、流式 thinking 映射和 400 reasoning 错误修复提示。
+10. ⬜ 最后再评估 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 完整兼容；除非确认 VS Code Copilot 改回 `/api/chat` 或其他客户端成为主目标，否则不抢占当前主线。
+
+验收标准：
+
+- VS Code Copilot Chat 通过 `vscc` Ollama Provider 能发现模型并发起 `/v1/chat/completions` 请求。
+- 普通聊天和流式聊天均可通过当前 UI 启用的真实供应商返回结果。
+- Agent 模式下 Copilot 能向代理发送工具定义，代理能把上游工具调用稳定回传给 Copilot。
+- `/api/show` 和 `/api/tags` 不虚报 `vision`、`tools`、thinking/reasoning 等能力，避免 Copilot 发送当前模型无法处理的输入。
+- 所有上游错误和本地请求日志都继续脱敏 API Key、Authorization Header、Cookie 和代理密码。
 
 ## 阶段 6：稳定性与路由
 
