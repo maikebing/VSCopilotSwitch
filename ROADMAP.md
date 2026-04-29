@@ -277,6 +277,7 @@
 - ✅️ 宿主标题栏切换为系统原生样式，页面配色默认跟随操作系统深浅色偏好。
 - ✅️ 运行时优先从嵌入式资源加载 SPA。
 - ✅️ 支持 AOT 发布：当前已能生成 Native AOT 单文件主程序，并切换到 Native WebView2；业务层 JSON/JsonNode 的 AOT 警告已收敛。
+- ✅️ 修复 OpenAI-compatible `tool_choice` 字符串序列化的 Native AOT 分析警告，改用源生成 `JsonTypeInfo` 路径。
 - ✅️ 完成 Windows `win-x64` AOT 单文件发布最小冒烟：唯一 exe 复制到干净目录后可启动本地服务并通过 `/health` 返回 Production/ok。
 - ✅️ 收紧 AOT 发布体积：显式启用 full trim、Native AOT size 优化和必要的运行时功能裁剪，当前单文件 exe 约 17.3 MB。
 

@@ -295,7 +295,9 @@ public sealed partial class OpenAiCompatibleModelProvider : IModelProvider
 
         if (string.IsNullOrWhiteSpace(toolChoice.FunctionName))
         {
-            return JsonSerializer.SerializeToElement(toolChoice.Type.Trim());
+            return JsonSerializer.SerializeToElement(
+                toolChoice.Type.Trim(),
+                OpenAiProviderJsonContext.Default.String);
         }
 
         return JsonSerializer.SerializeToElement(
@@ -672,5 +674,6 @@ public sealed partial class OpenAiCompatibleModelProvider : IModelProvider
     [JsonSerializable(typeof(OpenAiChatCompletionResponse))]
     [JsonSerializable(typeof(OpenAiToolChoiceObject))]
     [JsonSerializable(typeof(OpenAiErrorEnvelope))]
+    [JsonSerializable(typeof(string))]
     private sealed partial class OpenAiProviderJsonContext : JsonSerializerContext;
 }
