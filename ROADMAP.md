@@ -176,7 +176,7 @@
 - ✅️ 供应商 API Key 使用当前 Windows 用户保护数据加密落盘，前端只显示脱敏预览。
 - ✅️ 首页供应商列表和编辑表单已接宿主供应商配置 API，不再只使用前端内置假数据。
 - ✅️ 将当前启用供应商转换为运行时 `IModelProvider`，接入 `/api/tags`、`/api/chat` 和流式 `/api/chat`；未保存真实 API Key 时回退到内置占位 Provider。
-- ✅️ 让模型列表从当前启用供应商实时获取，并在 UI 展示上游模型名、刷新状态和失败原因。
+- ✅️ 让模型列表从当前启用供应商实时获取，并在 UI 展示 VS Code/Copilot 可见的 `@vscs` 后缀模型名、刷新状态和失败原因。
 - ✅️ 新增分析统计页面：展示本地请求日志、监听端口状态、真实 usage / 估算 Token、按本地单价表精算的费用、耗时、User-Agent，以及脱敏后的请求头、请求体、响应头和响应体。
 - ✅️ 新增供应商“测试连接”：验证 Base URL、API Key、模型列表和最小聊天探测，错误必须脱敏；模型可留空并从远程列表自动优先选择 `gpt-5.5` / `sonnet-4.6` 或第一个模型。
 - ✅️ 保存供应商时支持选择协议类型：OpenAI-compatible、OpenAI Official、DeepSeek、Claude、NVIDIA NIM、MoArk、sub2api。

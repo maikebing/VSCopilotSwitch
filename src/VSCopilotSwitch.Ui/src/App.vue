@@ -388,10 +388,6 @@ function displayModelName(model?: ModelInfo) {
     return '';
   }
 
-  if (model.details?.parent_model?.trim()) {
-    return model.details.parent_model.trim();
-  }
-
   const name = model.name || model.model || '';
   const separatorIndex = name.indexOf('/');
   return separatorIndex >= 0 ? name.slice(separatorIndex + 1) : name;
