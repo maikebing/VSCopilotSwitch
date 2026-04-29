@@ -921,7 +921,7 @@ function openVsCodeConfigWizardFromSwitch() {
     title: '需要明确确认后才会写入',
     steps: [
       '点击“生成差异预览”查看将修改的 chatLanguageModels.json 条目。',
-      '确认只会维护 vscc Ollama Provider 后，再点击“确认写入 VS Code Ollama 配置”。',
+      '确认只会维护 vscs Ollama Provider 后，再点击“确认写入 VS Code Ollama 配置”。',
       '写入前会自动创建备份；未确认前不会修改 VS Code 配置。'
     ]
   });
@@ -1887,14 +1887,14 @@ onMounted(loadDashboard);
                   <span>常规</span>
                   <h3>VS Code Ollama 配置</h3>
                 </div>
-                <p>先选择 VS Code User 目录并生成 dry-run 差异预览，确认 vscc Ollama Provider 条目变化后再写入。</p>
+                <p>先选择 VS Code User 目录并生成 dry-run 差异预览，确认 vscs Ollama Provider 条目变化后再写入。</p>
               </section>
 
               <section v-if="vscodeSetupPromptVisible" class="switch-guidance" aria-label="VS Code Ollama 开关写入向导">
                 <div>
                   <span>来自顶部开关</span>
                   <h3>检测到 VS Code Ollama 配置缺失</h3>
-                  <p>顶部开关不会直接写入配置。请先生成差异预览，确认目标文件和 vscc Provider 条目后，再二次确认写入。</p>
+                  <p>顶部开关不会直接写入配置。请先生成差异预览，确认目标文件和 vscs Provider 条目后，再二次确认写入。</p>
                 </div>
                 <div class="wizard-actions">
                   <button class="secondary-button" type="button" :disabled="previewLoading || !selectedDirectory" @click="previewVsCodeConfig">
@@ -1955,20 +1955,20 @@ onMounted(loadDashboard);
 
                 <div v-if="applyConfirmationArmed" class="risk-confirmation">
                   <strong>请再次确认写入</strong>
-                  <span>将修改所选 VS Code User 目录中的 vscc Ollama Provider 条目；已存在文件会先创建备份，未知 Provider 会保留。</span>
+                  <span>将修改所选 VS Code User 目录中的 vscs Ollama Provider 条目；已存在文件会先创建备份，未知 Provider 会保留。</span>
                 </div>
 
                 <div v-if="preview" class="wizard-summary">
                   <strong>{{ applyResult ? '写入完成' : '预览完成' }}</strong>
                   <span>{{ previewChangedCount }} 个文件需要更新，{{ preview.Changes.length - previewChangedCount }} 个文件无需变更。</span>
-                  <small>写入前会备份已存在文件；只维护 vscc Ollama Provider 条目，避免配置漂移。</small>
+                  <small>写入前会备份已存在文件；只维护 vscs Ollama Provider 条目，避免配置漂移。</small>
                 </div>
 
                 <div v-if="preview" class="preview-list">
                   <div v-for="change in preview.Changes" :key="change.FilePath" class="preview-item">
                     <strong>{{ change.Changed ? (applyResult ? '已更新' : '将更新') : '无需变更' }}</strong>
                     <span>{{ change.FilePath }}</span>
-                    <small>{{ change.ExistedBefore ? '保留未知 Provider，只调整本项目托管的 vscc Ollama 条目' : '文件不存在，确认写入时会创建' }}</small>
+                    <small>{{ change.ExistedBefore ? '保留未知 Provider，只调整本项目托管的 vscs Ollama 条目' : '文件不存在，确认写入时会创建' }}</small>
                     <small v-if="change.BackupPath">备份位置：{{ change.BackupPath }}</small>
                     <div class="field-diff-list" aria-label="Provider 条目差异">
                       <div v-for="field in change.FieldChanges" :key="field.Path" class="field-diff" :class="{ changed: field.Changed }">

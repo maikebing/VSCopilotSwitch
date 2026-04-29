@@ -96,7 +96,10 @@ public sealed partial class OpenAiCompatibleModelProvider : IModelProvider
         return new ChatResponse(
             request.Model,
             choice.Message?.Content ?? string.Empty,
-            NormalizeDoneReason(choice.FinishReason));
+            NormalizeDoneReason(choice.FinishReason),
+            ToChatToolCalls(choice.Message?.ToolCalls),
+            ToChatUsage(payload?.Usage),
+            ToReasoningContent(choice.Message));
     }
 
     public async IAsyncEnumerable<ChatStreamChunk> ChatStreamAsync(
@@ -156,15 +159,29 @@ public sealed partial class OpenAiCompatibleModelProvider : IModelProvider
             }
 
             var content = choice.Delta?.Content ?? choice.Message?.Content;
-            if (!string.IsNullOrEmpty(content))
+            var reasoningContent = ToReasoningContent(choice.Delta) ?? ToReasoningContent(choice.Message);
+            var toolCalls = ToChatToolCalls(choice.Delta?.ToolCalls ?? choice.Message?.ToolCalls);
+            if (!string.IsNullOrEmpty(content)
+                || !string.IsNullOrEmpty(reasoningContent)
+                || toolCalls is not null
+                || !string.IsNullOrWhiteSpace(choice.Delta?.Role))
             {
-                yield return new ChatStreamChunk(request.Model, content, Done: false);
+                yield return new ChatStreamChunk(
+                    request.Model,
+                    content ?? string.Empty,
+                    Done: false,
+                    Delta: new ChatDelta(choice.Delta?.Role, content, toolCalls, reasoningContent));
             }
 
             if (!string.IsNullOrWhiteSpace(choice.FinishReason))
             {
                 completed = true;
-                yield return new ChatStreamChunk(request.Model, string.Empty, Done: true, NormalizeDoneReason(choice.FinishReason));
+                yield return new ChatStreamChunk(
+                    request.Model,
+                    string.Empty,
+                    Done: true,
+                    NormalizeDoneReason(choice.FinishReason),
+                    Usage: ToChatUsage(payload?.Usage));
                 yield break;
             }
         }
@@ -201,12 +218,123 @@ public sealed partial class OpenAiCompatibleModelProvider : IModelProvider
         }
 
         var messages = request.Messages
-            .Select(message => new OpenAiChatMessage(message.Role, message.Content))
+            .Select(message => new OpenAiChatMessage(
+                message.Role,
+                ToOpenAiMessageContent(message),
+                ToOpenAiToolCalls(message.ToolCalls),
+                message.ToolCallId,
+                message.Name,
+                ToOpenAiReasoningContent(message)))
             .ToArray();
 
         // OpenAI-compatible Provider 只发送通用 Chat Completions 字段，供应商私有字段应由各 Adapter wrapper 显式扩展。
-        return new OpenAiChatCompletionRequest(request.UpstreamModel, messages, stream);
+        return new OpenAiChatCompletionRequest(
+            request.UpstreamModel,
+            messages,
+            stream,
+            ToOpenAiTools(request.Tools),
+            ToOpenAiToolChoice(request.ToolChoice),
+            ToOpenAiReasoningEffort(request),
+            ToOpenAiCompatibleThinking(request));
     }
+
+    private static string? ToOpenAiMessageContent(ChatMessage message)
+        => string.IsNullOrEmpty(message.Content) && message.ToolCalls is { Count: > 0 }
+            ? null
+            : message.Content;
+
+    private static string? ToOpenAiReasoningContent(ChatMessage message)
+        => string.IsNullOrWhiteSpace(message.ReasoningContent) ? null : message.ReasoningContent;
+
+    private static string? ToOpenAiReasoningEffort(ChatRequest request)
+        => !string.IsNullOrWhiteSpace(request.ReasoningEffort)
+            ? request.ReasoningEffort
+            : request.Think is { ValueKind: JsonValueKind.String } think ? think.GetString() : null;
+
+    private static string? ToReasoningContent(OpenAiChatMessage? message)
+        => string.IsNullOrWhiteSpace(message?.ReasoningContent)
+            ? string.IsNullOrWhiteSpace(message?.Thinking) ? null : message.Thinking
+            : message.ReasoningContent;
+
+    private static JsonElement? ToOpenAiCompatibleThinking(ChatRequest request)
+    {
+        if (request.Thinking is { ValueKind: not JsonValueKind.Null and not JsonValueKind.Undefined } thinking)
+        {
+            return thinking;
+        }
+
+        if (request.Think is { ValueKind: not JsonValueKind.False and not JsonValueKind.Null and not JsonValueKind.Undefined } think)
+        {
+            return think;
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<OpenAiTool>? ToOpenAiTools(IReadOnlyList<ChatTool>? tools)
+    {
+        var mapped = tools?
+            .Where(tool => tool.Function is not null && !string.IsNullOrWhiteSpace(tool.Function.Name))
+            .Select(tool => new OpenAiTool(
+                string.IsNullOrWhiteSpace(tool.Type) ? "function" : tool.Type,
+                new OpenAiToolFunction(
+                    tool.Function.Name,
+                    tool.Function.Description,
+                    tool.Function.Parameters?.Clone())))
+            .ToArray();
+
+        return mapped is { Length: > 0 } ? mapped : null;
+    }
+
+    private static JsonElement? ToOpenAiToolChoice(ChatToolChoice? toolChoice)
+    {
+        if (toolChoice is null || string.IsNullOrWhiteSpace(toolChoice.Type))
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(toolChoice.FunctionName))
+        {
+            return JsonSerializer.SerializeToElement(toolChoice.Type.Trim());
+        }
+
+        return JsonSerializer.SerializeToElement(
+            new OpenAiToolChoiceObject("function", new OpenAiToolChoiceFunction(toolChoice.FunctionName.Trim())),
+            OpenAiProviderJsonContext.Default.OpenAiToolChoiceObject);
+    }
+
+    private static IReadOnlyList<OpenAiToolCall>? ToOpenAiToolCalls(IReadOnlyList<ChatToolCall>? toolCalls)
+    {
+        var mapped = toolCalls?
+            .Select(toolCall => new OpenAiToolCall(
+                toolCall.Id,
+                string.IsNullOrWhiteSpace(toolCall.Type) ? "function" : toolCall.Type,
+                new OpenAiFunctionCall(toolCall.Function.Name, toolCall.Function.Arguments),
+                toolCall.Index))
+            .ToArray();
+
+        return mapped is { Length: > 0 } ? mapped : null;
+    }
+
+    private static IReadOnlyList<ChatToolCall>? ToChatToolCalls(IReadOnlyList<OpenAiToolCall>? toolCalls)
+    {
+        var mapped = toolCalls?
+            .Select(toolCall => new ChatToolCall(
+                toolCall.Id ?? string.Empty,
+                string.IsNullOrWhiteSpace(toolCall.Type) ? "function" : toolCall.Type,
+                new ChatFunctionCall(
+                    toolCall.Function?.Name ?? string.Empty,
+                    toolCall.Function?.Arguments ?? string.Empty),
+                toolCall.Index))
+            .ToArray();
+
+        return mapped is { Length: > 0 } ? mapped : null;
+    }
+
+    private static ChatUsage? ToChatUsage(OpenAiUsage? usage)
+        => usage is null
+            ? null
+            : new ChatUsage(usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens);
 
     private HttpRequestMessage CreateJsonRequest(OpenAiChatCompletionRequest upstreamRequest)
     {
@@ -474,20 +602,61 @@ public sealed partial class OpenAiCompatibleModelProvider : IModelProvider
     private sealed record OpenAiChatCompletionRequest(
         [property: JsonPropertyName("model")] string Model,
         [property: JsonPropertyName("messages")] IReadOnlyList<OpenAiChatMessage> Messages,
-        [property: JsonPropertyName("stream")] bool Stream);
+        [property: JsonPropertyName("stream")] bool Stream,
+        [property: JsonPropertyName("tools")] IReadOnlyList<OpenAiTool>? Tools = null,
+        [property: JsonPropertyName("tool_choice")] JsonElement? ToolChoice = null,
+        [property: JsonPropertyName("reasoning_effort")] string? ReasoningEffort = null,
+        [property: JsonPropertyName("thinking")] JsonElement? Thinking = null);
 
     private sealed record OpenAiChatMessage(
-        [property: JsonPropertyName("role")] string Role,
-        [property: JsonPropertyName("content")] string Content);
+        [property: JsonPropertyName("role")] string? Role,
+        [property: JsonPropertyName("content")] string? Content,
+        [property: JsonPropertyName("tool_calls")] IReadOnlyList<OpenAiToolCall>? ToolCalls = null,
+        [property: JsonPropertyName("tool_call_id")] string? ToolCallId = null,
+        [property: JsonPropertyName("name")] string? Name = null,
+        [property: JsonPropertyName("reasoning_content")] string? ReasoningContent = null,
+        [property: JsonPropertyName("thinking")] string? Thinking = null);
 
     private sealed record OpenAiChatCompletionResponse(
         [property: JsonPropertyName("choices")] IReadOnlyList<OpenAiChatChoice>? Choices,
-        [property: JsonPropertyName("error")] OpenAiError? Error);
+        [property: JsonPropertyName("error")] OpenAiError? Error,
+        [property: JsonPropertyName("usage")] OpenAiUsage? Usage = null);
 
     private sealed record OpenAiChatChoice(
         [property: JsonPropertyName("message")] OpenAiChatMessage? Message,
         [property: JsonPropertyName("delta")] OpenAiChatMessage? Delta,
         [property: JsonPropertyName("finish_reason")] string? FinishReason);
+
+    private sealed record OpenAiTool(
+        [property: JsonPropertyName("type")] string Type,
+        [property: JsonPropertyName("function")] OpenAiToolFunction Function);
+
+    private sealed record OpenAiToolFunction(
+        [property: JsonPropertyName("name")] string Name,
+        [property: JsonPropertyName("description")] string? Description,
+        [property: JsonPropertyName("parameters")] JsonElement? Parameters);
+
+    private sealed record OpenAiToolChoiceObject(
+        [property: JsonPropertyName("type")] string Type,
+        [property: JsonPropertyName("function")] OpenAiToolChoiceFunction Function);
+
+    private sealed record OpenAiToolChoiceFunction(
+        [property: JsonPropertyName("name")] string Name);
+
+    private sealed record OpenAiToolCall(
+        [property: JsonPropertyName("id")] string? Id,
+        [property: JsonPropertyName("type")] string? Type,
+        [property: JsonPropertyName("function")] OpenAiFunctionCall? Function,
+        [property: JsonPropertyName("index")] int? Index = null);
+
+    private sealed record OpenAiFunctionCall(
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("arguments")] string? Arguments);
+
+    private sealed record OpenAiUsage(
+        [property: JsonPropertyName("prompt_tokens")] int? PromptTokens,
+        [property: JsonPropertyName("completion_tokens")] int? CompletionTokens,
+        [property: JsonPropertyName("total_tokens")] int? TotalTokens);
 
     private sealed record OpenAiErrorEnvelope(
         [property: JsonPropertyName("error")] OpenAiError? Error);
@@ -501,6 +670,7 @@ public sealed partial class OpenAiCompatibleModelProvider : IModelProvider
     [JsonSerializable(typeof(OpenAiModelListResponse))]
     [JsonSerializable(typeof(OpenAiChatCompletionRequest))]
     [JsonSerializable(typeof(OpenAiChatCompletionResponse))]
+    [JsonSerializable(typeof(OpenAiToolChoiceObject))]
     [JsonSerializable(typeof(OpenAiErrorEnvelope))]
     private sealed partial class OpenAiProviderJsonContext : JsonSerializerContext;
 }

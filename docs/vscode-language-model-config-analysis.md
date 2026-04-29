@@ -43,7 +43,7 @@ VS Code 语言模型界面实际维护的是：
     }
   },
   {
-    "name": "vscc",
+    "name": "vscs",
     "vendor": "ollama",
     "url": "http://127.0.0.1:5124"
   }
@@ -64,7 +64,7 @@ VS Code 语言模型界面实际维护的是：
 }
 ```
 
-以及包含 `vscopilotswitch.models` 的自定义模型清单，例如 `gpt-5.5@vscc`。这类根目录文件不是 VS Code User 配置目录里的真实语言模型 Provider 文件，新写入逻辑不再依赖它们。
+以及包含 `vscopilotswitch.models` 的自定义模型清单。这类根目录文件不是 VS Code User 配置目录里的真实语言模型 Provider 文件，新写入逻辑不再依赖它们；当前模型后缀统一为 `@vscs`。
 
 ## 旧实现差异
 
@@ -80,11 +80,11 @@ VS Code 语言模型界面实际维护的是：
 当前实现围绕 `Code\User\chatLanguageModels.json` 做最小、幂等、可回滚修改：
 
 - 读取数组，保留所有未知 Provider 条目和 Copilot 的 `settings`。
-- 只管理 `vendor == "ollama"` 且 `name` 等于本项目配置名的条目，默认名称继续使用 `vscc`。
-- 写入值为 `{ "name": "vscc", "vendor": "ollama", "url": "http://127.0.0.1:5124" }` 或当前显式配置的 VSCopilotSwitch 专用地址。
+- 只管理 `vendor == "ollama"` 且 `name` 等于本项目配置名的条目，默认名称使用 `vscs`。
+- 写入值为 `{ "name": "vscs", "vendor": "ollama", "url": "http://127.0.0.1:5124" }` 或当前显式配置的 VSCopilotSwitch 专用地址。
 - 不再兼容写入 Ollama 默认端口 `http://127.0.0.1:11434`，避免覆盖或抢占用户本机原生 Ollama 服务。
-- 如果同名条目已存在，只更新 `url`；如果不存在，追加一个条目；重复执行不能产生重复 `vscc`。
-- 撤销时只删除本项目管理的 `vscc` Ollama 条目，不删除用户手工添加的其他 Ollama Provider。
+- 如果同名条目已存在，只更新 `url`；如果不存在，追加一个条目；重复执行不能产生重复 `vscs`。
+- 撤销时只删除本项目管理的 `vscs` Ollama 条目，不删除用户手工添加的其他 Ollama Provider。
 - 状态检测应检查数组中是否存在匹配 Provider，并验证 `url` 与当前代理地址是否一致。
 - 字段级 diff 应展示 Provider 条目的新增、更新或删除，而不是展示静态模型列表。
 - 旧版 `%APPDATA%\Code\*.vscopilotswitch.*` 残留只能作为迁移/清理提示，不应默认静默删除。

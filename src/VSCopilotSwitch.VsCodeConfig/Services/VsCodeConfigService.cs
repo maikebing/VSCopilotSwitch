@@ -33,7 +33,7 @@ public interface IVsCodeConfigService
 public sealed class VsCodeConfigService : IVsCodeConfigService
 {
     public const string ManagedBy = "VSCopilotSwitch";
-    public const string ManagedProviderName = "vscc";
+    public const string ManagedProviderName = "vscs";
     public const string OllamaVendor = "ollama";
 
     private static readonly JsonWriterOptions WriteOptions = new()

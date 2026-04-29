@@ -6,7 +6,18 @@
 
 ### Added
 
-- ✅️ 新增阶段 5.6 Copilot Ollama Provider 真实协议补强路线：确认继续采用 `vscc` Ollama Provider 接入，但优先实现 Copilot 当前真实聊天入口 `/v1/chat/completions`、工具调用转发和精确能力声明，暂缓未被 Copilot 真实消费的 `/api/chat` thinking 扩展。
+- ✅️ 新增阶段 5.6 Copilot Ollama Provider 真实协议补强路线：确认继续采用 `vscs` Ollama Provider 接入，但优先实现 Copilot 当前真实聊天入口 `/v1/chat/completions`、工具调用转发和精确能力声明，暂缓未被 Copilot 真实消费的 `/api/chat` thinking 扩展。
+- ✅️ 新增本地 OpenAI-compatible `/v1/chat/completions` 入口，支持 Copilot Chat 当前发送的非流式和 SSE 流式聊天请求，并复用现有 Ollama Provider 路由、`@vscs` 模型后缀处理和脱敏错误映射。
+- ✅️ `/v1/chat/completions` 新增常见 URL 拼接变体兜底，避免 Provider URL 手工带 `/v1` 或 `/api` 时继续被 ASP.NET Core fallback 判定为 405。
+- ✅️ 将 VS Code/Copilot 可见模型后缀和托管 Ollama Provider 名称统一为 `vscs` / `@vscs`。
+- ✅️ 扩展核心 Chat 中间模型：请求可承载 `tools`、`tool_choice`、assistant `tool_calls` 和 tool result 消息，响应可承载 `finish_reason`、usage 与流式 delta，为后续 Provider 工具调用转发和回传打基础。
+- ✅️ Provider Adapter 工具调用链路接通：OpenAI-compatible 共享层透传 OpenAI `tools` / `tool_choice` / `tool_calls`，Claude Adapter 映射 Anthropic `tools` / `tool_use` / `tool_result`，并把上游工具调用、usage 和流式 delta 回传给 Copilot 兼容入口。
+- ✅️ 强化 `/v1/chat/completions` 工具调用回传：抽出 OpenAI Chat Completion 响应映射器，确保非流式工具调用返回 `choices[].message.tool_calls`，流式工具参数分块返回 `choices[].delta.tool_calls`，并避免为纯 arguments delta 伪造 `id` / `type` / `name`。
+- ✅️ 精确收敛 `/api/tags` 与 `/api/show` 能力声明：保留 Copilot 当前探测需要的 `tools` / `vision`、`general.architecture`、`general.basename` 和 `llama.context_length`，不再默认暴露未验证的 thinking / reasoning 能力字段。
+- ✅️ 新增供应商/模型能力矩阵：未知模型默认只声明文本聊天，DeepSeek V4 默认 text-only，OpenAI / Claude 已知模型按名称声明工具和视觉能力，并支持通过 `ProviderModelCapabilities` 为确认过的模型显式覆盖。
+- ✅️ 新增 Copilot 兼容验收清单和内部最小探针 `POST /internal/copilot/probe`，覆盖模型选择器、模型元信息、普通聊天、Agent 工具字段、流式结束，并补充模型列表失败降级回归测试。
+- ✅️ 新增 DeepSeek thinking 专用链路：当 Copilot/OpenAI-compatible 请求携带 `reasoning_effort` / `thinking`，或目标模型为 DeepSeek thinking/reasoner 系列时，支持 `reasoning_content` 透传、同进程缓存、工具结果回合自动补回、流式 `reasoning_content` 映射，并把上游 400 reasoning 错误改写为可操作提示。
+- ✅️ AOT 发布配置显式启用 `PublishTrimmed` / `TrimMode=full` 和偏体积优化开关，关闭发布包不需要的调试器、EventSource 与 HTTP activity propagation 支持；当前 `win-x64` 单文件 exe 从约 22.7 MB 降至约 17.3 MB。
 - ✅️ 阶段 5 启动首个真实 Provider Adapter：新增 sub2api 中转站协议接入，支持 `/v1/models` 模型列表获取、OpenAI Chat Completions 非流式请求转换和 SSE 流式响应转换。
 - ✅️ 宿主支持通过 `Providers:Sub2Api` 配置启用 sub2api；未配置 `BaseUrl` / `ApiKey` 时继续使用内置占位 Provider，便于本地开发安全启动。
 - ✅️ 新增 sub2api 最小集成测试，覆盖模型列表、上游模型名转换、流式分块解析和 HTTP 错误映射。
@@ -41,15 +52,15 @@
 - ✅️ 新增分析统计页面入口：右上角工具栏可打开本地请求统计，查看内存请求日志、监听端口状态、估算 Token、耗时和 User-Agent，日志不记录密钥或请求正文。
 - ✅️ 分析统计日志新增调试详情：可展开查看脱敏后的请求头、请求体、响应头和响应体，并限制采样长度避免泄露密钥或撑爆页面。
 - ✅️ VS Code 配置预览和写入改为使用当前运行中的本地代理地址与当前可用模型，不再固定写入旧版默认地址和 `vscopilotswitch/default`。
-- ✅️ VS Code/Copilot 暴露模型名新增 `@vscc` 后缀，`/api/tags` 直接返回 `gpt-5.5@vscc` 这类公开模型名，避免与原生模型名冲突；本地代理转发上游前会去掉该后缀。
+- ✅️ VS Code/Copilot 暴露模型名新增 `@vscs` 后缀，`/api/tags` 直接返回 `gpt-5.5@vscs` 这类公开模型名，避免与原生模型名冲突；本地代理转发上游前会去掉该后缀。
 - ✅️ 新增 Ollama 兼容 `/api/version` 接口，返回 0.6.4 以上兼容版本，修复 VS Code 无法验证 Ollama server version 的提示。
 - ✅️ 新增 Ollama 兼容 `/api/show` 接口，返回当前 Provider 路由的模型元信息，修复 VS Code Copilot Chat 请求 `/api/show` 时出现 405 的问题。
-- ✅️ `/api/show` 模型元信息新增 400K 上下文、工具调用和视觉能力声明，让 VS Code 模型列表能显示上下文大小与功能标签。
-- ✅️ 对齐 TrafficPilot 的 Ollama 模型列表结构：`/api/tags` 每个模型现在直接返回 `context_length`、`capabilities`、`model_info`、`supports_tool_calling` 和 `supports_vision`，避免 VS Code 未调用 `/api/show` 时回退到 33K 默认上下文。
+- ✅️ `/api/show` 模型元信息新增 400K 上下文和能力声明，让 VS Code 模型列表能显示上下文大小与功能标签；工具/视觉标签后续已收敛为按供应商/模型矩阵返回。
+- ✅️ 对齐 TrafficPilot 的 Ollama 模型列表结构：`/api/tags` 每个模型现在直接返回 `context_length`、`capabilities`、`model_info`、`supports_tool_calling` 和 `supports_vision`，避免 VS Code 未调用 `/api/show` 时回退到 33K 默认上下文；具体工具/视觉能力后续已改为按矩阵声明。
 - ✅️ `/api/tags` 新增远程模型列表失败降级：上游临时不可用或模型列表端点异常时，优先用当前已保存模型生成 VS Code 可见清单，避免 Copilot 模型选择器收到 503。
-- ✅️ `/api/tags` 和 `/api/show` 新增 `thinking` / `reasoning` 能力声明与推理级别候选元信息，用于对齐 Copilot 推理模型选择器的能力识别路径。
+- ✅️ `/api/tags` 和 `/api/show` 曾新增 `thinking` / `reasoning` 探测字段；后续根据 Copilot 实测调用路径收敛为不默认声明未验证能力，避免触发模型不支持的输入形态。
 - ✅️ 补充 VS Code 语言模型配置实测记录：确认真实入口为 `%APPDATA%\Code\User\chatLanguageModels.json` 的 Provider 数组，Ollama 条目使用 `name` / `vendor` / `url`，为后续重写配置写入逻辑提供依据。
-- ✅️ 重写 VS Code 配置写入逻辑：废弃旧版 `settings.json` 自定义字段和静态 `vscopilotswitch.models` 清单，只幂等维护 `chatLanguageModels.json` 数组中的 `vscc` Ollama Provider 条目。
+- ✅️ 重写 VS Code 配置写入逻辑：废弃旧版 `settings.json` 自定义字段和静态 `vscopilotswitch.models` 清单，只幂等维护 `chatLanguageModels.json` 数组中的 `vscs` Ollama Provider 条目。
 - ✅️ VS Code Provider URL 改用 VSCopilotSwitch 专用端口 `http://127.0.0.1:5124`，取消写入 Ollama 默认 `11434` 的兼容路径，避免与原生 Ollama 服务冲突。
 - ✅️ 移除主项目 WinForms 依赖和临时 `NotifyIcon` 托盘实现，避免 `UseWindowsForms` 阻塞 Native AOT 单文件发布；托盘能力后续改由 Win32 原生路径补齐。
 - ✅️ 显式引用 `System.Security.Cryptography.ProtectedData`，让 API Key 的 Windows 当前用户保护数据加密不再依赖 WinForms 间接引用。

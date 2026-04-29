@@ -86,7 +86,12 @@ public sealed partial class ClaudeModelProvider : IModelProvider
         ThrowIfErrorPayload(payload?.Error);
 
         var content = ExtractText(payload?.Content);
-        return new ChatResponse(request.Model, content, NormalizeDoneReason(payload?.StopReason));
+        return new ChatResponse(
+            request.Model,
+            content,
+            NormalizeDoneReason(payload?.StopReason),
+            ToChatToolCalls(payload?.Content),
+            ToChatUsage(payload?.Usage));
     }
 
     public async IAsyncEnumerable<ChatStreamChunk> ChatStreamAsync(
@@ -102,6 +107,7 @@ public sealed partial class ClaudeModelProvider : IModelProvider
         }
 
         var doneReason = "stop";
+        ChatUsage? doneUsage = null;
         var completed = false;
         await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(contentStream, Encoding.UTF8);
@@ -135,11 +141,60 @@ public sealed partial class ClaudeModelProvider : IModelProvider
             ThrowIfErrorPayload(streamEvent?.Error);
             var delta = streamEvent?.Delta;
             var text = delta?.Text;
+            var contentBlock = streamEvent?.ContentBlock;
+            if (string.Equals(streamEvent?.Type, "content_block_start", StringComparison.OrdinalIgnoreCase)
+                && contentBlock is { } toolUseBlock
+                && string.Equals(toolUseBlock.Type, "tool_use", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return new ChatStreamChunk(
+                    request.Model,
+                    string.Empty,
+                    Done: false,
+                    Delta: new ChatDelta(
+                        "assistant",
+                        null,
+                        new[]
+                        {
+                            new ChatToolCall(
+                                toolUseBlock.Id ?? string.Empty,
+                                "function",
+                                new ChatFunctionCall(
+                                    toolUseBlock.Name ?? string.Empty,
+                                    toolUseBlock.Input?.GetRawText() ?? "{}"),
+                                streamEvent?.Index)
+                        }));
+                continue;
+            }
+
             if (string.Equals(streamEvent?.Type, "content_block_delta", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(delta?.Type, "text_delta", StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrEmpty(text))
             {
-                yield return new ChatStreamChunk(request.Model, text, Done: false);
+                yield return new ChatStreamChunk(
+                    request.Model,
+                    text,
+                    Done: false,
+                    Delta: new ChatDelta(Content: text));
+                continue;
+            }
+
+            if (string.Equals(streamEvent?.Type, "content_block_delta", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(delta?.Type, "input_json_delta", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrEmpty(delta?.PartialJson))
+            {
+                yield return new ChatStreamChunk(
+                    request.Model,
+                    string.Empty,
+                    Done: false,
+                    Delta: new ChatDelta(
+                        ToolCalls: new[]
+                        {
+                            new ChatToolCall(
+                                string.Empty,
+                                "function",
+                                new ChatFunctionCall(string.Empty, delta.PartialJson),
+                                streamEvent?.Index)
+                        }));
                 continue;
             }
 
@@ -147,20 +202,21 @@ public sealed partial class ClaudeModelProvider : IModelProvider
                 && !string.IsNullOrWhiteSpace(delta?.StopReason))
             {
                 doneReason = NormalizeDoneReason(delta.StopReason);
+                doneUsage = ToChatUsage(streamEvent?.Usage);
                 continue;
             }
 
             if (string.Equals(streamEvent?.Type, "message_stop", StringComparison.OrdinalIgnoreCase))
             {
                 completed = true;
-                yield return new ChatStreamChunk(request.Model, string.Empty, Done: true, doneReason);
+                yield return new ChatStreamChunk(request.Model, string.Empty, Done: true, doneReason, Usage: doneUsage);
                 yield break;
             }
         }
 
         if (!completed)
         {
-            yield return new ChatStreamChunk(request.Model, string.Empty, Done: true, doneReason);
+            yield return new ChatStreamChunk(request.Model, string.Empty, Done: true, doneReason, Usage: doneUsage);
         }
     }
 
@@ -198,7 +254,7 @@ public sealed partial class ClaudeModelProvider : IModelProvider
         // Anthropic Messages API 将 system 放在顶层；普通对话只允许 user / assistant 两类角色。
         var messages = request.Messages
             .Where(message => !string.Equals(message.Role, "system", StringComparison.OrdinalIgnoreCase))
-            .Select(message => new ClaudeChatMessage(NormalizeMessageRole(message.Role), message.Content))
+            .Select(ToClaudeChatMessage)
             .ToArray();
 
         if (messages.Length == 0)
@@ -207,7 +263,14 @@ public sealed partial class ClaudeModelProvider : IModelProvider
         }
 
         var system = systemMessages.Length > 0 ? string.Join("\n\n", systemMessages) : null;
-        return new ClaudeMessagesRequest(request.UpstreamModel, _maxTokens, messages, stream, system);
+        return new ClaudeMessagesRequest(
+            request.UpstreamModel,
+            _maxTokens,
+            messages,
+            stream,
+            system,
+            ToClaudeTools(request.Tools),
+            ToClaudeToolChoice(request.ToolChoice));
     }
 
     private HttpRequestMessage CreateJsonRequest(ClaudeMessagesRequest upstreamRequest)
@@ -380,6 +443,79 @@ public sealed partial class ClaudeModelProvider : IModelProvider
     private static string NormalizeMessageRole(string role)
         => string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase) ? "assistant" : "user";
 
+    private static ClaudeChatMessage ToClaudeChatMessage(ChatMessage message)
+    {
+        var role = string.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase)
+            ? "user"
+            : NormalizeMessageRole(message.Role);
+        var blocks = new List<ClaudeContentBlock>();
+
+        if (string.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase))
+        {
+            blocks.Add(new ClaudeContentBlock(
+                "tool_result",
+                ToolUseId: message.ToolCallId,
+                Content: message.Content));
+            return new ClaudeChatMessage(role, blocks);
+        }
+
+        if (!string.IsNullOrEmpty(message.Content))
+        {
+            blocks.Add(new ClaudeContentBlock("text", Text: message.Content));
+        }
+
+        if (message.ToolCalls is not null)
+        {
+            blocks.AddRange(message.ToolCalls.Select(toolCall => new ClaudeContentBlock(
+                "tool_use",
+                Id: toolCall.Id,
+                Name: toolCall.Function.Name,
+                Input: ParseToolInput(toolCall.Function.Arguments))));
+        }
+
+        if (blocks.Count == 0)
+        {
+            blocks.Add(new ClaudeContentBlock("text", Text: string.Empty));
+        }
+
+        return new ClaudeChatMessage(role, blocks);
+    }
+
+    private static IReadOnlyList<ClaudeTool>? ToClaudeTools(IReadOnlyList<ChatTool>? tools)
+    {
+        var mapped = tools?
+            .Where(tool => tool.Function is not null && !string.IsNullOrWhiteSpace(tool.Function.Name))
+            .Select(tool => new ClaudeTool(
+                tool.Function.Name,
+                tool.Function.Description,
+                tool.Function.Parameters?.Clone() ?? CreateJsonElement("""{"type":"object","properties":{}}""")))
+            .ToArray();
+
+        return mapped is { Length: > 0 } ? mapped : null;
+    }
+
+    private static ClaudeToolChoice? ToClaudeToolChoice(ChatToolChoice? toolChoice)
+    {
+        if (toolChoice is null || string.IsNullOrWhiteSpace(toolChoice.Type))
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(toolChoice.FunctionName))
+        {
+            return new ClaudeToolChoice("tool", toolChoice.FunctionName.Trim());
+        }
+
+        var type = toolChoice.Type.Trim().ToLowerInvariant() switch
+        {
+            "function" or "required" => "any",
+            "auto" => "auto",
+            "none" => "none",
+            var value => value
+        };
+        return new ClaudeToolChoice(type);
+    }
+
     private static string ExtractText(IReadOnlyList<ClaudeContentBlock>? blocks)
     {
         if (blocks is null || blocks.Count == 0)
@@ -392,14 +528,64 @@ public sealed partial class ClaudeModelProvider : IModelProvider
             .Select(block => block.Text ?? string.Empty));
     }
 
+    private static IReadOnlyList<ChatToolCall>? ToChatToolCalls(IReadOnlyList<ClaudeContentBlock>? blocks)
+    {
+        var mapped = blocks?
+            .Where(block => string.Equals(block.Type, "tool_use", StringComparison.OrdinalIgnoreCase))
+            .Select(block => new ChatToolCall(
+                block.Id ?? string.Empty,
+                "function",
+                new ChatFunctionCall(block.Name ?? string.Empty, block.Input?.GetRawText() ?? "{}")))
+            .ToArray();
+
+        return mapped is { Length: > 0 } ? mapped : null;
+    }
+
+    private static ChatUsage? ToChatUsage(ClaudeUsage? usage)
+    {
+        if (usage is null)
+        {
+            return null;
+        }
+
+        var total = usage.InputTokens.HasValue || usage.OutputTokens.HasValue
+            ? (usage.InputTokens ?? 0) + (usage.OutputTokens ?? 0)
+            : (int?)null;
+        return new ChatUsage(usage.InputTokens, usage.OutputTokens, total);
+    }
+
     private static string NormalizeDoneReason(string? stopReason)
         => stopReason switch
         {
             null or "" => "stop",
             "end_turn" => "stop",
             "max_tokens" => "length",
+            "tool_use" => "tool_calls",
             _ => stopReason
         };
+
+    private static JsonElement ParseToolInput(string? arguments)
+    {
+        if (string.IsNullOrWhiteSpace(arguments))
+        {
+            return CreateJsonElement("{}");
+        }
+
+        try
+        {
+            return CreateJsonElement(arguments);
+        }
+        catch (JsonException ex)
+        {
+            throw new ProviderException(ProviderErrorKind.InvalidRequest, "Claude 工具调用参数不是合法 JSON，无法转换为 Anthropic tool_use。", ex);
+        }
+    }
+
+    private static JsonElement CreateJsonElement(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
 
     private static IReadOnlyList<string>? NormalizeAliases(IReadOnlyList<string>? aliases)
     {
@@ -463,30 +649,55 @@ public sealed partial class ClaudeModelProvider : IModelProvider
         [property: JsonPropertyName("max_tokens")] int MaxTokens,
         [property: JsonPropertyName("messages")] IReadOnlyList<ClaudeChatMessage> Messages,
         [property: JsonPropertyName("stream")] bool Stream,
-        [property: JsonPropertyName("system")] string? System);
+        [property: JsonPropertyName("system")] string? System,
+        [property: JsonPropertyName("tools")] IReadOnlyList<ClaudeTool>? Tools = null,
+        [property: JsonPropertyName("tool_choice")] ClaudeToolChoice? ToolChoice = null);
 
     private sealed record ClaudeChatMessage(
         [property: JsonPropertyName("role")] string Role,
-        [property: JsonPropertyName("content")] string Content);
+        [property: JsonPropertyName("content")] IReadOnlyList<ClaudeContentBlock> Content);
+
+    private sealed record ClaudeTool(
+        [property: JsonPropertyName("name")] string Name,
+        [property: JsonPropertyName("description")] string? Description,
+        [property: JsonPropertyName("input_schema")] JsonElement InputSchema);
+
+    private sealed record ClaudeToolChoice(
+        [property: JsonPropertyName("type")] string Type,
+        [property: JsonPropertyName("name")] string? Name = null);
 
     private sealed record ClaudeMessageResponse(
         [property: JsonPropertyName("content")] IReadOnlyList<ClaudeContentBlock>? Content,
         [property: JsonPropertyName("stop_reason")] string? StopReason,
+        [property: JsonPropertyName("usage")] ClaudeUsage? Usage,
         [property: JsonPropertyName("error")] ClaudeError? Error);
 
     private sealed record ClaudeContentBlock(
         [property: JsonPropertyName("type")] string? Type,
-        [property: JsonPropertyName("text")] string? Text);
+        [property: JsonPropertyName("text")] string? Text = null,
+        [property: JsonPropertyName("id")] string? Id = null,
+        [property: JsonPropertyName("name")] string? Name = null,
+        [property: JsonPropertyName("input")] JsonElement? Input = null,
+        [property: JsonPropertyName("tool_use_id")] string? ToolUseId = null,
+        [property: JsonPropertyName("content")] string? Content = null);
 
     private sealed record ClaudeStreamEvent(
         [property: JsonPropertyName("type")] string? Type,
+        [property: JsonPropertyName("index")] int? Index,
+        [property: JsonPropertyName("content_block")] ClaudeContentBlock? ContentBlock,
         [property: JsonPropertyName("delta")] ClaudeStreamDelta? Delta,
+        [property: JsonPropertyName("usage")] ClaudeUsage? Usage,
         [property: JsonPropertyName("error")] ClaudeError? Error);
 
     private sealed record ClaudeStreamDelta(
         [property: JsonPropertyName("type")] string? Type,
         [property: JsonPropertyName("text")] string? Text,
+        [property: JsonPropertyName("partial_json")] string? PartialJson,
         [property: JsonPropertyName("stop_reason")] string? StopReason);
+
+    private sealed record ClaudeUsage(
+        [property: JsonPropertyName("input_tokens")] int? InputTokens,
+        [property: JsonPropertyName("output_tokens")] int? OutputTokens);
 
     private sealed record ClaudeErrorEnvelope(
         [property: JsonPropertyName("error")] ClaudeError? Error);

@@ -1,3 +1,7 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using VSCopilotSwitch.Core.Ollama;
+using VSCopilotSwitch.Core.Providers;
 using VSCopilotSwitch.Services;
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -7,6 +11,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("ActivateAsync keeps one active provider", ActivateAsync_KeepsOneActiveProvider),
     ("ReorderAsync is idempotent", ReorderAsync_IsIdempotent),
     ("DeleteAsync auto-selects available provider", DeleteAsync_AutoSelectsAvailableProvider),
+    ("Copilot compatibility probe covers core workflow", CopilotCompatibilityProbe_CoversCoreWorkflow),
+    ("ActiveProvider ListModelsAsync falls back to configured model", ActiveProviderModelProvider_ListModelsAsync_FallsBackToConfiguredModel),
+    ("OpenAI response mapper emits tool calls", OpenAiResponseMapper_EmitsToolCalls),
+    ("OpenAI response mapper emits reasoning content", OpenAiResponseMapper_EmitsReasoningContent),
+    ("OpenAI response mapper emits tool call stream deltas", OpenAiResponseMapper_EmitsToolCallStreamDeltas),
     ("UpdateService selects newest release across mirrors", UpdateService_SelectsNewestReleaseAcrossMirrors),
     ("UpdateService downloads selected asset to cache", UpdateService_DownloadsSelectedAssetToCache)
 };
@@ -113,6 +122,133 @@ static async Task DeleteAsync_AutoSelectsAvailableProvider()
     Assert.True(views.Single(provider => provider.Id == "beta").Active, "剩余供应商应自动启用。");
 }
 
+static async Task CopilotCompatibilityProbe_CoversCoreWorkflow()
+{
+    var probe = new CopilotCompatibilityProbeService(new OllamaProxyService(new ProbeModelProvider()));
+
+    var result = await probe.RunAsync();
+
+    Assert.True(result.Success, "Copilot 兼容探针应通过完整核心工作流。");
+    Assert.Equal("passed", result.Steps.Single(step => step.Name == "model_selector").Status, "模型选择器探针应通过。");
+    Assert.Equal("passed", result.Steps.Single(step => step.Name == "chat_completion").Status, "普通聊天探针应通过。");
+    Assert.Equal("passed", result.Steps.Single(step => step.Name == "agent_tool_call").Status, "Agent 工具调用探针应通过。");
+    Assert.Equal("passed", result.Steps.Single(step => step.Name == "stream_finish").Status, "流式结束探针应通过。");
+}
+
+static async Task ActiveProviderModelProvider_ListModelsAsync_FallsBackToConfiguredModel()
+{
+    using var workspace = TestWorkspace.Create();
+    var configService = workspace.CreateService();
+    await configService.SaveAsync(new SaveProviderConfigRequest(
+        "broken",
+        "Broken",
+        string.Empty,
+        "https://example.com/broken",
+        "http://127.0.0.1:1",
+        "gpt-4.1",
+        "openai-compatible",
+        "sk-fallback-secret",
+        true));
+    var activeProvider = new ActiveProviderModelProvider(configService);
+
+    var models = await activeProvider.ListModelsAsync();
+
+    Assert.Equal(1, models.Count, "模型列表失败时应降级为当前已保存模型。");
+    Assert.Equal("broken/gpt-4.1", models[0].Name, "降级模型名应保留 Provider 前缀。");
+    Assert.Equal("gpt-4.1", models[0].UpstreamModel, "降级模型应使用已保存的上游模型名。");
+}
+
+static Task OpenAiResponseMapper_EmitsToolCalls()
+{
+    var toolCall = new ChatToolCall(
+        "call_lookup",
+        "function",
+        new ChatFunctionCall("lookup", """{"query":"pong"}"""));
+    var completion = OpenAiChatCompletionMapper.CreateResponse(
+        "chatcmpl-test",
+        1,
+        "gpt-5.5@vscs",
+        new OllamaChatResponse(
+            "gpt-5.5@vscs",
+            DateTimeOffset.UnixEpoch,
+            new OllamaChatMessage("assistant", string.Empty, new[] { toolCall }),
+            "tool_calls",
+            true,
+            new ChatUsage(10, 3, 13)));
+
+    var choice = completion.Choices[0];
+    Assert.Equal("tool_calls", choice.FinishReason, "工具调用响应应使用 OpenAI-compatible finish_reason。");
+    Assert.True(choice.Message.Content is null, "只有工具调用且无文本时，message.content 应保持 null。");
+    Assert.Equal("call_lookup", choice.Message.ToolCalls?[0].Id ?? string.Empty, "工具调用 id 应回传给 Copilot。");
+    Assert.Equal("lookup", choice.Message.ToolCalls?[0].Function?.Name ?? string.Empty, "工具调用函数名应回传给 Copilot。");
+    Assert.Equal(13, completion.Usage?.TotalTokens ?? 0, "usage 应回传给 Copilot。");
+
+    using var document = JsonDocument.Parse(SerializeOpenAi(completion));
+    var message = document.RootElement.GetProperty("choices")[0].GetProperty("message");
+    Assert.Equal(JsonValueKind.Null.ToString(), message.GetProperty("content").ValueKind.ToString(), "序列化后的 message.content 应显式为 null。");
+    Assert.Equal("call_lookup", message.GetProperty("tool_calls")[0].GetProperty("id").GetString() ?? string.Empty, "序列化后的 tool_calls 应保留 id。");
+    return Task.CompletedTask;
+}
+
+static Task OpenAiResponseMapper_EmitsReasoningContent()
+{
+    var completion = OpenAiChatCompletionMapper.CreateResponse(
+        "chatcmpl-test",
+        1,
+        "deepseek-v4@vscs",
+        new OllamaChatResponse(
+            "deepseek-v4@vscs",
+            DateTimeOffset.UnixEpoch,
+            new OllamaChatMessage("assistant", string.Empty, ReasoningContent: "先分析调用路径。"),
+            "stop",
+            true));
+
+    var choice = completion.Choices[0];
+    Assert.True(choice.Message.Content is null, "只有 reasoning_content 且无文本时，message.content 应保持 null。");
+    Assert.Equal("先分析调用路径。", choice.Message.ReasoningContent ?? string.Empty, "reasoning_content 应回传给 Copilot。");
+
+    using var document = JsonDocument.Parse(SerializeOpenAi(completion));
+    var message = document.RootElement.GetProperty("choices")[0].GetProperty("message");
+    Assert.Equal(JsonValueKind.Null.ToString(), message.GetProperty("content").ValueKind.ToString(), "序列化后的 reasoning-only message.content 应显式为 null。");
+    Assert.Equal("先分析调用路径。", message.GetProperty("reasoning_content").GetString() ?? string.Empty, "序列化后的 reasoning_content 应保留。");
+    return Task.CompletedTask;
+}
+
+static Task OpenAiResponseMapper_EmitsToolCallStreamDeltas()
+{
+    var argumentsDelta = new ChatToolCall(
+        string.Empty,
+        "function",
+        new ChatFunctionCall(string.Empty, """{"query":"stream"}"""),
+        Index: 0);
+    var chunk = OpenAiChatCompletionMapper.CreateDeltaChunk(
+        "chatcmpl-test",
+        1,
+        "gpt-5.5@vscs",
+        new OllamaChatResponse(
+            "gpt-5.5@vscs",
+            DateTimeOffset.UnixEpoch,
+            new OllamaChatMessage("assistant", string.Empty, new[] { argumentsDelta }),
+            null,
+            false));
+
+    var deltaToolCall = chunk.Choices[0].Delta.ToolCalls?[0];
+    Assert.True(deltaToolCall is not null, "流式工具参数分块应保留 tool_calls delta。");
+    Assert.True(deltaToolCall!.Id is null, "纯 arguments delta 不应伪造 tool_call id。");
+    Assert.True(deltaToolCall.Type is null, "纯 arguments delta 不应重复输出 type。");
+    Assert.True(deltaToolCall.Function?.Name is null, "纯 arguments delta 不应伪造函数名。");
+    Assert.Equal("""{"query":"stream"}""", deltaToolCall.Function?.Arguments ?? string.Empty, "流式工具参数 delta 应原样回传。");
+
+    using var document = JsonDocument.Parse(SerializeOpenAi(chunk));
+    var delta = document.RootElement.GetProperty("choices")[0].GetProperty("delta");
+    Assert.True(!delta.TryGetProperty("content", out _), "流式工具参数 delta 不应输出空 content 字段。");
+    var serializedToolCall = delta.GetProperty("tool_calls")[0];
+    Assert.True(!serializedToolCall.TryGetProperty("id", out _), "序列化后的纯 arguments delta 不应包含 id。");
+    Assert.True(!serializedToolCall.TryGetProperty("type", out _), "序列化后的纯 arguments delta 不应包含 type。");
+    Assert.Equal("""{"query":"stream"}""", serializedToolCall.GetProperty("function").GetProperty("arguments").GetString() ?? string.Empty, "序列化后的 arguments delta 应保留。");
+    return Task.CompletedTask;
+}
+
 static async Task UpdateService_SelectsNewestReleaseAcrossMirrors()
 {
     using var workspace = TestWorkspace.Create();
@@ -217,6 +353,14 @@ static SaveProviderConfigRequest CreateSaveRequest(
 static string ToOrderSnapshot(ProviderConfigView provider)
     => $"{provider.Id}:{provider.SortOrder}:{provider.Active}";
 
+static string SerializeOpenAi<T>(T value)
+    => JsonSerializer.Serialize(
+        value,
+        new JsonSerializerOptions
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        });
+
 internal sealed class TestWorkspace : IDisposable
 {
     private TestWorkspace(string root)
@@ -301,6 +445,44 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         {
             Content = new StringContent(content)
         });
+    }
+}
+
+internal sealed class ProbeModelProvider : IModelProvider
+{
+    private readonly ProviderModel _model = new(
+        "probe/gpt-4.1",
+        "openai",
+        "gpt-4.1",
+        "GPT 4.1",
+        Capabilities: new ProviderModelCapabilities(SupportsTools: true, SupportsVision: true));
+
+    public string Name => "probe";
+
+    public Task<IReadOnlyList<ProviderModel>> ListModelsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<ProviderModel>>(new[] { _model });
+
+    public Task<ChatResponse> ChatAsync(ChatRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request.Tools is { Count: > 0 })
+        {
+            var toolCall = new ChatToolCall(
+                "call_probe_lookup",
+                "function",
+                new ChatFunctionCall("lookup", """{"query":"ping"}"""));
+            return Task.FromResult(new ChatResponse(request.Model, string.Empty, "tool_calls", new[] { toolCall }));
+        }
+
+        return Task.FromResult(new ChatResponse(request.Model, "pong"));
+    }
+
+    public async IAsyncEnumerable<ChatStreamChunk> ChatStreamAsync(
+        ChatRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await Task.Yield();
+        yield return new ChatStreamChunk(request.Model, "pong", Done: false);
+        yield return new ChatStreamChunk(request.Model, string.Empty, Done: true, "stop");
     }
 }
 

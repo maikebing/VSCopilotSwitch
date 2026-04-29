@@ -1,4 +1,5 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
+using VSCopilotSwitch.Core.Providers;
 
 namespace VSCopilotSwitch.Core.Ollama;
 
@@ -31,7 +32,12 @@ public sealed record OllamaModelDetails(
 public sealed record OllamaChatRequest(
     [property: JsonPropertyName("model")] string Model,
     [property: JsonPropertyName("messages")] IReadOnlyList<OllamaChatMessage>? Messages,
-    [property: JsonPropertyName("stream")] bool? Stream);
+    [property: JsonPropertyName("stream")] bool? Stream,
+    [property: JsonPropertyName("tools")] IReadOnlyList<ChatTool>? Tools = null,
+    [property: JsonPropertyName("tool_choice")] ChatToolChoice? ToolChoice = null,
+    [property: JsonPropertyName("reasoning_effort")] string? ReasoningEffort = null,
+    [property: JsonPropertyName("thinking")] System.Text.Json.JsonElement? Thinking = null,
+    [property: JsonPropertyName("think")] System.Text.Json.JsonElement? Think = null);
 
 public sealed record OllamaShowRequest(
     [property: JsonPropertyName("model")] string Model);
@@ -48,7 +54,12 @@ public sealed record OllamaShowResponse(
 
 public sealed record OllamaChatMessage(
     [property: JsonPropertyName("role")] string Role,
-    [property: JsonPropertyName("content")] string Content);
+    [property: JsonPropertyName("content")] string Content,
+    [property: JsonPropertyName("tool_calls")] IReadOnlyList<ChatToolCall>? ToolCalls = null,
+    [property: JsonPropertyName("tool_call_id")] string? ToolCallId = null,
+    [property: JsonPropertyName("name")] string? Name = null,
+    [property: JsonPropertyName("reasoning_content")] string? ReasoningContent = null,
+    [property: JsonPropertyName("thinking")] string? Thinking = null);
 
 public sealed record OllamaChatResponse(
     [property: JsonPropertyName("model")] string Model,
@@ -57,7 +68,8 @@ public sealed record OllamaChatResponse(
     [property: JsonPropertyName("done_reason")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? DoneReason,
-    [property: JsonPropertyName("done")] bool Done);
+    [property: JsonPropertyName("done")] bool Done,
+    [property: JsonPropertyName("usage")] ChatUsage? Usage = null);
 
 public sealed record OllamaErrorResponse(
     [property: JsonPropertyName("error")] string Error,

@@ -42,7 +42,7 @@ static async Task ApplyOllamaConfigAsync_WritesProviderArrayEntryIdempotently()
     Assert.True(first.Changes.Count == 1, "新规则只应写入 chatLanguageModels.json。");
     Assert.True(first.Changes.Any(change => change.Changed), "第一次写入应产生变更。");
     Assert.True(second.Changes.All(change => !change.Changed), "重复写入不应产生配置漂移。");
-    Assert.Contains("\"name\": \"vscc\"", content, "应写入 VS Code 语言模型 Ollama Provider 名称。");
+    Assert.Contains("\"name\": \"vscs\"", content, "应写入 VS Code 语言模型 Ollama Provider 名称。");
     Assert.Contains("\"vendor\": \"ollama\"", content, "应写入 Ollama Provider 类型。");
     Assert.Contains("\"url\": \"http://127.0.0.1:5124\"", content, "应写入当前本地代理地址。");
 }
@@ -94,7 +94,7 @@ static async Task RemoveOllamaConfigAsync_RemovesOnlyManagedProvider()
     Assert.True(!status.Enabled, "撤销后不应再检测到托管 Provider。");
     Assert.Contains("\"name\": \"OpenAI\"", content, "撤销不应删除用户已有 OpenAI Provider。");
     Assert.Contains("\"name\": \"UserOllama\"", content, "撤销不应删除用户手工添加的其他 Ollama Provider。");
-    Assert.DoesNotContain("\"name\": \"vscc\"", content, "撤销应删除本项目管理的 vscc Provider。");
+    Assert.DoesNotContain("\"name\": \"vscs\"", content, "撤销应删除本项目管理的 vscs Provider。");
 }
 
 static async Task ApplyOllamaConfigAsync_RemovesDuplicateManagedProviders()
@@ -103,12 +103,12 @@ static async Task ApplyOllamaConfigAsync_RemovesDuplicateManagedProviders()
     var service = new VsCodeConfigService();
     var chatLanguageModelsPath = Path.Combine(workspace.UserDirectory, "chatLanguageModels.json");
 
-    File.WriteAllText(chatLanguageModelsPath, "[{\"name\":\"vscc\",\"vendor\":\"ollama\",\"url\":\"http://old-one\"},{\"name\":\"OpenAI\",\"vendor\":\"openai\"},{\"name\":\"vscc\",\"vendor\":\"ollama\",\"url\":\"http://old-two\"}]");
+    File.WriteAllText(chatLanguageModelsPath, "[{\"name\":\"vscs\",\"vendor\":\"ollama\",\"url\":\"http://old-one\"},{\"name\":\"OpenAI\",\"vendor\":\"openai\"},{\"name\":\"vscs\",\"vendor\":\"ollama\",\"url\":\"http://old-two\"}]");
 
     await service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: false);
     var content = File.ReadAllText(chatLanguageModelsPath);
 
-    Assert.Equal(1, CountOccurrences(content, "\"name\": \"vscc\""), "重复写入应收敛为一个 vscc Provider。");
+    Assert.Equal(1, CountOccurrences(content, "\"name\": \"vscs\""), "重复写入应收敛为一个 vscs Provider。");
     Assert.Contains("\"url\": \"http://127.0.0.1:5124\"", content, "应更新为当前代理地址。");
     Assert.Contains("\"name\": \"OpenAI\"", content, "去重时应保留其他 Provider。");
 }

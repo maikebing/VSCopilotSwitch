@@ -16,7 +16,7 @@ public interface IOllamaProxyService
 
 public sealed class OllamaProxyService : IOllamaProxyService
 {
-    private const string VsCodeModelSuffix = "@vscc";
+    private const string VsCodeModelSuffix = "@vscs";
     private const int RemoteContextLength = 400_000;
     private readonly IReadOnlyList<IModelProvider> _providers;
 
@@ -36,34 +36,36 @@ public sealed class OllamaProxyService : IOllamaProxyService
         return new OllamaTagsResponse(models.Select(model =>
         {
             var publicModelName = ToVsCodeModelName(model.Model.UpstreamModel);
+            var capabilities = ResolveCapabilities(model.Model);
             return new OllamaModelInfo(
                 publicModelName,
                 publicModelName,
                 DateTimeOffset.UtcNow,
                 0,
                 $"vscopilotswitch:{model.Model.Provider}:{model.Model.UpstreamModel}",
-                BuildModelDetails(model.Model),
-                BuildCapabilities(),
-                RemoteContextLength,
-                BuildModelInfo(model.Model),
-                true,
-                true,
-                true,
-                true);
+                BuildModelDetails(model.Model, capabilities),
+                BuildCapabilities(capabilities),
+                capabilities.ContextLength,
+                BuildModelInfo(model.Model, capabilities),
+                capabilities.SupportsTools,
+                capabilities.SupportsVision,
+                capabilities.SupportsThinking,
+                capabilities.SupportsReasoning);
         }).ToArray());
     }
 
     public async Task<OllamaShowResponse> ShowAsync(OllamaShowRequest request, CancellationToken cancellationToken = default)
     {
         var route = await ResolveRouteAsync(request.Model, cancellationToken);
+        var capabilities = ResolveCapabilities(route.Model);
         return new OllamaShowResponse(
             string.Empty,
             string.Empty,
             string.Empty,
             string.Empty,
-            BuildModelDetails(route.Model),
-            BuildModelInfo(route.Model),
-            BuildCapabilities(),
+            BuildModelDetails(route.Model, capabilities),
+            BuildModelInfo(route.Model, capabilities),
+            BuildCapabilities(capabilities),
             DateTimeOffset.UtcNow);
     }
 
@@ -75,9 +77,10 @@ public sealed class OllamaProxyService : IOllamaProxyService
         return new OllamaChatResponse(
             request.Model,
             DateTimeOffset.UtcNow,
-            new OllamaChatMessage("assistant", response.Content),
+            new OllamaChatMessage("assistant", response.Content, response.ToolCalls, ReasoningContent: response.ReasoningContent, Thinking: response.ReasoningContent),
             response.DoneReason,
-            true);
+            true,
+            response.Usage);
     }
 
     public async IAsyncEnumerable<OllamaChatResponse> ChatStreamAsync(
@@ -90,12 +93,15 @@ public sealed class OllamaProxyService : IOllamaProxyService
         await foreach (var chunk in InvokeProviderStreamAsync(route, routedRequest, cancellationToken).WithCancellation(cancellationToken))
         {
             completed |= chunk.Done;
+            var content = chunk.Delta?.Content ?? chunk.Content;
+            var role = string.IsNullOrWhiteSpace(chunk.Delta?.Role) ? "assistant" : chunk.Delta!.Role!;
             yield return new OllamaChatResponse(
                 request.Model,
                 DateTimeOffset.UtcNow,
-                new OllamaChatMessage("assistant", chunk.Content),
+                new OllamaChatMessage(role, content, chunk.Delta?.ToolCalls, ReasoningContent: chunk.Delta?.ReasoningContent, Thinking: chunk.Delta?.ReasoningContent),
                 chunk.Done ? chunk.DoneReason ?? "stop" : null,
-                chunk.Done);
+                chunk.Done,
+                chunk.Usage);
         }
 
         if (!completed)
@@ -217,50 +223,166 @@ public sealed class OllamaProxyService : IOllamaProxyService
 
     private static string ToVsCodeModelName(string upstreamModel)
     {
-        var trimmed = upstreamModel.Trim();
-        return trimmed.EndsWith(VsCodeModelSuffix, StringComparison.OrdinalIgnoreCase)
-            ? trimmed
-            : $"{trimmed}{VsCodeModelSuffix}";
+        var trimmed = StripVsCodeModelSuffix(upstreamModel);
+        return $"{trimmed}{VsCodeModelSuffix}";
     }
 
-    private static OllamaModelDetails BuildModelDetails(ProviderModel model)
+    private static OllamaModelDetails BuildModelDetails(ProviderModel model, ModelCapabilities capabilities)
         => new(
             model.UpstreamModel,
             "provider-adapter",
-            "llama",
-            new[] { "llama", model.Provider },
+            capabilities.Architecture,
+            new[] { capabilities.Architecture, model.Provider },
             "remote",
             "remote");
 
-    private static IReadOnlyList<string> BuildCapabilities()
-        => new[] { "completion", "chat", "tools", "vision", "thinking", "reasoning" };
+    private static IReadOnlyList<string> BuildCapabilities(ModelCapabilities capabilities)
+    {
+        var values = new List<string> { "completion", "chat" };
+        if (capabilities.SupportsTools)
+        {
+            values.Add("tools");
+        }
 
-    private static IReadOnlyDictionary<string, object> BuildModelInfo(ProviderModel model)
+        if (capabilities.SupportsVision)
+        {
+            values.Add("vision");
+        }
+
+        return values;
+    }
+
+    private static IReadOnlyDictionary<string, object> BuildModelInfo(ProviderModel model, ModelCapabilities capabilities)
         => new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
         {
-            ["general.architecture"] = "llama",
-            ["general.context_length"] = RemoteContextLength,
-            ["llama.context_length"] = RemoteContextLength,
+            ["general.architecture"] = capabilities.Architecture,
+            ["general.basename"] = model.UpstreamModel,
+            ["general.context_length"] = capabilities.ContextLength,
+            [$"{capabilities.Architecture}.context_length"] = capabilities.ContextLength,
             ["vscopilotswitch.provider"] = model.Provider,
             ["vscopilotswitch.upstream_model"] = model.UpstreamModel,
-            ["vscopilotswitch.context_length"] = RemoteContextLength,
-            ["vscopilotswitch.supports_tool_calling"] = true,
-            ["vscopilotswitch.supports_vision"] = true,
-            ["vscopilotswitch.supports_thinking"] = true,
-            ["vscopilotswitch.supports_reasoning"] = true,
-            ["vscopilotswitch.reasoning_efforts"] = new[] { "low", "medium", "high", "xhigh" },
-            ["llama.thinking.enabled"] = true
+            ["vscopilotswitch.context_length"] = capabilities.ContextLength
         };
+
+    private static ModelCapabilities ResolveCapabilities(ProviderModel model)
+    {
+        var inferred = InferCapabilities(model);
+        var explicitCapabilities = model.Capabilities;
+        if (explicitCapabilities is null)
+        {
+            return inferred;
+        }
+
+        return inferred with
+        {
+            SupportsTools = explicitCapabilities.SupportsTools ?? inferred.SupportsTools,
+            SupportsVision = explicitCapabilities.SupportsVision ?? inferred.SupportsVision,
+            SupportsThinking = explicitCapabilities.SupportsThinking ?? inferred.SupportsThinking,
+            SupportsReasoning = explicitCapabilities.SupportsReasoning ?? inferred.SupportsReasoning,
+            ContextLength = explicitCapabilities.ContextLength is > 0 ? explicitCapabilities.ContextLength.Value : inferred.ContextLength,
+            Architecture = string.IsNullOrWhiteSpace(explicitCapabilities.Architecture)
+                ? inferred.Architecture
+                : explicitCapabilities.Architecture.Trim()
+        };
+    }
+
+    private static ModelCapabilities InferCapabilities(ProviderModel model)
+    {
+        var provider = NormalizeCapabilityToken(model.Provider);
+        var modelName = NormalizeCapabilityToken(model.UpstreamModel);
+
+        // 能力声明宁可保守，避免 Copilot 因虚报 tools / vision 而发送上游模型无法处理的输入。
+        if (provider.Contains("deepseek", StringComparison.OrdinalIgnoreCase)
+            || modelName.Contains("deepseek", StringComparison.OrdinalIgnoreCase))
+        {
+            return ModelCapabilities.TextOnly;
+        }
+
+        if (provider == "openai" || IsOpenAiChatModel(modelName))
+        {
+            return ModelCapabilities.TextOnly with
+            {
+                SupportsTools = IsOpenAiToolModel(modelName),
+                SupportsVision = IsOpenAiVisionModel(modelName)
+            };
+        }
+
+        if (provider == "claude" || modelName.Contains("claude", StringComparison.OrdinalIgnoreCase))
+        {
+            return ModelCapabilities.TextOnly with
+            {
+                SupportsTools = true,
+                SupportsVision = IsClaudeVisionModel(modelName)
+            };
+        }
+
+        return ModelCapabilities.TextOnly;
+    }
+
+    private static string NormalizeCapabilityToken(string value)
+        => value.Trim().ToLowerInvariant();
+
+    private static bool IsOpenAiChatModel(string modelName)
+        => modelName.StartsWith("gpt-", StringComparison.OrdinalIgnoreCase)
+            || modelName.StartsWith("o1", StringComparison.OrdinalIgnoreCase)
+            || modelName.StartsWith("o3", StringComparison.OrdinalIgnoreCase)
+            || modelName.StartsWith("o4", StringComparison.OrdinalIgnoreCase)
+            || modelName.StartsWith("chatgpt-", StringComparison.OrdinalIgnoreCase)
+            || modelName.StartsWith("codex-", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsOpenAiToolModel(string modelName)
+        => IsOpenAiChatModel(modelName)
+            && !ContainsAny(modelName, "embedding", "audio", "whisper", "tts", "dall-e", "image", "moderation", "transcribe");
+
+    private static bool IsOpenAiVisionModel(string modelName)
+        => ContainsAny(modelName, "gpt-4o", "gpt-4.1", "gpt-5", "vision", "omni");
+
+    private static bool IsClaudeVisionModel(string modelName)
+        => ContainsAny(modelName, "claude-3", "claude-4", "sonnet", "opus", "haiku");
+
+    private static bool ContainsAny(string value, params string[] candidates)
+        => candidates.Any(candidate => value.Contains(candidate, StringComparison.OrdinalIgnoreCase));
 
     private static ChatRequest BuildChatRequest(OllamaChatRequest request, ModelRoute route, bool stream)
     {
         var messages = request.Messages?
-            .Select(message => new ChatMessage(message.Role, message.Content))
+            .Select(message => new ChatMessage(
+                message.Role,
+                message.Content,
+                message.ToolCalls,
+                message.ToolCallId,
+                message.Name,
+                ResolveMessageReasoningContent(message)))
             .ToArray() ?? Array.Empty<ChatMessage>();
 
         // Provider 只接收解析后的上游模型，避免把 Ollama 侧别名误传给私有协议层。
-        return new ChatRequest(route.Model.Name, messages, stream, route.Model.Provider, route.Model.UpstreamModel);
+        return new ChatRequest(
+            route.Model.Name,
+            messages,
+            stream,
+            route.Model.Provider,
+            route.Model.UpstreamModel,
+            request.Tools,
+            request.ToolChoice,
+            ResolveReasoningEffort(request),
+            request.Thinking,
+            request.Think);
     }
+
+    private static string? ResolveMessageReasoningContent(OllamaChatMessage message)
+        => !string.IsNullOrWhiteSpace(message.ReasoningContent)
+            ? message.ReasoningContent
+            : string.IsNullOrWhiteSpace(message.Thinking) ? null : message.Thinking;
+
+    private static string? ResolveReasoningEffort(OllamaChatRequest request)
+        => !string.IsNullOrWhiteSpace(request.ReasoningEffort)
+            ? request.ReasoningEffort
+            : TryReadOllamaThinkLevel(request.Think);
+
+    private static string? TryReadOllamaThinkLevel(System.Text.Json.JsonElement? think)
+        => think is { ValueKind: System.Text.Json.JsonValueKind.String } value
+            ? value.GetString()
+            : null;
 
     private static async Task<ChatResponse> InvokeProviderAsync(ModelRoute route, ChatRequest request, CancellationToken cancellationToken)
     {
@@ -369,4 +491,21 @@ public sealed class OllamaProxyService : IOllamaProxyService
     }
 
     private sealed record ModelRoute(IModelProvider Provider, ProviderModel Model);
+
+    private sealed record ModelCapabilities(
+        bool SupportsTools,
+        bool SupportsVision,
+        bool SupportsThinking,
+        bool SupportsReasoning,
+        int ContextLength,
+        string Architecture)
+    {
+        public static ModelCapabilities TextOnly { get; } = new(
+            SupportsTools: false,
+            SupportsVision: false,
+            SupportsThinking: false,
+            SupportsReasoning: false,
+            ContextLength: RemoteContextLength,
+            Architecture: "llama");
+    }
 }

@@ -174,7 +174,8 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
     {
         if (string.IsNullOrWhiteSpace(body)
             || (!string.Equals(path, "/api/chat", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(path, "/api/show", StringComparison.OrdinalIgnoreCase)))
+                && !string.Equals(path, "/api/show", StringComparison.OrdinalIgnoreCase)
+                && !IsOpenAiChatCompletionPath(path)))
         {
             return null;
         }
@@ -191,6 +192,12 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
             return null;
         }
     }
+
+    private static bool IsOpenAiChatCompletionPath(string path)
+        => string.Equals(path, "/v1/chat/completions", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(path, "/chat/completions", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(path, "/v1/v1/chat/completions", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(path, "/api/v1/chat/completions", StringComparison.OrdinalIgnoreCase);
 
     private static int EstimateInputTokens(HttpContext context)
     {

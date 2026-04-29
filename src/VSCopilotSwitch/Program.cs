@@ -43,6 +43,7 @@ builder.Services.AddSingleton<IUpdateService, UpdateService>();
 builder.Services.AddHostedService<UpdateBackgroundService>();
 builder.Services.AddSingleton<IOllamaProxyService>(serviceProvider =>
     new OllamaProxyService(serviceProvider.GetServices<IModelProvider>()));
+builder.Services.AddSingleton<ICopilotCompatibilityProbeService, CopilotCompatibilityProbeService>();
 builder.Services.AddSingleton<IVsCodeConfigLocator, VsCodeConfigLocator>();
 builder.Services.AddSingleton<IVsCodeConfigService, VsCodeConfigService>();
 
@@ -129,6 +130,13 @@ webApp.MapPost("/internal/analytics/clear", (
 {
     analytics.Clear();
     return Results.Ok(analytics.GetSnapshot(configuredServerUrl));
+});
+
+webApp.MapPost("/internal/copilot/probe", async (
+    ICopilotCompatibilityProbeService probe,
+    CancellationToken cancellationToken) =>
+{
+    return Results.Ok(await probe.RunAsync(cancellationToken));
 });
 
 webApp.MapGet("/internal/updates/check", async (
@@ -235,6 +243,18 @@ webApp.MapPost("/api/chat", async (
         await WriteOllamaErrorAsync(httpContext, ex, cancellationToken);
     }
 });
+
+var openAiChatCompletionPaths = new[]
+{
+    "/v1/chat/completions",
+    "/chat/completions",
+    "/v1/v1/chat/completions",
+    "/api/v1/chat/completions"
+};
+foreach (var path in openAiChatCompletionPaths)
+{
+    webApp.MapPost(path, HandleOpenAiChatCompletionAsync);
+}
 
 webApp.MapGet("/internal/vscode/user-directories", (IVsCodeConfigLocator locator) =>
 {
@@ -500,6 +520,362 @@ static async Task WriteOllamaErrorAsync(
         cancellationToken);
 }
 
+static async Task HandleOpenAiChatCompletionAsync(
+    OpenAiChatCompletionRequest request,
+    IOllamaProxyService ollama,
+    HttpContext httpContext,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        var ollamaRequest = ToOllamaChatRequest(request, request.Stream == true);
+        if (request.Stream == true)
+        {
+            await WriteOpenAiChatCompletionStreamAsync(
+                httpContext,
+                request.Model,
+                ollama.ChatStreamAsync(ollamaRequest, cancellationToken),
+                cancellationToken);
+            return;
+        }
+
+        var response = await ollama.ChatAsync(ollamaRequest, cancellationToken);
+        var completion = OpenAiChatCompletionMapper.CreateResponse(
+            $"chatcmpl-{Guid.NewGuid():N}",
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            request.Model,
+            response);
+
+        httpContext.Response.StatusCode = StatusCodes.Status200OK;
+        httpContext.Response.ContentType = "application/json; charset=utf-8";
+        await JsonSerializer.SerializeAsync(
+            httpContext.Response.Body,
+            completion,
+            VSCopilotSwitchJsonContext.Default.OpenAiChatCompletionResponse,
+            cancellationToken);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex)
+    {
+        await WriteOpenAiErrorAsync(httpContext, ex, cancellationToken);
+    }
+}
+
+static OllamaChatRequest ToOllamaChatRequest(OpenAiChatCompletionRequest request, bool stream)
+{
+    var messages = request.Messages?
+        .Select(message => new OllamaChatMessage(
+            string.IsNullOrWhiteSpace(message.Role) ? "user" : message.Role,
+            ExtractOpenAiMessageContent(message.Content),
+            ToChatToolCalls(message.ToolCalls),
+            message.ToolCallId,
+            message.Name,
+            message.ReasoningContent,
+            message.Thinking))
+        .ToArray() ?? Array.Empty<OllamaChatMessage>();
+
+    return new OllamaChatRequest(
+        request.Model,
+        messages,
+        stream,
+        ToChatTools(request.Tools),
+        ToChatToolChoice(request.ToolChoice),
+        request.ReasoningEffort,
+        request.Thinking,
+        request.Think);
+}
+
+static string ExtractOpenAiMessageContent(JsonElement? content)
+{
+    if (content is null)
+    {
+        return string.Empty;
+    }
+
+    var value = content.Value;
+    return value.ValueKind switch
+    {
+        JsonValueKind.String => value.GetString() ?? string.Empty,
+        JsonValueKind.Array => string.Join(
+            "\n",
+            value.EnumerateArray()
+                .Select(ExtractOpenAiContentPart)
+                .Where(part => !string.IsNullOrWhiteSpace(part))),
+        JsonValueKind.Object => ExtractOpenAiContentPart(value),
+        JsonValueKind.Null or JsonValueKind.Undefined => string.Empty,
+        _ => value.ToString()
+    };
+}
+
+static string ExtractOpenAiContentPart(JsonElement part)
+{
+    if (part.ValueKind == JsonValueKind.String)
+    {
+        return part.GetString() ?? string.Empty;
+    }
+
+    if (part.ValueKind != JsonValueKind.Object)
+    {
+        return string.Empty;
+    }
+
+    if (part.TryGetProperty("text", out var textElement))
+    {
+        return textElement.ValueKind == JsonValueKind.String
+            ? textElement.GetString() ?? string.Empty
+            : textElement.ToString();
+    }
+
+    if (part.TryGetProperty("content", out var contentElement))
+    {
+        return ExtractOpenAiMessageContent(contentElement);
+    }
+
+    return string.Empty;
+}
+
+static IReadOnlyList<ChatTool>? ToChatTools(IReadOnlyList<OpenAiTool>? tools)
+{
+    var mapped = tools?
+        .Where(tool => tool.Function is not null && !string.IsNullOrWhiteSpace(tool.Function.Name))
+        .Select(tool => new ChatTool(
+            string.IsNullOrWhiteSpace(tool.Type) ? "function" : tool.Type,
+            new ChatFunctionTool(
+                tool.Function.Name,
+                tool.Function.Description,
+                tool.Function.Parameters)))
+        .ToArray();
+
+    return mapped is { Length: > 0 } ? mapped : null;
+}
+
+static ChatToolChoice? ToChatToolChoice(JsonElement? toolChoice)
+{
+    if (toolChoice is null)
+    {
+        return null;
+    }
+
+    var value = toolChoice.Value;
+    if (value.ValueKind == JsonValueKind.String)
+    {
+        var type = value.GetString();
+        return string.IsNullOrWhiteSpace(type) ? null : new ChatToolChoice(type);
+    }
+
+    if (value.ValueKind != JsonValueKind.Object)
+    {
+        return null;
+    }
+
+    var objectType = value.TryGetProperty("type", out var typeElement) && typeElement.ValueKind == JsonValueKind.String
+        ? typeElement.GetString()
+        : null;
+    string? functionName = null;
+    if (value.TryGetProperty("function", out var functionElement)
+        && functionElement.ValueKind == JsonValueKind.Object
+        && functionElement.TryGetProperty("name", out var nameElement)
+        && nameElement.ValueKind == JsonValueKind.String)
+    {
+        functionName = nameElement.GetString();
+    }
+
+    return string.IsNullOrWhiteSpace(objectType) && string.IsNullOrWhiteSpace(functionName)
+        ? null
+        : new ChatToolChoice(string.IsNullOrWhiteSpace(objectType) ? "function" : objectType, functionName);
+}
+
+static IReadOnlyList<ChatToolCall>? ToChatToolCalls(IReadOnlyList<OpenAiToolCall>? toolCalls)
+{
+    var mapped = toolCalls?
+        .Where(toolCall => toolCall.Function is not null)
+        .Select(toolCall => new ChatToolCall(
+            string.IsNullOrWhiteSpace(toolCall.Id) ? string.Empty : toolCall.Id,
+            string.IsNullOrWhiteSpace(toolCall.Type) ? "function" : toolCall.Type,
+            new ChatFunctionCall(
+                toolCall.Function!.Name ?? string.Empty,
+                toolCall.Function.Arguments ?? string.Empty),
+            toolCall.Index))
+        .ToArray();
+
+    return mapped is { Length: > 0 } ? mapped : null;
+}
+
+static async Task WriteOpenAiChatCompletionStreamAsync(
+    HttpContext httpContext,
+    string requestedModel,
+    IAsyncEnumerable<OllamaChatResponse> stream,
+    CancellationToken cancellationToken)
+{
+    var id = $"chatcmpl-{Guid.NewGuid():N}";
+    var created = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    var finished = false;
+    var roleSent = false;
+    httpContext.Response.StatusCode = StatusCodes.Status200OK;
+    httpContext.Response.ContentType = "text/event-stream; charset=utf-8";
+    httpContext.Response.Headers.CacheControl = "no-cache";
+    httpContext.Response.Headers["X-Accel-Buffering"] = "no";
+
+    try
+    {
+        await foreach (var chunk in stream.WithCancellation(cancellationToken))
+        {
+            if (!roleSent)
+            {
+                await WriteOpenAiRoleChunkAsync(httpContext, id, created, requestedModel, cancellationToken);
+                roleSent = true;
+            }
+
+            var toolCalls = OpenAiChatCompletionMapper.ToToolCalls(chunk.Message.ToolCalls);
+            if (!string.IsNullOrEmpty(chunk.Message.Content) || toolCalls is not null)
+            {
+                await WriteOpenAiServerSentEventAsync(
+                    httpContext,
+                    OpenAiChatCompletionMapper.CreateDeltaChunk(
+                        id,
+                        created,
+                        requestedModel,
+                        chunk),
+                    cancellationToken);
+            }
+
+            if (chunk.Done)
+            {
+                finished = true;
+                await WriteOpenAiFinishChunkAsync(httpContext, id, created, requestedModel, chunk.DoneReason, chunk.Usage, cancellationToken);
+                break;
+            }
+        }
+
+        if (!finished)
+        {
+            if (!roleSent)
+            {
+                await WriteOpenAiRoleChunkAsync(httpContext, id, created, requestedModel, cancellationToken);
+            }
+
+            await WriteOpenAiFinishChunkAsync(httpContext, id, created, requestedModel, "stop", null, cancellationToken);
+        }
+
+        await httpContext.Response.WriteAsync("data: [DONE]\n\n", cancellationToken);
+        await httpContext.Response.Body.FlushAsync(cancellationToken);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex) when (httpContext.Response.HasStarted)
+    {
+        var (_, error) = MapOpenAiException(ex);
+        await WriteOpenAiErrorServerSentEventAsync(httpContext, error, cancellationToken);
+        await httpContext.Response.WriteAsync("data: [DONE]\n\n", cancellationToken);
+        await httpContext.Response.Body.FlushAsync(cancellationToken);
+    }
+}
+
+static Task WriteOpenAiRoleChunkAsync(
+    HttpContext httpContext,
+    string id,
+    long created,
+    string requestedModel,
+    CancellationToken cancellationToken)
+    => WriteOpenAiServerSentEventAsync(
+        httpContext,
+        OpenAiChatCompletionMapper.CreateRoleChunk(
+            id,
+            created,
+            requestedModel),
+        cancellationToken);
+
+static Task WriteOpenAiFinishChunkAsync(
+    HttpContext httpContext,
+    string id,
+    long created,
+    string requestedModel,
+    string? doneReason,
+    ChatUsage? usage,
+    CancellationToken cancellationToken)
+    => WriteOpenAiServerSentEventAsync(
+        httpContext,
+        OpenAiChatCompletionMapper.CreateFinishChunk(
+            id,
+            created,
+            requestedModel,
+            doneReason,
+            usage),
+        cancellationToken);
+
+static async Task WriteOpenAiServerSentEventAsync(
+    HttpContext httpContext,
+    OpenAiChatCompletionChunk chunk,
+    CancellationToken cancellationToken)
+{
+    await httpContext.Response.WriteAsync("data: ", cancellationToken);
+    await JsonSerializer.SerializeAsync(
+        httpContext.Response.Body,
+        chunk,
+        VSCopilotSwitchJsonContext.Default.OpenAiChatCompletionChunk,
+        cancellationToken);
+    await httpContext.Response.WriteAsync("\n\n", cancellationToken);
+    await httpContext.Response.Body.FlushAsync(cancellationToken);
+}
+
+static async Task WriteOpenAiErrorServerSentEventAsync(
+    HttpContext httpContext,
+    OpenAiErrorResponse error,
+    CancellationToken cancellationToken)
+{
+    await httpContext.Response.WriteAsync("data: ", cancellationToken);
+    await JsonSerializer.SerializeAsync(
+        httpContext.Response.Body,
+        error,
+        VSCopilotSwitchJsonContext.Default.OpenAiErrorResponse,
+        cancellationToken);
+    await httpContext.Response.WriteAsync("\n\n", cancellationToken);
+    await httpContext.Response.Body.FlushAsync(cancellationToken);
+}
+
+static async Task WriteOpenAiErrorAsync(
+    HttpContext httpContext,
+    Exception exception,
+    CancellationToken cancellationToken)
+{
+    if (httpContext.Response.HasStarted)
+    {
+        return;
+    }
+
+    var (statusCode, response) = MapOpenAiException(exception);
+    httpContext.Response.StatusCode = statusCode;
+    httpContext.Response.ContentType = "application/json; charset=utf-8";
+    await JsonSerializer.SerializeAsync(
+        httpContext.Response.Body,
+        response,
+        VSCopilotSwitchJsonContext.Default.OpenAiErrorResponse,
+        cancellationToken);
+}
+
+static (int StatusCode, OpenAiErrorResponse Response) MapOpenAiException(Exception exception)
+{
+    var (statusCode, ollamaError) = MapOllamaException(exception);
+    var type = statusCode switch
+    {
+        StatusCodes.Status400BadRequest => "invalid_request_error",
+        StatusCodes.Status401Unauthorized => "authentication_error",
+        StatusCodes.Status404NotFound => "not_found_error",
+        StatusCodes.Status409Conflict => "invalid_request_error",
+        StatusCodes.Status429TooManyRequests => "rate_limit_error",
+        StatusCodes.Status503ServiceUnavailable => "service_unavailable_error",
+        StatusCodes.Status504GatewayTimeout => "timeout_error",
+        _ => "api_error"
+    };
+
+    return (statusCode, new OpenAiErrorResponse(new OpenAiErrorBody(ollamaError.Error, type, ollamaError.Code)));
+}
+
 static (int StatusCode, OllamaErrorResponse Response) MapOllamaException(Exception exception)
 {
     if (exception is OllamaProxyException proxyException)
@@ -559,11 +935,14 @@ static async Task<ManagedOllamaConfig> BuildRuntimeManagedOllamaConfigAsync(
 
 static string ToVsCodeModelName(string upstreamModel)
 {
-    const string suffix = "@vscc";
+    const string suffix = "@vscs";
     var trimmed = upstreamModel.Trim();
-    return trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
-        ? trimmed
-        : $"{trimmed}{suffix}";
+    if (trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+    {
+        return trimmed;
+    }
+
+    return $"{trimmed}{suffix}";
 }
 
 static string NormalizePublicBaseUrl(string baseUrl)
@@ -710,6 +1089,98 @@ public sealed record RemoveVsCodeOllamaConfigRequest(string UserDirectory, bool 
 public sealed record ListVsCodeConfigBackupsRequest(string UserDirectory);
 
 public sealed record RestoreVsCodeConfigBackupRequest(string UserDirectory, string BackupPath);
+
+public sealed record OpenAiChatCompletionRequest(
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("messages")] IReadOnlyList<OpenAiChatRequestMessage>? Messages,
+    [property: JsonPropertyName("stream")] bool? Stream,
+    [property: JsonPropertyName("tools")] IReadOnlyList<OpenAiTool>? Tools = null,
+    [property: JsonPropertyName("tool_choice")] JsonElement? ToolChoice = null,
+    [property: JsonPropertyName("reasoning_effort")] string? ReasoningEffort = null,
+    [property: JsonPropertyName("thinking")] JsonElement? Thinking = null,
+    [property: JsonPropertyName("think")] JsonElement? Think = null);
+
+public sealed record OpenAiChatRequestMessage(
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("content")] JsonElement? Content,
+    [property: JsonPropertyName("tool_calls")] IReadOnlyList<OpenAiToolCall>? ToolCalls = null,
+    [property: JsonPropertyName("tool_call_id")] string? ToolCallId = null,
+    [property: JsonPropertyName("name")] string? Name = null,
+    [property: JsonPropertyName("reasoning_content")] string? ReasoningContent = null,
+    [property: JsonPropertyName("thinking")] string? Thinking = null);
+
+public sealed record OpenAiChatCompletionResponse(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("object")] string Object,
+    [property: JsonPropertyName("created")] long Created,
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("choices")] IReadOnlyList<OpenAiChatCompletionChoice> Choices,
+    [property: JsonPropertyName("usage")] OpenAiUsage? Usage = null);
+
+public sealed record OpenAiChatCompletionChoice(
+    [property: JsonPropertyName("index")] int Index,
+    [property: JsonPropertyName("message")] OpenAiChatCompletionMessage Message,
+    [property: JsonPropertyName("finish_reason")] string FinishReason);
+
+public sealed record OpenAiChatCompletionMessage(
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    [property: JsonPropertyName("content")] string? Content,
+    [property: JsonPropertyName("tool_calls")] IReadOnlyList<OpenAiToolCall>? ToolCalls = null,
+    [property: JsonPropertyName("reasoning_content")] string? ReasoningContent = null);
+
+public sealed record OpenAiChatCompletionChunk(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("object")] string Object,
+    [property: JsonPropertyName("created")] long Created,
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("choices")] IReadOnlyList<OpenAiChatCompletionChunkChoice> Choices,
+    [property: JsonPropertyName("usage")] OpenAiUsage? Usage = null);
+
+public sealed record OpenAiChatCompletionChunkChoice(
+    [property: JsonPropertyName("index")] int Index,
+    [property: JsonPropertyName("delta")] OpenAiChatCompletionDelta Delta,
+    [property: JsonPropertyName("finish_reason")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    string? FinishReason);
+
+public sealed record OpenAiChatCompletionDelta(
+    [property: JsonPropertyName("role")] string? Role,
+    [property: JsonPropertyName("content")] string? Content,
+    [property: JsonPropertyName("tool_calls")] IReadOnlyList<OpenAiToolCall>? ToolCalls = null,
+    [property: JsonPropertyName("reasoning_content")] string? ReasoningContent = null);
+
+public sealed record OpenAiTool(
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("function")] OpenAiToolFunction Function);
+
+public sealed record OpenAiToolFunction(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("parameters")] JsonElement? Parameters);
+
+public sealed record OpenAiToolCall(
+    [property: JsonPropertyName("id")] string? Id,
+    [property: JsonPropertyName("type")] string? Type,
+    [property: JsonPropertyName("function")] OpenAiFunctionCall? Function,
+    [property: JsonPropertyName("index")] int? Index = null);
+
+public sealed record OpenAiFunctionCall(
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("arguments")] string? Arguments);
+
+public sealed record OpenAiUsage(
+    [property: JsonPropertyName("prompt_tokens")] int? PromptTokens,
+    [property: JsonPropertyName("completion_tokens")] int? CompletionTokens,
+    [property: JsonPropertyName("total_tokens")] int? TotalTokens);
+
+public sealed record OpenAiErrorResponse(
+    [property: JsonPropertyName("error")] OpenAiErrorBody Error);
+
+public sealed record OpenAiErrorBody(
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("code")] string Code);
 
 sealed class OllamaErrorResult(int statusCode, OllamaErrorResponse response) : IResult
 {

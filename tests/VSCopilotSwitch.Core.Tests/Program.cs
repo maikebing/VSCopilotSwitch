@@ -15,8 +15,14 @@ var tests = new (string Name, Func<Task> Run)[]
 {
     ("ListTagsAsync exposes VS Code suffixed upstream model names", ListTagsAsync_ExposesVsCodeSuffixedUpstreamModelNames),
     ("ChatAsync routes aliases to upstream model", ChatAsync_RoutesAliasesToUpstreamModel),
+    ("ChatAsync preserves tool metadata in core request", ChatAsync_PreservesToolMetadataInCoreRequest),
+    ("ChatAsync preserves Ollama think and message thinking", ChatAsync_PreservesOllamaThinkAndMessageThinking),
+    ("ChatAsync returns tool calls and usage", ChatAsync_ReturnsToolCallsAndUsage),
     ("ShowAsync returns Ollama metadata for VS Code suffixed model", ShowAsync_ReturnsMetadataForVsCodeSuffixedModel),
     ("ChatStreamAsync emits chunks and final done", ChatStreamAsync_EmitsChunksAndFinalDone),
+    ("ChatStreamAsync preserves delta tool calls and usage", ChatStreamAsync_PreservesDeltaToolCallsAndUsage),
+    ("ChatStreamAsync emits Ollama message thinking", ChatStreamAsync_EmitsOllamaMessageThinking),
+    ("ListTagsAsync applies provider capability matrix", ListTagsAsync_AppliesProviderCapabilityMatrix),
     ("ChatAsync strips VS Code suffix before upstream forwarding", ChatAsync_StripsVsCodeSuffixBeforeUpstreamForwarding),
     ("ChatAsync rejects unknown model", ChatAsync_RejectsUnknownModel),
     ("ChatAsync rejects ambiguous alias", ChatAsync_RejectsAmbiguousAlias),
@@ -31,11 +37,18 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Sub2Api maps HTTP errors and redacts API key", Sub2Api_MapsHttpErrorsAndRedactsApiKey),
     ("OpenAI ListModelsAsync uses official endpoint and headers", OpenAI_ListModelsAsync_UsesOfficialEndpointAndHeaders),
     ("OpenAI ChatAsync sends upstream model", OpenAI_ChatAsync_SendsUpstreamModel),
+    ("OpenAI ChatAsync forwards tools and parses tool calls", OpenAI_ChatAsync_ForwardsToolsAndParsesToolCalls),
     ("OpenAI ChatStreamAsync parses SSE chunks", OpenAI_ChatStreamAsync_ParsesSseChunks),
+    ("OpenAI ChatStreamAsync parses tool call deltas", OpenAI_ChatStreamAsync_ParsesToolCallDeltas),
     ("OpenAI maps HTTP errors and redacts API key", OpenAI_MapsHttpErrorsAndRedactsApiKey),
     ("DeepSeek ListModelsAsync uses official endpoint", DeepSeek_ListModelsAsync_UsesOfficialEndpoint),
     ("DeepSeek ChatAsync sends upstream model", DeepSeek_ChatAsync_SendsUpstreamModel),
+    ("DeepSeek ChatAsync strips reasoning content outside thinking path", DeepSeek_ChatAsync_StripsReasoningContentOutsideThinkingPath),
+    ("DeepSeek ChatAsync maps Ollama think signal", DeepSeek_ChatAsync_MapsOllamaThinkSignal),
+    ("DeepSeek ChatAsync restores reasoning content for tool result turns", DeepSeek_ChatAsync_RestoresReasoningContentForToolResultTurns),
     ("DeepSeek ChatStreamAsync parses SSE chunks", DeepSeek_ChatStreamAsync_ParsesSseChunks),
+    ("DeepSeek ChatStreamAsync maps reasoning content deltas", DeepSeek_ChatStreamAsync_MapsReasoningContentDeltas),
+    ("DeepSeek ChatStreamAsync rewrites reasoning errors", DeepSeek_ChatStreamAsync_RewritesReasoningErrors),
     ("DeepSeek maps HTTP errors and redacts API key", DeepSeek_MapsHttpErrorsAndRedactsApiKey),
     ("NVIDIA NIM uses OpenAI-compatible v1 endpoints", NvidiaNim_UsesOpenAiCompatibleV1Endpoints),
     ("NVIDIA NIM maps HTTP errors and redacts API key", NvidiaNim_MapsHttpErrorsAndRedactsApiKey),
@@ -43,6 +56,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("MoArk maps HTTP errors and redacts API key", Moark_MapsHttpErrorsAndRedactsApiKey),
     ("Claude ListModelsAsync uses Anthropic headers", Claude_ListModelsAsync_UsesAnthropicHeaders),
     ("Claude ChatAsync converts system and messages", Claude_ChatAsync_ConvertsSystemAndMessages),
+    ("Claude ChatAsync maps tools and tool results", Claude_ChatAsync_MapsToolsAndToolResults),
     ("Claude ChatStreamAsync parses message stream", Claude_ChatStreamAsync_ParsesMessageStream),
     ("Claude maps HTTP errors and redacts API key", Claude_MapsHttpErrorsAndRedactsApiKey)
 };
@@ -67,24 +81,33 @@ return failed == 0 ? 0 : 1;
 static async Task ListTagsAsync_ExposesVsCodeSuffixedUpstreamModelNames()
 {
     var provider = new RecordingProvider(
-        "alpha",
-        new ProviderModel("alpha/gpt-5.5", "alpha", "gpt-5.5", "GPT 5.5"),
+        "openai",
+        new ProviderModel("openai/gpt-4.1", "openai", "gpt-4.1", "GPT 4.1"),
         "ok");
     var service = new OllamaProxyService(new[] { provider });
 
     var response = await service.ListTagsAsync();
 
-    Assert.Equal("gpt-5.5@vscc", response.Models[0].Name, "tags name 应使用 VS Code 可见的后缀模型名。");
-    Assert.Equal("gpt-5.5@vscc", response.Models[0].Model, "tags model 应使用 VS Code 可见的后缀模型名。");
-    Assert.Equal("gpt-5.5", response.Models[0].Details.ParentModel, "原始上游模型名应保留在 parent_model 供 UI 展示和调试。");
+    Assert.Equal("gpt-4.1@vscs", response.Models[0].Name, "tags name 应使用 VS Code 可见的后缀模型名。");
+    Assert.Equal("gpt-4.1@vscs", response.Models[0].Model, "tags model 应使用 VS Code 可见的后缀模型名。");
+    Assert.Equal("gpt-4.1", response.Models[0].Details.ParentModel, "原始上游模型名应保留在 parent_model 供 UI 展示和调试。");
     Assert.Equal(400000, response.Models[0].ContextLength, "tags 响应应在模型列表直接声明 400K 上下文。");
-    Assert.Contains("tools", string.Join(",", response.Models[0].Capabilities), "tags 响应应声明工具能力。");
-    Assert.Contains("vision", string.Join(",", response.Models[0].Capabilities), "tags 响应应声明视觉能力。");
-    Assert.Contains("thinking", string.Join(",", response.Models[0].Capabilities), "tags 响应应声明推理/思考能力。");
-    Assert.True(response.Models[0].SupportsThinking, "tags 响应应在顶层声明支持 thinking。");
-    Assert.True(response.Models[0].SupportsReasoning, "tags 响应应在顶层声明支持 reasoning。");
+    var capabilities = string.Join(",", response.Models[0].Capabilities);
+    Assert.Contains("tools", capabilities, "tags 响应应声明工具能力。");
+    Assert.Contains("vision", capabilities, "tags 响应应声明视觉能力。");
+    Assert.DoesNotContain("thinking", capabilities, "tags 响应不应在能力列表虚报 thinking。");
+    Assert.DoesNotContain("reasoning", capabilities, "tags 响应不应在能力列表虚报 reasoning。");
+    Assert.True(response.Models[0].SupportsToolCalling, "tags 响应应在顶层声明工具调用能力。");
+    Assert.True(response.Models[0].SupportsVision, "tags 响应应在顶层声明视觉能力。");
+    Assert.False(response.Models[0].SupportsThinking, "tags 响应不应在顶层声明支持 thinking。");
+    Assert.False(response.Models[0].SupportsReasoning, "tags 响应不应在顶层声明支持 reasoning。");
+    Assert.Equal("llama", response.Models[0].ModelInfo["general.architecture"].ToString() ?? string.Empty, "tags model_info 应声明通用架构。");
+    Assert.Equal("gpt-4.1", response.Models[0].ModelInfo["general.basename"].ToString() ?? string.Empty, "tags model_info 应声明原始上游模型 basename。");
     Assert.Equal(400000, Convert.ToInt32(response.Models[0].ModelInfo["llama.context_length"]), "tags model_info 应声明 400K 上下文。");
-    Assert.True(Convert.ToBoolean(response.Models[0].ModelInfo["llama.thinking.enabled"]), "tags model_info 应声明 thinking enabled。");
+    Assert.True(!response.Models[0].ModelInfo.ContainsKey("llama.thinking.enabled"), "tags model_info 不应声明未验证的 thinking enabled。");
+    Assert.True(!response.Models[0].ModelInfo.ContainsKey("vscopilotswitch.supports_tool_calling"), "tags model_info 不应声明自定义工具能力字段。");
+    Assert.True(!response.Models[0].ModelInfo.ContainsKey("vscopilotswitch.supports_vision"), "tags model_info 不应声明自定义视觉能力字段。");
+    Assert.True(!response.Models[0].ModelInfo.ContainsKey("vscopilotswitch.supports_reasoning"), "tags model_info 不应声明自定义 reasoning 能力字段。");
 }
 
 static async Task ChatAsync_RoutesAliasesToUpstreamModel()
@@ -108,24 +131,123 @@ static async Task ChatAsync_RoutesAliasesToUpstreamModel()
     Assert.Equal("upstream/gpt", lastRequest.UpstreamModel, "Provider 请求应携带上游模型名。");
 }
 
-static async Task ShowAsync_ReturnsMetadataForVsCodeSuffixedModel()
+static async Task ChatAsync_PreservesToolMetadataInCoreRequest()
 {
     var provider = new RecordingProvider(
         "alpha",
-        new ProviderModel("alpha/gpt-5.5", "alpha", "gpt-5.5", "GPT 5.5"),
+        new ProviderModel("alpha/default", "alpha", "upstream/gpt", "Alpha Default", new[] { "fast" }),
+        "ok");
+    var service = new OllamaProxyService(new[] { provider });
+    using var parametersDocument = JsonDocument.Parse("""{"type":"object","properties":{"query":{"type":"string"}}}""");
+    var parameters = parametersDocument.RootElement.Clone();
+    var requestToolCall = new ChatToolCall(
+        "call_1",
+        "function",
+        new ChatFunctionCall("lookup", """{"query":"ping"}"""));
+
+    await service.ChatAsync(new OllamaChatRequest(
+        "fast",
+        new[]
+        {
+            new OllamaChatMessage("assistant", string.Empty, new[] { requestToolCall }),
+            new OllamaChatMessage("tool", "lookup result", ToolCallId: "call_1", Name: "lookup")
+        },
+        false,
+        new[] { new ChatTool("function", new ChatFunctionTool("lookup", "Search docs", parameters)) },
+        new ChatToolChoice("function", "lookup")));
+
+    Assert.NotNull(provider.LastRequest, "Provider 应收到扩展后的工具请求。");
+    var lastRequest = provider.LastRequest!;
+    Assert.Equal("function", lastRequest.ToolChoice?.Type ?? string.Empty, "tool_choice 类型应透传到核心请求。");
+    Assert.Equal("lookup", lastRequest.ToolChoice?.FunctionName ?? string.Empty, "tool_choice 函数名应透传到核心请求。");
+    Assert.Equal("lookup", lastRequest.Tools?[0].Function.Name ?? string.Empty, "工具定义应透传到核心请求。");
+    Assert.Equal(parameters.GetRawText(), lastRequest.Tools?[0].Function.Parameters?.GetRawText() ?? string.Empty, "工具 JSON schema 应保留。");
+    Assert.Equal("call_1", lastRequest.Messages[0].ToolCalls?[0].Id ?? string.Empty, "assistant tool_calls 应保留。");
+    Assert.Equal("call_1", lastRequest.Messages[1].ToolCallId ?? string.Empty, "tool 结果消息应保留 tool_call_id。");
+    Assert.Equal("lookup", lastRequest.Messages[1].Name ?? string.Empty, "tool 结果消息应保留 name。");
+}
+
+static async Task ChatAsync_PreservesOllamaThinkAndMessageThinking()
+{
+    var provider = new RecordingProvider(
+        "alpha",
+        new ProviderModel("alpha/default", "alpha", "upstream/gpt", "Alpha Default", new[] { "fast" }),
+        string.Empty,
+        responseReasoningContent: "provider thinking");
+    var service = new OllamaProxyService(new[] { provider });
+    using var thinkDocument = JsonDocument.Parse("true");
+
+    var response = await service.ChatAsync(new OllamaChatRequest(
+        "fast",
+        new[]
+        {
+            new OllamaChatMessage("user", "hello"),
+            new OllamaChatMessage("assistant", string.Empty, Thinking: "history thinking")
+        },
+        false,
+        Think: thinkDocument.RootElement.Clone()));
+
+    Assert.NotNull(provider.LastRequest, "Provider 应收到 Ollama thinking 请求。");
+    var lastRequest = provider.LastRequest!;
+    Assert.Equal(JsonValueKind.True, lastRequest.Think?.ValueKind ?? JsonValueKind.Undefined, "Ollama 官方 think 字段应透传到核心请求。");
+    Assert.Equal("history thinking", lastRequest.Messages[1].ReasoningContent ?? string.Empty, "Ollama message.thinking 应映射到核心 reasoning 内容。");
+    Assert.Equal("provider thinking", response.Message.Thinking ?? string.Empty, "Provider reasoning 应映射为 Ollama 官方 message.thinking。");
+    Assert.Equal("provider thinking", response.Message.ReasoningContent ?? string.Empty, "Provider reasoning 仍应保留为 reasoning_content 兼容字段。");
+}
+
+static async Task ChatAsync_ReturnsToolCallsAndUsage()
+{
+    var responseToolCall = new ChatToolCall(
+        "call_2",
+        "function",
+        new ChatFunctionCall("lookup", """{"query":"pong"}"""));
+    var usage = new ChatUsage(10, 5, 15);
+    var provider = new RecordingProvider(
+        "alpha",
+        new ProviderModel("alpha/default", "alpha", "upstream/gpt", "Alpha Default"),
+        string.Empty,
+        doneReason: "tool_calls",
+        responseToolCalls: new[] { responseToolCall },
+        responseUsage: usage);
+    var service = new OllamaProxyService(new[] { provider });
+
+    var response = await service.ChatAsync(new OllamaChatRequest(
+        "alpha/default",
+        new[] { new OllamaChatMessage("user", "hello") },
+        false));
+
+    Assert.Equal("tool_calls", response.DoneReason ?? string.Empty, "工具调用结束原因应透传。");
+    Assert.Equal("call_2", response.Message.ToolCalls?[0].Id ?? string.Empty, "assistant tool_calls 应进入 Ollama 响应消息。");
+    Assert.Equal(10, response.Usage?.PromptTokens ?? 0, "usage.prompt_tokens 应透传。");
+    Assert.Equal(5, response.Usage?.CompletionTokens ?? 0, "usage.completion_tokens 应透传。");
+    Assert.Equal(15, response.Usage?.TotalTokens ?? 0, "usage.total_tokens 应透传。");
+}
+
+static async Task ShowAsync_ReturnsMetadataForVsCodeSuffixedModel()
+{
+    var provider = new RecordingProvider(
+        "openai",
+        new ProviderModel("openai/gpt-4.1", "openai", "gpt-4.1", "GPT 4.1"),
         "ok");
     var service = new OllamaProxyService(new[] { provider });
 
-    var response = await service.ShowAsync(new OllamaShowRequest("gpt-5.5@vscc"));
+    var response = await service.ShowAsync(new OllamaShowRequest("gpt-4.1@vscs"));
 
-    Assert.Equal("gpt-5.5", response.Details.ParentModel, "show 响应应暴露原始上游模型名。");
+    Assert.Equal("gpt-4.1", response.Details.ParentModel, "show 响应应暴露原始上游模型名。");
     Assert.Equal("llama", response.Details.Family, "show 响应应使用 VS Code/Ollama 更易识别的模型架构族。");
-    Assert.Contains("completion", string.Join(",", response.Capabilities), "show 响应应声明基础补全能力。");
-    Assert.Contains("tools", string.Join(",", response.Capabilities), "show 响应应声明工具调用能力。");
-    Assert.Contains("vision", string.Join(",", response.Capabilities), "show 响应应声明视觉能力。");
-    Assert.Contains("reasoning", string.Join(",", response.Capabilities), "show 响应应声明 reasoning 能力。");
+    var capabilities = string.Join(",", response.Capabilities);
+    Assert.Contains("completion", capabilities, "show 响应应声明基础补全能力。");
+    Assert.Contains("tools", capabilities, "show 响应应声明工具调用能力。");
+    Assert.Contains("vision", capabilities, "show 响应应声明视觉能力。");
+    Assert.DoesNotContain("thinking", capabilities, "show 响应不应在能力列表虚报 thinking。");
+    Assert.DoesNotContain("reasoning", capabilities, "show 响应不应在能力列表虚报 reasoning。");
+    Assert.Equal("llama", response.ModelInfo["general.architecture"].ToString() ?? string.Empty, "show model_info 应声明通用架构。");
+    Assert.Equal("gpt-4.1", response.ModelInfo["general.basename"].ToString() ?? string.Empty, "show model_info 应声明原始上游模型 basename。");
+    Assert.Equal(400000, Convert.ToInt32(response.ModelInfo["general.context_length"]), "show 响应应声明通用 400K 上下文。");
     Assert.Equal(400000, Convert.ToInt32(response.ModelInfo["llama.context_length"]), "show 响应应声明 400K 上下文。");
-    Assert.True(Convert.ToBoolean(response.ModelInfo["vscopilotswitch.supports_reasoning"]), "show model_info 应声明 reasoning 支持。");
+    Assert.True(!response.ModelInfo.ContainsKey("vscopilotswitch.supports_tool_calling"), "show model_info 不应声明自定义工具能力字段。");
+    Assert.True(!response.ModelInfo.ContainsKey("vscopilotswitch.supports_vision"), "show model_info 不应声明自定义视觉能力字段。");
+    Assert.True(!response.ModelInfo.ContainsKey("vscopilotswitch.supports_reasoning"), "show model_info 不应声明自定义 reasoning 能力字段。");
 }
 
 static async Task ChatStreamAsync_EmitsChunksAndFinalDone()
@@ -157,6 +279,129 @@ static async Task ChatStreamAsync_EmitsChunksAndFinalDone()
     Assert.Equal("stop", chunks[^1].DoneReason ?? string.Empty, "结束原因应透传。");
 }
 
+static async Task ChatStreamAsync_PreservesDeltaToolCallsAndUsage()
+{
+    var streamToolCall = new ChatToolCall(
+        "call_stream",
+        "function",
+        new ChatFunctionCall("lookup", """{"query":"stream"}"""),
+        Index: 0);
+    var usage = new ChatUsage(7, 3, 10);
+    var provider = new RecordingProvider(
+        "alpha",
+        new ProviderModel("alpha/default", "alpha", "upstream/gpt", "Alpha Default"),
+        "ignored",
+        new[]
+        {
+            new ChatStreamChunk(
+                "alpha/default",
+                string.Empty,
+                Done: false,
+                Delta: new ChatDelta("assistant", null, new[] { streamToolCall })),
+            new ChatStreamChunk(
+                "alpha/default",
+                string.Empty,
+                Done: true,
+                DoneReason: "tool_calls",
+                Usage: usage)
+        });
+    var service = new OllamaProxyService(new[] { provider });
+
+    var chunks = new List<OllamaChatResponse>();
+    await foreach (var chunk in service.ChatStreamAsync(new OllamaChatRequest(
+        "alpha/default",
+        new[] { new OllamaChatMessage("user", "hello") },
+        true)))
+    {
+        chunks.Add(chunk);
+    }
+
+    Assert.Equal("assistant", chunks[0].Message.Role, "流式 delta role 应透传。");
+    Assert.Equal("call_stream", chunks[0].Message.ToolCalls?[0].Id ?? string.Empty, "流式 tool_calls delta 应透传。");
+    Assert.Equal("tool_calls", chunks[^1].DoneReason ?? string.Empty, "流式 finish reason 应透传。");
+    Assert.Equal(10, chunks[^1].Usage?.TotalTokens ?? 0, "流式 usage 应透传。");
+}
+
+static async Task ChatStreamAsync_EmitsOllamaMessageThinking()
+{
+    var provider = new RecordingProvider(
+        "alpha",
+        new ProviderModel("alpha/default", "alpha", "upstream/gpt", "Alpha Default"),
+        "ignored",
+        new[]
+        {
+            new ChatStreamChunk(
+                "alpha/default",
+                string.Empty,
+                Done: false,
+                Delta: new ChatDelta("assistant", null, ReasoningContent: "stream thinking")),
+            new ChatStreamChunk("alpha/default", "answer", Done: false),
+            new ChatStreamChunk("alpha/default", string.Empty, Done: true, "stop")
+        });
+    var service = new OllamaProxyService(new[] { provider });
+
+    var chunks = new List<OllamaChatResponse>();
+    await foreach (var chunk in service.ChatStreamAsync(new OllamaChatRequest(
+        "alpha/default",
+        new[] { new OllamaChatMessage("user", "hello") },
+        true)))
+    {
+        chunks.Add(chunk);
+    }
+
+    Assert.Equal("stream thinking", chunks[0].Message.Thinking ?? string.Empty, "流式 reasoning 应映射为 Ollama 官方 message.thinking。");
+    Assert.Equal("stream thinking", chunks[0].Message.ReasoningContent ?? string.Empty, "流式 reasoning 仍应保留为 reasoning_content 兼容字段。");
+    Assert.Equal("answer", chunks[1].Message.Content, "流式正文内容应继续透传。");
+}
+
+static async Task ListTagsAsync_AppliesProviderCapabilityMatrix()
+{
+    var providers = new IModelProvider[]
+    {
+        new RecordingProvider(
+            "deepseek",
+            new ProviderModel("deepseek/v4", "deepseek", "deepseek-v4", "DeepSeek V4"),
+            "ok"),
+        new RecordingProvider(
+            "openai",
+            new ProviderModel("openai/gpt-4.1", "openai", "gpt-4.1", "GPT 4.1"),
+            "ok"),
+        new RecordingProvider(
+            "custom",
+            new ProviderModel(
+                "custom/tool-model",
+                "custom",
+                "custom-tool-model",
+                "Custom Tool Model",
+                Capabilities: new ProviderModelCapabilities(SupportsTools: true, SupportsVision: false, ContextLength: 128000, Architecture: "qwen")),
+            "ok")
+    };
+    var service = new OllamaProxyService(providers);
+
+    var response = await service.ListTagsAsync();
+    var deepSeek = response.Models.Single(model => model.Details.ParentModel == "deepseek-v4");
+    var openAi = response.Models.Single(model => model.Details.ParentModel == "gpt-4.1");
+    var custom = response.Models.Single(model => model.Details.ParentModel == "custom-tool-model");
+
+    var deepSeekCapabilities = string.Join(",", deepSeek.Capabilities);
+    Assert.DoesNotContain("tools", deepSeekCapabilities, "DeepSeek V4 默认应按 text-only 暴露，不声明工具能力。");
+    Assert.DoesNotContain("vision", deepSeekCapabilities, "DeepSeek V4 默认不应声明视觉能力。");
+    Assert.False(deepSeek.SupportsToolCalling, "DeepSeek V4 顶层工具能力应为 false。");
+    Assert.False(deepSeek.SupportsVision, "DeepSeek V4 顶层视觉能力应为 false。");
+
+    var openAiCapabilities = string.Join(",", openAi.Capabilities);
+    Assert.Contains("tools", openAiCapabilities, "已知 OpenAI Chat 模型应声明工具能力。");
+    Assert.Contains("vision", openAiCapabilities, "已知 OpenAI 多模态模型应声明视觉能力。");
+    Assert.True(openAi.SupportsToolCalling, "OpenAI 顶层工具能力应为 true。");
+    Assert.True(openAi.SupportsVision, "OpenAI 顶层视觉能力应为 true。");
+
+    var customCapabilities = string.Join(",", custom.Capabilities);
+    Assert.Contains("tools", customCapabilities, "显式模型能力应可覆盖保守默认值。");
+    Assert.DoesNotContain("vision", customCapabilities, "显式关闭视觉时不应声明 vision。");
+    Assert.Equal("qwen", custom.Details.Family, "显式架构应进入 details.family。");
+    Assert.Equal(128000, Convert.ToInt32(custom.ModelInfo["qwen.context_length"]), "显式上下文长度应进入架构相关 context_length。");
+}
+
 static async Task ChatAsync_StripsVsCodeSuffixBeforeUpstreamForwarding()
 {
     var provider = new RecordingProvider(
@@ -166,13 +411,13 @@ static async Task ChatAsync_StripsVsCodeSuffixBeforeUpstreamForwarding()
     var service = new OllamaProxyService(new[] { provider });
 
     var response = await service.ChatAsync(new OllamaChatRequest(
-        "gpt-5.5@vscc",
+        "gpt-5.5@vscs",
         new[] { new OllamaChatMessage("user", "hello") },
         false));
 
-    Assert.Equal("gpt-5.5@vscc", response.Model, "Ollama 响应应保留 VS Code 请求的模型名。");
+    Assert.Equal("gpt-5.5@vscs", response.Model, "Ollama 响应应保留 VS Code 请求的模型名。");
     Assert.NotNull(provider.LastRequest, "Provider 应收到去后缀后的请求。");
-    Assert.Equal("gpt-5.5", provider.LastRequest!.UpstreamModel, "转发给上游时必须去掉 @vscc 后缀。");
+    Assert.Equal("gpt-5.5", provider.LastRequest!.UpstreamModel, "转发给上游时必须去掉 @vscs 后缀。");
 }
 
 static async Task ChatAsync_RejectsUnknownModel()
@@ -476,6 +721,70 @@ static async Task OpenAI_ChatAsync_SendsUpstreamModel()
     Assert.False(body.GetProperty("stream").GetBoolean(), "OpenAI 非流式请求应显式发送 stream=false。");
 }
 
+static async Task OpenAI_ChatAsync_ForwardsToolsAndParsesToolCalls()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "choices": [
+            {
+              "message": {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_lookup",
+                    "type": "function",
+                    "function": {
+                      "name": "lookup",
+                      "arguments": "{\"query\":\"pong\"}"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": "tool_calls"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 11,
+            "completion_tokens": 3,
+            "total_tokens": 14
+          }
+        }
+        """);
+    var provider = CreateOpenAiProvider(handler);
+    using var parametersDocument = JsonDocument.Parse("""{"type":"object","properties":{"query":{"type":"string"}}}""");
+    var parameters = parametersDocument.RootElement.Clone();
+    var previousToolCall = new ChatToolCall(
+        "call_previous",
+        "function",
+        new ChatFunctionCall("lookup", """{"query":"ping"}"""));
+
+    var response = await provider.ChatAsync(new ChatRequest(
+        "openai/gpt",
+        new[]
+        {
+            new ChatMessage("user", "ping"),
+            new ChatMessage("assistant", string.Empty, new[] { previousToolCall }),
+            new ChatMessage("tool", "lookup result", ToolCallId: "call_previous", Name: "lookup")
+        },
+        false,
+        "openai",
+        "gpt-4.1",
+        new[] { new ChatTool("function", new ChatFunctionTool("lookup", "Search docs", parameters)) },
+        new ChatToolChoice("function", "lookup")));
+
+    var body = JsonDocument.Parse(handler.Requests[0].Body ?? "{}").RootElement;
+    Assert.Equal("lookup", body.GetProperty("tools")[0].GetProperty("function").GetProperty("name").GetString() ?? string.Empty, "OpenAI 请求应透传工具定义。");
+    Assert.Equal(parameters.GetRawText(), body.GetProperty("tools")[0].GetProperty("function").GetProperty("parameters").GetRawText(), "OpenAI 请求应保留工具 JSON schema。");
+    Assert.Equal("function", body.GetProperty("tool_choice").GetProperty("type").GetString() ?? string.Empty, "OpenAI 请求应透传工具选择类型。");
+    Assert.Equal("lookup", body.GetProperty("tool_choice").GetProperty("function").GetProperty("name").GetString() ?? string.Empty, "OpenAI 请求应透传指定工具名。");
+    Assert.Equal("call_previous", body.GetProperty("messages")[1].GetProperty("tool_calls")[0].GetProperty("id").GetString() ?? string.Empty, "OpenAI 请求应透传 assistant tool_calls。");
+    Assert.Equal("call_previous", body.GetProperty("messages")[2].GetProperty("tool_call_id").GetString() ?? string.Empty, "OpenAI 请求应透传 tool result 的 tool_call_id。");
+    Assert.Equal("tool_calls", response.DoneReason, "OpenAI tool_calls finish_reason 应进入核心响应。");
+    Assert.Equal("call_lookup", response.ToolCalls?[0].Id ?? string.Empty, "OpenAI 响应 tool_calls 应进入核心响应。");
+    Assert.Equal(14, response.Usage?.TotalTokens ?? 0, "OpenAI usage 应进入核心响应。");
+}
+
 static async Task OpenAI_ChatStreamAsync_ParsesSseChunks()
 {
     var handler = new RecordingHttpMessageHandler();
@@ -506,6 +815,40 @@ static async Task OpenAI_ChatStreamAsync_ParsesSseChunks()
     Assert.Equal("hel", chunks[0].Content, "OpenAI 第一个 SSE delta 解析不正确。");
     Assert.Equal("lo", chunks[1].Content, "OpenAI 第二个 SSE delta 解析不正确。");
     Assert.True(chunks[^1].Done, "OpenAI finish_reason 应转换为 done 分块。");
+}
+
+static async Task OpenAI_ChatStreamAsync_ParsesToolCallDeltas()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueText(HttpStatusCode.OK, """
+        data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_stream","type":"function","function":{"name":"lookup","arguments":""}}]}}]}
+
+        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"query\":\"stream\"}"}}]}}]}
+
+        data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}
+
+        data: [DONE]
+
+        """, "text/event-stream");
+    var provider = CreateOpenAiProvider(handler);
+
+    var chunks = new List<ChatStreamChunk>();
+    await foreach (var chunk in provider.ChatStreamAsync(new ChatRequest(
+        "openai/gpt",
+        new[] { new ChatMessage("user", "ping") },
+        true,
+        "openai",
+        "gpt-4.1")))
+    {
+        chunks.Add(chunk);
+    }
+
+    Assert.Equal(3, chunks.Count, "OpenAI 工具流应包含 tool_call 起始、参数 delta 和结束分块。");
+    Assert.Equal("assistant", chunks[0].Delta?.Role ?? string.Empty, "OpenAI 工具流应透传 assistant role delta。");
+    Assert.Equal("call_stream", chunks[0].Delta?.ToolCalls?[0].Id ?? string.Empty, "OpenAI 工具流应透传 tool_call id。");
+    Assert.Equal("""{"query":"stream"}""", chunks[1].Delta?.ToolCalls?[0].Function.Arguments ?? string.Empty, "OpenAI 工具流应透传 arguments delta。");
+    Assert.Equal("tool_calls", chunks[^1].DoneReason ?? string.Empty, "OpenAI 工具流 finish_reason 应透传。");
+    Assert.Equal(3, chunks[^1].Usage?.TotalTokens ?? 0, "OpenAI 工具流 usage 应透传。");
 }
 
 static async Task OpenAI_MapsHttpErrorsAndRedactsApiKey()
@@ -579,6 +922,144 @@ static async Task DeepSeek_ChatAsync_SendsUpstreamModel()
     Assert.False(body.GetProperty("stream").GetBoolean(), "DeepSeek 非流式请求应显式发送 stream=false。");
 }
 
+static async Task DeepSeek_ChatAsync_StripsReasoningContentOutsideThinkingPath()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "choices": [
+            {
+              "message": { "role": "assistant", "content": "pong" },
+              "finish_reason": "stop"
+            }
+          ]
+        }
+        """);
+    var provider = CreateDeepSeekProvider(handler);
+
+    await provider.ChatAsync(new ChatRequest(
+        "deepseek/chat",
+        new[]
+        {
+            new ChatMessage("user", "ping"),
+            new ChatMessage("assistant", "history", ReasoningContent: "should not be sent")
+        },
+        false,
+        "deepseek",
+        "deepseek-chat"));
+
+    var body = JsonDocument.Parse(handler.Requests[0].Body ?? "{}").RootElement;
+    var assistantMessage = body.GetProperty("messages")[1];
+    Assert.False(assistantMessage.TryGetProperty("reasoning_content", out _), "普通 DeepSeek chat 请求不应携带历史 reasoning_content。");
+}
+
+static async Task DeepSeek_ChatAsync_MapsOllamaThinkSignal()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "choices": [
+            {
+              "message": { "role": "assistant", "content": "pong" },
+              "finish_reason": "stop"
+            }
+          ]
+        }
+        """);
+    var provider = CreateDeepSeekProvider(handler);
+    using var thinkDocument = JsonDocument.Parse("\"high\"");
+
+    await provider.ChatAsync(new ChatRequest(
+        "deepseek/chat",
+        new[] { new ChatMessage("user", "ping") },
+        false,
+        "deepseek",
+        "deepseek-chat",
+        Think: thinkDocument.RootElement.Clone()));
+
+    var body = JsonDocument.Parse(handler.Requests[0].Body ?? "{}").RootElement;
+    Assert.Equal("high", body.GetProperty("reasoning_effort").GetString() ?? string.Empty, "Ollama think 字符串应转换为 reasoning_effort。");
+    Assert.Equal("high", body.GetProperty("thinking").GetString() ?? string.Empty, "Ollama think 字段应转发为 OpenAI-compatible thinking。");
+}
+
+static async Task DeepSeek_ChatAsync_RestoresReasoningContentForToolResultTurns()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "choices": [
+            {
+              "message": {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "I should call lookup.",
+                "tool_calls": [
+                  {
+                    "id": "call_lookup",
+                    "type": "function",
+                    "function": {
+                      "name": "lookup",
+                      "arguments": "{\"query\":\"ping\"}"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": "tool_calls"
+            }
+          ]
+        }
+        """);
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "choices": [
+            {
+              "message": { "role": "assistant", "content": "done" },
+              "finish_reason": "stop"
+            }
+          ]
+        }
+        """);
+    var provider = CreateDeepSeekProvider(handler);
+    using var thinkingDocument = JsonDocument.Parse("""{"type":"enabled"}""");
+    using var parametersDocument = JsonDocument.Parse("""{"type":"object","properties":{"query":{"type":"string"}}}""");
+    var parameters = parametersDocument.RootElement.Clone();
+
+    var first = await provider.ChatAsync(new ChatRequest(
+        "deepseek/v4",
+        new[] { new ChatMessage("user", "call lookup") },
+        false,
+        "deepseek",
+        "deepseek-v4",
+        new[] { new ChatTool("function", new ChatFunctionTool("lookup", "Search docs", parameters)) },
+        new ChatToolChoice("auto"),
+        "high",
+        thinkingDocument.RootElement.Clone()));
+    var toolCall = first.ToolCalls?[0] ?? throw new InvalidOperationException("DeepSeek 响应应包含 tool_call。");
+
+    var second = await provider.ChatAsync(new ChatRequest(
+        "deepseek/v4",
+        new[]
+        {
+            new ChatMessage("user", "call lookup"),
+            new ChatMessage("assistant", string.Empty, new[] { toolCall }),
+            new ChatMessage("tool", "lookup result", ToolCallId: toolCall.Id, Name: "lookup")
+        },
+        false,
+        "deepseek",
+        "deepseek-v4",
+        ReasoningEffort: "high",
+        Thinking: thinkingDocument.RootElement.Clone()));
+
+    Assert.Equal("I should call lookup.", first.ReasoningContent ?? string.Empty, "DeepSeek reasoning_content 应进入核心响应。");
+    Assert.Equal("done", second.Content, "第二轮工具结果请求应正常完成。");
+    var firstBody = JsonDocument.Parse(handler.Requests[0].Body ?? "{}").RootElement;
+    Assert.Equal("high", firstBody.GetProperty("reasoning_effort").GetString() ?? string.Empty, "DeepSeek 请求应透传 reasoning_effort。");
+    Assert.Equal("enabled", firstBody.GetProperty("thinking").GetProperty("type").GetString() ?? string.Empty, "DeepSeek 请求应透传 thinking。");
+    var secondBody = JsonDocument.Parse(handler.Requests[1].Body ?? "{}").RootElement;
+    var restoredReasoning = secondBody.GetProperty("messages")[1].GetProperty("reasoning_content").GetString();
+    Assert.Equal("I should call lookup.", restoredReasoning ?? string.Empty, "工具结果回合应自动恢复上一轮 reasoning_content。");
+}
+
 static async Task DeepSeek_ChatStreamAsync_ParsesSseChunks()
 {
     var handler = new RecordingHttpMessageHandler();
@@ -609,6 +1090,71 @@ static async Task DeepSeek_ChatStreamAsync_ParsesSseChunks()
     Assert.Equal("hel", chunks[0].Content, "DeepSeek 第一个 SSE delta 解析不正确。");
     Assert.Equal("lo", chunks[1].Content, "DeepSeek 第二个 SSE delta 解析不正确。");
     Assert.True(chunks[^1].Done, "DeepSeek finish_reason 应转换为 done 分块。");
+}
+
+static async Task DeepSeek_ChatStreamAsync_MapsReasoningContentDeltas()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueText(HttpStatusCode.OK, """
+        data: {"choices":[{"delta":{"reasoning_content":"think "}}]}
+
+        data: {"choices":[{"delta":{"content":"answer"}}]}
+
+        data: {"choices":[{"delta":{},"finish_reason":"stop"}]}
+
+        data: [DONE]
+
+        """, "text/event-stream");
+    var provider = CreateDeepSeekProvider(handler);
+    using var thinkingDocument = JsonDocument.Parse("""{"type":"enabled"}""");
+
+    var chunks = new List<ChatStreamChunk>();
+    await foreach (var chunk in provider.ChatStreamAsync(new ChatRequest(
+        "deepseek/v4",
+        new[] { new ChatMessage("user", "stream with thinking") },
+        true,
+        "deepseek",
+        "deepseek-v4",
+        ReasoningEffort: "high",
+        Thinking: thinkingDocument.RootElement.Clone())))
+    {
+        chunks.Add(chunk);
+    }
+
+    Assert.Equal("think ", chunks[0].Delta?.ReasoningContent ?? string.Empty, "DeepSeek 流式 reasoning_content 应进入 ChatDelta。");
+    Assert.Equal("answer", chunks[1].Content, "DeepSeek 流式正文内容应继续正常解析。");
+    Assert.True(chunks[^1].Done, "DeepSeek thinking 流式响应应正常结束。");
+}
+
+static async Task DeepSeek_ChatStreamAsync_RewritesReasoningErrors()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.BadRequest, """
+        {
+          "error": {
+            "type": "invalid_request_error",
+            "message": "Missing required reasoning_content for previous assistant tool call."
+          }
+        }
+        """);
+    var provider = CreateDeepSeekProvider(handler);
+
+    var exception = await Assert.ThrowsAsync<ProviderException>(async () =>
+    {
+        await foreach (var _ in provider.ChatStreamAsync(new ChatRequest(
+            "deepseek/v4",
+            new[] { new ChatMessage("user", "stream thinking") },
+            true,
+            "deepseek",
+            "deepseek-v4",
+            ReasoningEffort: "high")))
+        {
+        }
+    });
+
+    Assert.Equal(ProviderErrorKind.InvalidRequest, exception.Kind, "DeepSeek 400 reasoning 错误应保持 InvalidRequest 类型。");
+    Assert.Contains("DeepSeek thinking 请求被上游拒绝", exception.PublicMessage, "DeepSeek reasoning 错误应改写为可操作提示。");
+    Assert.Contains("reasoning_content", exception.PublicMessage, "改写后的错误提示应保留 reasoning_content 线索。");
 }
 
 static async Task DeepSeek_MapsHttpErrorsAndRedactsApiKey()
@@ -795,6 +1341,63 @@ static async Task Claude_ChatAsync_ConvertsSystemAndMessages()
     Assert.Equal("user", body.GetProperty("messages")[0].GetProperty("role").GetString() ?? string.Empty, "Claude 普通消息应保留 user/assistant 角色。");
 }
 
+static async Task Claude_ChatAsync_MapsToolsAndToolResults()
+{
+    var handler = new RecordingHttpMessageHandler();
+    handler.EnqueueJson(HttpStatusCode.OK, """
+        {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_lookup",
+              "name": "lookup",
+              "input": { "query": "pong" }
+            }
+          ],
+          "stop_reason": "tool_use",
+          "usage": {
+            "input_tokens": 20,
+            "output_tokens": 6
+          }
+        }
+        """);
+    var provider = CreateClaudeProvider(handler);
+    using var parametersDocument = JsonDocument.Parse("""{"type":"object","properties":{"query":{"type":"string"}}}""");
+    var parameters = parametersDocument.RootElement.Clone();
+    var previousToolCall = new ChatToolCall(
+        "toolu_previous",
+        "function",
+        new ChatFunctionCall("lookup", """{"query":"ping"}"""));
+
+    var response = await provider.ChatAsync(new ChatRequest(
+        "claude/sonnet",
+        new[]
+        {
+            new ChatMessage("system", "Use tools when useful."),
+            new ChatMessage("user", "ping"),
+            new ChatMessage("assistant", string.Empty, new[] { previousToolCall }),
+            new ChatMessage("tool", "lookup result", ToolCallId: "toolu_previous", Name: "lookup")
+        },
+        false,
+        "claude",
+        "claude-sonnet-4-5",
+        new[] { new ChatTool("function", new ChatFunctionTool("lookup", "Search docs", parameters)) },
+        new ChatToolChoice("function", "lookup")));
+
+    var body = JsonDocument.Parse(handler.Requests[0].Body ?? "{}").RootElement;
+    Assert.Equal("lookup", body.GetProperty("tools")[0].GetProperty("name").GetString() ?? string.Empty, "Claude 请求应将 function tool 映射为 Anthropic tools。");
+    Assert.Equal(parameters.GetRawText(), body.GetProperty("tools")[0].GetProperty("input_schema").GetRawText(), "Claude 请求应保留工具 input_schema。");
+    Assert.Equal("tool", body.GetProperty("tool_choice").GetProperty("type").GetString() ?? string.Empty, "Claude 请求应把指定 function 映射为 tool_choice.tool。");
+    Assert.Equal("lookup", body.GetProperty("tool_choice").GetProperty("name").GetString() ?? string.Empty, "Claude 请求应透传指定工具名。");
+    Assert.Equal("tool_use", body.GetProperty("messages")[1].GetProperty("content")[0].GetProperty("type").GetString() ?? string.Empty, "Claude 请求应把 assistant tool_calls 映射为 tool_use。");
+    Assert.Equal("toolu_previous", body.GetProperty("messages")[2].GetProperty("content")[0].GetProperty("tool_use_id").GetString() ?? string.Empty, "Claude 请求应把 tool result 映射为 tool_result。");
+    Assert.Equal("tool_calls", response.DoneReason, "Claude tool_use stop_reason 应映射为 tool_calls。");
+    Assert.Equal("toolu_lookup", response.ToolCalls?[0].Id ?? string.Empty, "Claude tool_use 响应应进入核心 tool_calls。");
+    using var argumentsDocument = JsonDocument.Parse(response.ToolCalls?[0].Function.Arguments ?? "{}");
+    Assert.Equal("pong", argumentsDocument.RootElement.GetProperty("query").GetString() ?? string.Empty, "Claude tool_use input 应转回 function arguments。");
+    Assert.Equal(26, response.Usage?.TotalTokens ?? 0, "Claude usage 应转换为核心 usage。");
+}
+
 static async Task Claude_ChatStreamAsync_ParsesMessageStream()
 {
     var handler = new RecordingHttpMessageHandler();
@@ -932,19 +1535,31 @@ internal sealed class RecordingProvider : IModelProvider
     private readonly string _content;
     private readonly IReadOnlyList<ChatStreamChunk>? _streamChunks;
     private readonly Exception? _chatException;
+    private readonly string _doneReason;
+    private readonly IReadOnlyList<ChatToolCall>? _responseToolCalls;
+    private readonly ChatUsage? _responseUsage;
+    private readonly string? _responseReasoningContent;
 
     public RecordingProvider(
         string name,
         ProviderModel model,
         string content,
         IReadOnlyList<ChatStreamChunk>? streamChunks = null,
-        Exception? chatException = null)
+        Exception? chatException = null,
+        string doneReason = "stop",
+        IReadOnlyList<ChatToolCall>? responseToolCalls = null,
+        ChatUsage? responseUsage = null,
+        string? responseReasoningContent = null)
     {
         Name = name;
         _models = new[] { model };
         _content = content;
         _streamChunks = streamChunks;
         _chatException = chatException;
+        _doneReason = doneReason;
+        _responseToolCalls = responseToolCalls;
+        _responseUsage = responseUsage;
+        _responseReasoningContent = responseReasoningContent;
     }
 
     public string Name { get; }
@@ -962,7 +1577,7 @@ internal sealed class RecordingProvider : IModelProvider
             throw _chatException;
         }
 
-        return Task.FromResult(new ChatResponse(request.Model, _content));
+        return Task.FromResult(new ChatResponse(request.Model, _content, _doneReason, _responseToolCalls, _responseUsage, _responseReasoningContent));
     }
 
     public async IAsyncEnumerable<ChatStreamChunk> ChatStreamAsync(ChatRequest request, [EnumeratorCancellation] CancellationToken cancellationToken = default)
