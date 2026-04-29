@@ -17,6 +17,7 @@
 - ✅️ 新增供应商/模型能力矩阵：未知模型默认只声明文本聊天，DeepSeek V4 默认 text-only，OpenAI / Claude 已知模型按名称声明工具和视觉能力，并支持通过 `ProviderModelCapabilities` 为确认过的模型显式覆盖。
 - ✅️ 新增 Copilot 兼容验收清单和内部最小探针 `POST /internal/copilot/probe`，覆盖模型选择器、模型元信息、普通聊天、Agent 工具字段、流式结束，并补充模型列表失败降级回归测试。
 - ✅️ 新增 DeepSeek thinking 专用链路：当 Copilot/OpenAI-compatible 请求携带 `reasoning_effort` / `thinking`，或目标模型为 DeepSeek thinking/reasoner 系列时，支持 `reasoning_content` 透传、同进程缓存、工具结果回合自动补回、流式 `reasoning_content` 映射，并把上游 400 reasoning 错误改写为可操作提示。
+- ✅️ 补齐 Ollama 官方 `/api/chat` thinking 兼容面：请求支持 `think`，历史消息支持 `message.thinking`，响应会输出 `message.thinking`，并把 `think: "high"` 等强度值桥接到上游 `reasoning_effort`；该能力不改变 Copilot 默认模型能力声明。
 - ✅️ AOT 发布配置显式启用 `PublishTrimmed` / `TrimMode=full` 和偏体积优化开关，关闭发布包不需要的调试器、EventSource 与 HTTP activity propagation 支持；当前 `win-x64` 单文件 exe 从约 22.7 MB 降至约 17.3 MB。
 - ✅️ 阶段 5 启动首个真实 Provider Adapter：新增 sub2api 中转站协议接入，支持 `/v1/models` 模型列表获取、OpenAI Chat Completions 非流式请求转换和 SSE 流式响应转换。
 - ✅️ 宿主支持通过 `Providers:Sub2Api` 配置启用 sub2api；未配置 `BaseUrl` / `ApiKey` 时继续使用内置占位 Provider，便于本地开发安全启动。

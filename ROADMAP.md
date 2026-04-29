@@ -22,7 +22,7 @@
 - ⬜ 表示尚未开始编码，不能在变更日志或验收说明中描述成已完成。
 - UI 骨架、静态假数据、仅 appsettings 配置可用、仅单元层通过，都不能等同于产品闭环完成。
 
-当前主线：🔴 现在做 阶段 5.6 Copilot Ollama Provider 真实协议补强。继续采用“伪装为 Ollama Provider”的接入方式，但实现顺序以 Copilot Chat 当前真实调用路径为准：发现阶段维护 `/api/version`、`/api/tags`、`/api/show`，聊天阶段优先补齐 `/v1/chat/completions`，再做工具调用、模型能力精确声明和实测验收；Ollama 官方 `/api/chat` 的 `tools` / `think` 扩展暂不作为当前主线。
+当前主线：✅️ 阶段 5.6 Copilot Ollama Provider 真实协议补强已完成。继续采用“伪装为 Ollama Provider”的接入方式；发现阶段维护 `/api/version`、`/api/tags`、`/api/show`，聊天阶段以 Copilot 当前真实调用的 `/v1/chat/completions` 为主，同时补齐 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 兼容面，方便后续其他 Ollama 客户端复用。
 
 ## 阶段 0：项目基线
 
@@ -208,7 +208,7 @@
 
 目标：继续保持无需 VS Code 扩展的 Ollama Provider 接入方式，但以 Copilot Chat 当前真实消费路径为准补齐协议面，避免优先实现 Copilot 不会调用的 Ollama 官方扩展字段。
 
-阶段状态：🔴 现在做。Copilot Chat 通过 `vscs` Ollama Provider 的模型发现、普通聊天、Agent 工具调用和 DeepSeek thinking 专用链路已落地；当前仅剩 Ollama 官方 `/api/chat` thinking/tool 扩展是否要进入主线的最终评估。
+阶段状态：✅️ 已完成。Copilot Chat 通过 `vscs` Ollama Provider 的模型发现、普通聊天、Agent 工具调用和 DeepSeek thinking 专用链路已落地；Ollama 官方 `/api/chat` thinking/tool 扩展也已补齐最小兼容，但 thinking / reasoning 仍不默认进入 Copilot 能力声明。
 
 ### 实现顺序
 
@@ -221,7 +221,7 @@
 7. ✅️ 建立按供应商和模型的能力矩阵：DeepSeek V4 默认 text-only，不声明 `vision`；只有确认支持工具调用的模型才声明 `tools`；thinking / reasoning 先作为内部候选能力，不默认影响 Copilot 模型选择。
 8. ✅️ 增加 Copilot 兼容验收清单和最小自动化探针：覆盖模型出现在选择器、普通聊天、Agent 模式工具调用、上游错误脱敏、流式响应结束、模型列表失败降级。
 9. ✅️ 在真实 VS Code 请求日志确认 Copilot 会发送 reasoning / thinking 相关字段后，实现 DeepSeek thinking 专用链路：`reasoning_content` 同进程缓存、工具结果跨轮恢复、流式 `reasoning_content` 映射和 400 reasoning 错误修复提示；该链路仅由请求字段或 DeepSeek thinking 模型触发，不默认对 Copilot 能力声明暴露。
-10. ⬜ 最后再评估 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 完整兼容；除非确认 VS Code Copilot 改回 `/api/chat` 或其他客户端成为主目标，否则不抢占当前主线。
+10. ✅️ 完成 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 兼容评估与最小实现：`tools` 已走现有管道，新增 `think` 请求字段、历史消息 `message.thinking` 读取、响应 `message.thinking` 输出和 DeepSeek `think: "high"` 到 `reasoning_effort` 的桥接；Copilot 主路径仍保持 `/v1/chat/completions`，不因该兼容面默认虚报 thinking/reasoning 能力。
 
 验收标准：
 

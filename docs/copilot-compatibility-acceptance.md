@@ -36,5 +36,6 @@
 
 ## 当前限制
 
-- thinking / reasoning 仍不默认声明；只有在真实 VS Code 请求日志确认 Copilot 会发送相关字段后，才进入专用链路。
+- thinking / reasoning 仍不默认声明；DeepSeek thinking 专用链路和 Ollama `/api/chat` 的 `think` / `message.thinking` 兼容面已经实现，但只有请求字段或推理模型名触发时才启用。
+- Copilot Chat 当前主验收路径仍是 `/v1/chat/completions`；`/api/chat` 的 thinking 兼容主要服务于 Ollama 官方客户端和后续兼容场景。
 - 未知供应商和未知模型默认只声明文本聊天能力。确认某个模型支持工具或视觉后，应通过能力矩阵显式打开。
