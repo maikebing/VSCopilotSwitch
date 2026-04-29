@@ -1,5 +1,8 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using VSCopilotSwitch.Core.Ollama;
 using VSCopilotSwitch.Core.Providers;
 using VSCopilotSwitch.Services;
@@ -13,6 +16,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("DeleteAsync auto-selects available provider", DeleteAsync_AutoSelectsAvailableProvider),
     ("Copilot compatibility probe covers core workflow", CopilotCompatibilityProbe_CoversCoreWorkflow),
     ("ActiveProvider ListModelsAsync falls back to configured model", ActiveProviderModelProvider_ListModelsAsync_FallsBackToConfiguredModel),
+    ("Request analytics extracts usage and configured cost", RequestAnalytics_ExtractsUsageAndConfiguredCost),
+    ("Request analytics extracts streamed usage", RequestAnalytics_ExtractsStreamedUsage),
     ("OpenAI response mapper emits tool calls", OpenAiResponseMapper_EmitsToolCalls),
     ("OpenAI response mapper emits reasoning content", OpenAiResponseMapper_EmitsReasoningContent),
     ("OpenAI response mapper emits tool call stream deltas", OpenAiResponseMapper_EmitsToolCallStreamDeltas),
@@ -156,6 +161,84 @@ static async Task ActiveProviderModelProvider_ListModelsAsync_FallsBackToConfigu
     Assert.Equal(1, models.Count, "模型列表失败时应降级为当前已保存模型。");
     Assert.Equal("broken/gpt-4.1", models[0].Name, "降级模型名应保留 Provider 前缀。");
     Assert.Equal("gpt-4.1", models[0].UpstreamModel, "降级模型应使用已保存的上游模型名。");
+}
+
+static async Task RequestAnalytics_ExtractsUsageAndConfiguredCost()
+{
+    var analytics = CreateAnalyticsService(new UsagePriceRule
+    {
+        ModelPattern = "gpt-5.5",
+        Label = "gpt-5.5-test",
+        InputPerMillionTokens = 2m,
+        OutputPerMillionTokens = 10m
+    });
+    var context = CreateAnalyticsContext(
+        "/v1/chat/completions",
+        """{"model":"gpt-5.5@vscs","messages":[{"role":"user","content":"ping"}]}""");
+
+    await analytics.InvokeAsync(context, async () =>
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsync("""
+            {
+              "choices": [
+                { "message": { "role": "assistant", "content": "pong" }, "finish_reason": "stop" }
+              ],
+              "usage": {
+                "prompt_tokens": 1000000,
+                "completion_tokens": 500000,
+                "total_tokens": 1500000
+              }
+            }
+            """);
+    });
+
+    var snapshot = analytics.GetSnapshot("http://127.0.0.1:5124");
+    var entry = snapshot.Requests.Single();
+    Assert.Equal(1000000, entry.InputTokens, "分析统计应优先使用上游 prompt_tokens。");
+    Assert.Equal(500000, entry.OutputTokens, "分析统计应优先使用上游 completion_tokens。");
+    Assert.Equal(1500000, entry.TotalTokens, "分析统计应保留上游 total_tokens。");
+    Assert.Equal("provider", entry.UsageSource, "解析到上游 usage 时应标记为 provider。");
+    Assert.Equal(7m, entry.Cost, "费用应按每百万输入/输出 Token 单价精算。");
+    Assert.Equal("configured", entry.CostSource, "命中单价表时应标记为 configured。");
+    Assert.Equal("gpt-5.5-test", entry.PricingRule ?? string.Empty, "费用来源应显示命中的单价规则。");
+    Assert.Equal(7m, snapshot.Summary.TotalCost, "汇总费用应累加请求费用。");
+    Assert.Equal(1, snapshot.Summary.PricedRequests, "汇总应统计已计价请求。");
+}
+
+static async Task RequestAnalytics_ExtractsStreamedUsage()
+{
+    var analytics = CreateAnalyticsService(new UsagePriceRule
+    {
+        ModelPattern = "deepseek-*",
+        InputPerMillionTokens = 1m,
+        OutputPerMillionTokens = 3m
+    });
+    var context = CreateAnalyticsContext(
+        "/v1/chat/completions",
+        """{"model":"deepseek-v4@vscs","stream":true,"messages":[{"role":"user","content":"ping"}]}""",
+        "text/event-stream");
+
+    await analytics.InvokeAsync(context, async () =>
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "text/event-stream";
+        await context.Response.WriteAsync("""
+            data: {"choices":[{"delta":{"content":"pong"}}]}
+
+            data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":2000000,"completion_tokens":1000000,"total_tokens":3000000}}
+
+            data: [DONE]
+
+            """);
+    });
+
+    var entry = analytics.GetSnapshot("http://127.0.0.1:5124").Requests.Single();
+    Assert.Equal(2000000, entry.InputTokens, "流式 SSE 中的 usage.prompt_tokens 应被解析。");
+    Assert.Equal(1000000, entry.OutputTokens, "流式 SSE 中的 usage.completion_tokens 应被解析。");
+    Assert.Equal("provider", entry.UsageSource, "流式解析到上游 usage 时应标记为 provider。");
+    Assert.Equal(5m, entry.Cost, "流式费用应按配置单价精算。");
 }
 
 static Task OpenAiResponseMapper_EmitsToolCalls()
@@ -361,6 +444,31 @@ static string SerializeOpenAi<T>(T value)
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
         });
 
+static RequestAnalyticsService CreateAnalyticsService(params UsagePriceRule[] rules)
+    => new(new UsageCostEstimator(Options.Create(new UsagePricingOptions
+    {
+        Currency = "USD",
+        Models = rules.ToList()
+    })));
+
+static DefaultHttpContext CreateAnalyticsContext(
+    string path,
+    string body,
+    string responseContentType = "application/json")
+{
+    var context = new DefaultHttpContext();
+    var bytes = Encoding.UTF8.GetBytes(body);
+    context.Request.Method = "POST";
+    context.Request.Path = path;
+    context.Request.ContentType = "application/json";
+    context.Request.ContentLength = bytes.Length;
+    context.Request.Body = new MemoryStream(bytes);
+    context.Request.Headers.UserAgent = "AnalyticsTests/1.0";
+    context.Response.Body = new MemoryStream();
+    context.Response.ContentType = responseContentType;
+    return context;
+}
+
 internal sealed class TestWorkspace : IDisposable
 {
     private TestWorkspace(string root)
@@ -505,6 +613,14 @@ internal static class Assert
     }
 
     public static void Equal(int expected, int actual, string message)
+    {
+        if (expected != actual)
+        {
+            throw new InvalidOperationException($"{message} 预期：{expected}，实际：{actual}");
+        }
+    }
+
+    public static void Equal(decimal expected, decimal actual, string message)
     {
         if (expected != actual)
         {

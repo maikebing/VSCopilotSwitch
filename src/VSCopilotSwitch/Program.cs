@@ -35,6 +35,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddSingleton<IProviderConfigService, ProviderConfigService>();
 builder.Services.AddSingleton<IModelProvider, ActiveProviderModelProvider>();
 builder.Services.AddSingleton<ProviderConnectionTester>();
+builder.Services.Configure<UsagePricingOptions>(builder.Configuration.GetSection("UsagePricing"));
+builder.Services.AddSingleton<IUsageCostEstimator, UsageCostEstimator>();
 builder.Services.AddSingleton<IRequestAnalyticsService, RequestAnalyticsService>();
 builder.Services.AddSingleton<ITrayMenuService, TrayMenuService>();
 builder.Services.Configure<UpdateOptions>(builder.Configuration.GetSection("Updates"));

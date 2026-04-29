@@ -235,7 +235,7 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 
 当前管理界面已提供 VS Code Ollama 配置写入向导：用户需要先选择 Windows VS Code User 目录并生成 dry-run 差异预览，确认 `vscs` Provider 条目的新增、更新或删除后才能二次确认写入；写入结果会展示备份路径、文件状态和字段级变化。顶部 VS Code Ollama 开关打开时只做状态检测，缺失配置时会跳转到写入向导并显示明确的预览/确认流程，不会静默写入。回滚入口会列出最近的 VSCopilotSwitch 备份，并在恢复指定备份前要求二次确认，同时为当前文件再创建安全备份。
 
-Copilot 兼容验收清单见 [docs/copilot-compatibility-acceptance.md](docs/copilot-compatibility-acceptance.md)，包含手工验证路径和当前自动化探针覆盖范围。
+端到端人工验收清单见 [docs/end-to-end-acceptance-checklist.md](docs/end-to-end-acceptance-checklist.md)，覆盖新增供应商、启用、测试连接、刷新模型、VS Code 写入、Copilot 调用、本地撤销和备份回滚。Copilot 兼容验收清单见 [docs/copilot-compatibility-acceptance.md](docs/copilot-compatibility-acceptance.md)，包含手工验证路径和当前自动化探针覆盖范围。
 
 设置页还提供“关于”页面，展示应用标题、当前版本、GitHub 项目地址和企业微信二维码，便于用户确认版本并进入项目仓库或反馈渠道。
 
@@ -264,9 +264,34 @@ dotnet run --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.Vs
 
 ## 当前状态
 
-阶段 5 首批 Provider Adapter 首版已完成，阶段 5.5 正在把 UI、受保护供应商配置、Provider Adapter 和 Ollama 代理串成真实闭环：当前已支持 UI 启用供应商驱动 `/api/tags` 与 `/api/chat`，并在首页展示真实模型刷新状态、上游模型名和失败原因；供应商测试连接、协议类型选择、VS Code 写入当前代理模型和托盘快速切换也已接入。
+阶段 5 首批 Provider Adapter 首版已完成，阶段 5.5 已把 UI、受保护供应商配置、Provider Adapter 和 Ollama 代理串成真实闭环：当前已支持 UI 启用供应商驱动 `/api/tags` 与 `/api/chat`，并在首页展示真实模型刷新状态、上游模型名和失败原因；供应商测试连接、协议类型选择、VS Code 写入当前代理模型、托盘快速切换和端到端验收清单也已接入。
 
-右上角工具栏提供“分析统计”入口，可查看当前本地进程内存中的请求日志、监听端口状态、估算 Token、耗时和 User-Agent。每条日志可展开查看脱敏后的请求头、请求体、响应头和响应体；Authorization、Cookie、API Key、Token 等敏感字段会被替换，正文采样也会限制长度。真实上游 usage 和费用精算仍在后续 Provider 响应增强中补齐。
+右上角工具栏提供“分析统计”入口，可查看当前本地进程内存中的请求日志、监听端口状态、Token、费用、耗时和 User-Agent。分析服务会优先解析上游返回的真实 `usage`；若响应缺少 usage，才退回按正文长度估算，并在每条日志中标记来源。费用按本地 `UsagePricing` 单价表计算，不硬编码会过期的供应商官方价格；未配置单价时请求会标记为“未计价”。每条日志可展开查看脱敏后的请求头、请求体、响应头和响应体；Authorization、Cookie、API Key、Token 等敏感字段会被替换，正文采样也会限制长度。
+
+可通过配置或环境变量维护本地单价表，费率单位为“每百万 Token”：
+
+```json
+{
+  "UsagePricing": {
+    "Currency": "USD",
+    "Models": [
+      {
+        "ModelPattern": "gpt-5.5",
+        "Label": "gpt-5.5 custom",
+        "InputPerMillionTokens": 2.0,
+        "OutputPerMillionTokens": 10.0
+      },
+      {
+        "ModelPattern": "deepseek-*",
+        "InputPerMillionTokens": 1.0,
+        "OutputPerMillionTokens": 3.0
+      }
+    ]
+  }
+}
+```
+
+环境变量示例：`UsagePricing__Models__0__ModelPattern=gpt-5.5`、`UsagePricing__Models__0__InputPerMillionTokens=2`、`UsagePricing__Models__0__OutputPerMillionTokens=10`。
 
 返回给 VS Code / Copilot 的模型名会追加 `@vscs` 后缀，`/api/tags` 会直接暴露 `gpt-5.5@vscs` 这类模型名，用于避免和 VS Code Copilot 内置模型名冲突。本地代理收到带后缀的模型请求后只用于路由识别，转发到上游 Provider 前会恢复为原始模型名，例如 `gpt-5.5`。
 

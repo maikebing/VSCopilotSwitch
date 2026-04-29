@@ -138,6 +138,9 @@ type AnalyticsSummary = {
   InputTokens: number;
   OutputTokens: number;
   TotalCost: number;
+  Currency: string;
+  PricedRequests: number;
+  UnpricedRequests: number;
   AverageLatencySeconds: number;
 };
 
@@ -156,7 +159,12 @@ type RequestLogEntry = {
   DurationMilliseconds: number;
   InputTokens: number;
   OutputTokens: number;
+  TotalTokens: number;
+  UsageSource: string;
   Cost: number;
+  Currency: string;
+  CostSource: string;
+  PricingRule: string | null;
   UserAgent: string;
   RequestHeaders: Record<string, string>;
   RequestBody: string | null;
@@ -344,6 +352,9 @@ const analyticsSummary = computed(() => analytics.value?.Summary ?? {
   InputTokens: 0,
   OutputTokens: 0,
   TotalCost: 0,
+  Currency: 'USD',
+  PricedRequests: 0,
+  UnpricedRequests: 0,
   AverageLatencySeconds: 0
 });
 const analyticsRequests = computed(() => analytics.value?.Requests ?? []);
@@ -397,8 +408,22 @@ function formatCompactNumber(value: number) {
   }).format(value);
 }
 
-function formatCost(value: number) {
-  return `$${value.toFixed(6)}`;
+function formatCost(value: number, currency = analyticsSummary.value.Currency) {
+  const normalized = currency || 'USD';
+  const prefix = normalized === 'USD' ? '$' : normalized === 'CNY' ? '¥' : `${normalized} `;
+  return `${prefix}${value.toFixed(6)}`;
+}
+
+function formatUsageSource(source: string) {
+  return source === 'provider' ? '实际' : '估算';
+}
+
+function formatCostSource(entry: RequestLogEntry) {
+  if (entry.CostSource === 'configured') {
+    return entry.PricingRule ? `单价：${entry.PricingRule}` : '已配置单价';
+  }
+
+  return '未配置单价';
 }
 
 function formatSeconds(milliseconds: number) {
@@ -1627,8 +1652,8 @@ onMounted(loadDashboard);
           </article>
           <article>
             <span>总消费</span>
-            <strong>{{ formatCost(analyticsSummary.TotalCost) }}</strong>
-            <small>当前为本地估算占位</small>
+            <strong>{{ formatCost(analyticsSummary.TotalCost, analyticsSummary.Currency) }}</strong>
+            <small>已计价：{{ formatNumber(analyticsSummary.PricedRequests) }} / 未计价：{{ formatNumber(analyticsSummary.UnpricedRequests) }}</small>
           </article>
           <article>
             <span>平均耗时</span>
@@ -1680,9 +1705,12 @@ onMounted(loadDashboard);
                   </td>
                   <td>
                     <span>↓ {{ formatNumber(entry.InputTokens) }}</span>
-                    <small>↑ {{ formatNumber(entry.OutputTokens) }}</small>
+                    <small>↑ {{ formatNumber(entry.OutputTokens) }} · {{ formatUsageSource(entry.UsageSource) }}</small>
                   </td>
-                  <td class="money">{{ formatCost(entry.Cost) }}</td>
+                  <td class="money">
+                    <span>{{ formatCost(entry.Cost, entry.Currency) }}</span>
+                    <small>{{ formatCostSource(entry) }}</small>
+                  </td>
                   <td>{{ formatSeconds(entry.DurationMilliseconds) }}</td>
                   <td>{{ formatAnalyticsTime(entry.Timestamp) }}</td>
                   <td>{{ entry.UserAgent }}</td>

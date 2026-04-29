@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Options;
 
 namespace VSCopilotSwitch.Services;
 
@@ -20,10 +21,20 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
 {
     private const int MaxEntries = 500;
     private const int MaxBodyCaptureBytes = 16 * 1024;
+    private const int MaxUsageCaptureBytes = 128 * 1024;
     private static readonly JsonWriterOptions RedactedJsonWriterOptions = new() { Indented = true };
-    private readonly ConcurrentQueue<RequestLogEntry> _entries = new();
+    private static readonly Regex PromptTokensPattern = new("\"(?:prompt_tokens|input_tokens|PromptTokens|InputTokens)\"\\s*:\\s*(\\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex CompletionTokensPattern = new("\"(?:completion_tokens|output_tokens|CompletionTokens|OutputTokens)\"\\s*:\\s*(\\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex TotalTokensPattern = new("\"(?:total_tokens|TotalTokens)\"\\s*:\\s*(\\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex ApiKeyPattern = new(@"sk-[A-Za-z0-9_\-]{8,}", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex BearerPattern = new(@"Bearer\s+[A-Za-z0-9._~+\-/]+=*", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private readonly ConcurrentQueue<RequestLogEntry> _entries = new();
+    private readonly IUsageCostEstimator _costEstimator;
+
+    public RequestAnalyticsService(IUsageCostEstimator costEstimator)
+    {
+        _costEstimator = costEstimator;
+    }
 
     public async Task InvokeAsync(HttpContext context, Func<Task> next)
     {
@@ -40,7 +51,7 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
         var startedAt = DateTimeOffset.Now;
         var stopwatch = Stopwatch.StartNew();
         var originalResponseBody = context.Response.Body;
-        await using var responseCapture = new CapturingResponseBodyStream(originalResponseBody, MaxBodyCaptureBytes);
+        await using var responseCapture = new CapturingResponseBodyStream(originalResponseBody, MaxBodyCaptureBytes, MaxUsageCaptureBytes);
         context.Response.Body = responseCapture;
 
         try
@@ -51,6 +62,11 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
         {
             context.Response.Body = originalResponseBody;
             stopwatch.Stop();
+            var usage = TryExtractUsage(responseCapture.UsageBytes);
+            var inputTokens = usage?.InputTokens ?? EstimateInputTokens(context);
+            var outputTokens = usage?.OutputTokens ?? EstimateOutputTokens(responseCapture.UsageBytes, context.Response.ContentType);
+            var usageSource = usage is null ? "estimated" : "provider";
+            var cost = _costEstimator.Estimate(model, inputTokens, outputTokens);
             Enqueue(new RequestLogEntry(
                 startedAt,
                 context.Request.Method,
@@ -58,9 +74,14 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
                 model,
                 context.Response.StatusCode,
                 stopwatch.ElapsedMilliseconds,
-                EstimateInputTokens(context),
-                0,
-                0m,
+                inputTokens,
+                outputTokens,
+                usage?.TotalTokens ?? inputTokens + outputTokens,
+                usageSource,
+                cost.Amount,
+                cost.Currency,
+                cost.Source,
+                cost.PricingRule,
                 SanitizeUserAgent(context.Request.Headers.UserAgent.ToString()),
                 requestHeaders,
                 requestBody.SanitizedText,
@@ -76,7 +97,10 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
         var totalInputTokens = entries.Sum(entry => entry.InputTokens);
         var totalOutputTokens = entries.Sum(entry => entry.OutputTokens);
         var totalCost = entries.Sum(entry => entry.Cost);
+        var pricedRequests = entries.Count(entry => string.Equals(entry.CostSource, "configured", StringComparison.OrdinalIgnoreCase));
+        var unpricedRequests = entries.Count(entry => string.Equals(entry.CostSource, "unpriced", StringComparison.OrdinalIgnoreCase));
         var averageLatency = totalRequests == 0 ? 0 : entries.Average(entry => entry.DurationMilliseconds) / 1000d;
+        var currency = entries.FirstOrDefault(entry => !string.IsNullOrWhiteSpace(entry.Currency))?.Currency ?? _costEstimator.Currency;
 
         return new RequestAnalyticsSnapshot(
             new RequestAnalyticsSummary(
@@ -85,6 +109,9 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
                 totalInputTokens,
                 totalOutputTokens,
                 totalCost,
+                currency,
+                pricedRequests,
+                unpricedRequests,
                 averageLatency),
             new ListenerStatus(
                 listeningUrl,
@@ -208,6 +235,49 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
         }
 
         return (int)Math.Max(1, Math.Ceiling(length / 4d));
+    }
+
+    private static int EstimateOutputTokens(byte[] responseBytes, string? contentType)
+    {
+        if (responseBytes.Length == 0 || !IsTextLikeContentType(contentType))
+        {
+            return 0;
+        }
+
+        return (int)Math.Max(1, Math.Ceiling(responseBytes.Length / 4d));
+    }
+
+    private static TokenUsage? TryExtractUsage(byte[] responseBytes)
+    {
+        if (responseBytes.Length == 0)
+        {
+            return null;
+        }
+
+        var text = Encoding.UTF8.GetString(responseBytes);
+        var inputTokens = LastInt(PromptTokensPattern, text);
+        var outputTokens = LastInt(CompletionTokensPattern, text);
+        var totalTokens = LastInt(TotalTokensPattern, text);
+        if (inputTokens is null && outputTokens is null && totalTokens is null)
+        {
+            return null;
+        }
+
+        var input = inputTokens ?? Math.Max(0, (totalTokens ?? 0) - (outputTokens ?? 0));
+        var output = outputTokens ?? Math.Max(0, (totalTokens ?? 0) - input);
+        var total = totalTokens ?? input + output;
+        return new TokenUsage(input, output, total);
+    }
+
+    private static int? LastInt(Regex pattern, string text)
+    {
+        var matches = pattern.Matches(text);
+        if (matches.Count == 0)
+        {
+            return null;
+        }
+
+        return int.TryParse(matches[^1].Groups[1].Value, out var value) ? value : null;
     }
 
     private static string SanitizeUserAgent(string userAgent)
@@ -373,19 +443,26 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
 
     private sealed record CapturedBody(string? RawText, string? SanitizedText);
 
+    private sealed record TokenUsage(int InputTokens, int OutputTokens, int TotalTokens);
+
     private sealed class CapturingResponseBodyStream : Stream
     {
         private readonly Stream _inner;
         private readonly MemoryStream _capture = new();
+        private readonly MemoryStream _usageCapture = new();
         private readonly int _limit;
+        private readonly int _usageLimit;
 
-        public CapturingResponseBodyStream(Stream inner, int limit)
+        public CapturingResponseBodyStream(Stream inner, int limit, int usageLimit)
         {
             _inner = inner;
             _limit = limit;
+            _usageLimit = usageLimit;
         }
 
         public byte[] CapturedBytes => _capture.ToArray();
+
+        public byte[] UsageBytes => _usageCapture.ToArray();
 
         public bool Truncated { get; private set; }
 
@@ -439,6 +516,7 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
 
         private void Capture(ReadOnlySpan<byte> buffer)
         {
+            CaptureUsage(buffer);
             var remaining = _limit - (int)_capture.Length;
             if (remaining <= 0)
             {
@@ -453,6 +531,28 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
                 Truncated = true;
             }
         }
+
+        private void CaptureUsage(ReadOnlySpan<byte> buffer)
+        {
+            if (buffer.Length >= _usageLimit)
+            {
+                _usageCapture.SetLength(0);
+                _usageCapture.Write(buffer[^_usageLimit..]);
+                return;
+            }
+
+            if (_usageCapture.Length + buffer.Length <= _usageLimit)
+            {
+                _usageCapture.Write(buffer);
+                return;
+            }
+
+            var existing = _usageCapture.ToArray();
+            var overflow = (int)(_usageCapture.Length + buffer.Length - _usageLimit);
+            _usageCapture.SetLength(0);
+            _usageCapture.Write(existing.AsSpan(overflow));
+            _usageCapture.Write(buffer);
+        }
     }
 }
 
@@ -461,12 +561,119 @@ public sealed record RequestAnalyticsSnapshot(
     ListenerStatus Listener,
     IReadOnlyList<RequestLogEntry> Requests);
 
+public interface IUsageCostEstimator
+{
+    string Currency { get; }
+
+    UsageCostEstimate Estimate(string? model, int inputTokens, int outputTokens);
+}
+
+public sealed class UsageCostEstimator : IUsageCostEstimator
+{
+    private const string VsCodeModelSuffix = "@vscs";
+    private readonly UsagePricingOptions _options;
+
+    public UsageCostEstimator(IOptions<UsagePricingOptions> options)
+    {
+        _options = options.Value ?? new UsagePricingOptions();
+    }
+
+    public string Currency => NormalizeCurrency(_options.Currency);
+
+    public UsageCostEstimate Estimate(string? model, int inputTokens, int outputTokens)
+    {
+        var rule = FindRule(model);
+        var inputRate = rule?.InputPerMillionTokens ?? _options.DefaultInputPerMillionTokens;
+        var outputRate = rule?.OutputPerMillionTokens ?? _options.DefaultOutputPerMillionTokens;
+        if (inputRate <= 0m && outputRate <= 0m)
+        {
+            return new UsageCostEstimate(0m, Currency, "unpriced", null);
+        }
+
+        var amount = inputTokens * inputRate / 1_000_000m
+            + outputTokens * outputRate / 1_000_000m;
+        var pricingRule = rule is null
+            ? "default"
+            : string.IsNullOrWhiteSpace(rule.Label) ? rule.ModelPattern : rule.Label.Trim();
+        return new UsageCostEstimate(decimal.Round(amount, 8, MidpointRounding.AwayFromZero), Currency, "configured", pricingRule);
+    }
+
+    private UsagePriceRule? FindRule(string? model)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            return null;
+        }
+
+        var candidates = BuildModelCandidates(model);
+        return _options.Models
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.ModelPattern))
+            .FirstOrDefault(rule => candidates.Any(candidate => WildcardMatch(candidate, rule.ModelPattern)));
+    }
+
+    private static IReadOnlyList<string> BuildModelCandidates(string model)
+    {
+        var normalized = StripVsCodeSuffix(model.Trim());
+        var slashIndex = normalized.LastIndexOf('/');
+        return slashIndex >= 0
+            ? new[] { normalized, normalized[(slashIndex + 1)..] }
+            : new[] { normalized };
+    }
+
+    private static string StripVsCodeSuffix(string model)
+        => model.EndsWith(VsCodeModelSuffix, StringComparison.OrdinalIgnoreCase)
+            ? model[..^VsCodeModelSuffix.Length]
+            : model;
+
+    private static bool WildcardMatch(string value, string pattern)
+    {
+        var regexPattern = "^" + Regex.Escape(pattern.Trim())
+            .Replace("\\*", ".*", StringComparison.Ordinal)
+            .Replace("\\?", ".", StringComparison.Ordinal) + "$";
+        return Regex.IsMatch(value, regexPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static string NormalizeCurrency(string? currency)
+        => string.IsNullOrWhiteSpace(currency) ? "USD" : currency.Trim().ToUpperInvariant();
+}
+
+public sealed class UsagePricingOptions
+{
+    public string Currency { get; set; } = "USD";
+
+    public decimal DefaultInputPerMillionTokens { get; set; }
+
+    public decimal DefaultOutputPerMillionTokens { get; set; }
+
+    public List<UsagePriceRule> Models { get; set; } = new();
+}
+
+public sealed class UsagePriceRule
+{
+    public string ModelPattern { get; set; } = string.Empty;
+
+    public string? Label { get; set; }
+
+    public decimal InputPerMillionTokens { get; set; }
+
+    public decimal OutputPerMillionTokens { get; set; }
+}
+
+public sealed record UsageCostEstimate(
+    decimal Amount,
+    string Currency,
+    string Source,
+    string? PricingRule);
+
 public sealed record RequestAnalyticsSummary(
     int TotalRequests,
     int TotalTokens,
     int InputTokens,
     int OutputTokens,
     decimal TotalCost,
+    string Currency,
+    int PricedRequests,
+    int UnpricedRequests,
     double AverageLatencySeconds);
 
 public sealed record ListenerStatus(
@@ -483,7 +690,12 @@ public sealed record RequestLogEntry(
     long DurationMilliseconds,
     int InputTokens,
     int OutputTokens,
+    int TotalTokens,
+    string UsageSource,
     decimal Cost,
+    string Currency,
+    string CostSource,
+    string? PricingRule,
     string UserAgent,
     IReadOnlyDictionary<string, string> RequestHeaders,
     string? RequestBody,
