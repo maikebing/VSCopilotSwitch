@@ -22,7 +22,7 @@
 - ⬜ 表示尚未开始编码，不能在变更日志或验收说明中描述成已完成。
 - UI 骨架、静态假数据、仅 appsettings 配置可用、仅单元层通过，都不能等同于产品闭环完成。
 
-当前主线：✅️ 阶段 5.5 真实功能闭环和阶段 5.6 Copilot Ollama Provider 真实协议补强已完成。继续采用“伪装为 Ollama Provider”的接入方式；发现阶段维护 `/api/version`、`/api/tags`、`/api/show` 和 OpenAI-compatible `/v1/models`，聊天阶段以 Copilot 当前真实调用的 `/v1/chat/completions` 为主，同时补齐 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 兼容面。VS2026 已完成 BYOM 二次只读探测，`%LOCALAPPDATA%\Microsoft\VisualStudio\Copilot\BringYourOwnModel\ConfiguredBringYourOwnModel_v1.json` 已确认包含 Foundry Local / Azure 摘要条目，但仍未落出自定义 URL 或模型元素结构；不采用 TLS 中间人、域名劫持或 Token 复用路线。下一步进入阶段 6 稳定性与路由。
+当前主线：✅️ 阶段 5.5 真实功能闭环和阶段 5.6 Copilot Ollama Provider 真实协议补强已完成。继续采用“伪装为 Ollama Provider”的接入方式；发现阶段维护 `/api/version`、`/api/tags`、`/api/show` 和 OpenAI-compatible `/v1/models`，聊天阶段以 Copilot 当前真实调用的 `/v1/chat/completions` 为主，同时补齐 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 兼容面。VS2026 已完成 BYOM 二次只读探测，Azure BYOM 可通过 HTTPS CustomURL 作为 VSCopilotSwitch 接入试验路线，Foundry Local 依赖系统 `foundry` CLI 不适合伪装；不采用 TLS 中间人、域名劫持或 Token 复用路线。下一步进入阶段 6 稳定性与路由。
 
 ## 阶段 0：项目基线
 
@@ -222,6 +222,7 @@
 8. ✅️ 增加 Copilot 兼容验收清单和最小自动化探针：覆盖模型出现在选择器、普通聊天、Agent 模式工具调用、上游错误脱敏、流式响应结束、模型列表失败降级。
 9. ✅️ 在真实 VS Code 请求日志确认 Copilot 会发送 reasoning / thinking 相关字段后，实现 DeepSeek thinking 专用链路：`reasoning_content` 同进程缓存、工具结果跨轮恢复、流式 `reasoning_content` 映射和 400 reasoning 错误修复提示；该链路仅由请求字段或 DeepSeek thinking 模型触发，不默认对 Copilot 能力声明暴露。
 10. ✅️ 完成 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 兼容评估与最小实现：`tools` 已走现有管道，新增 `think` 请求字段、历史消息 `message.thinking` 读取、响应 `message.thinking` 输出和 DeepSeek `think: "high"` 到 `reasoning_effort` 的桥接；Copilot 主路径仍保持 `/v1/chat/completions`，不因该兼容面默认虚报 thinking/reasoning 能力。
+11. ✅️ 加固 OpenAI-compatible SSE 转发：纯 `reasoning_content` 流式分块也会写给客户端，避免推理模型在普通 content 为空时被 Copilot 误判为无响应。
 
 验收标准：
 

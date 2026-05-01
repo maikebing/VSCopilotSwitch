@@ -751,7 +751,11 @@ static async Task WriteOpenAiChatCompletionStreamAsync(
             }
 
             var toolCalls = OpenAiChatCompletionMapper.ToToolCalls(chunk.Message.ToolCalls);
-            if (!string.IsNullOrEmpty(chunk.Message.Content) || toolCalls is not null)
+            var hasReasoningContent = !string.IsNullOrWhiteSpace(chunk.Message.ReasoningContent)
+                || !string.IsNullOrWhiteSpace(chunk.Message.Thinking);
+            if (!string.IsNullOrEmpty(chunk.Message.Content)
+                || toolCalls is not null
+                || hasReasoningContent)
             {
                 await WriteOpenAiServerSentEventAsync(
                     httpContext,

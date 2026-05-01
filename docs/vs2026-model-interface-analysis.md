@@ -55,6 +55,26 @@ VSCopilotSwitch 需要做的工作：
 - 复用现有 `/api/version`、`/api/tags`、`/api/show`、`/api/chat`、`/v1/chat/completions`。
 - 增加 VS2026 专用验收清单和最小探针。
 
+### 方案 A1：通过 Azure BYOM 自定义 HTTPS URL 接入
+
+二次探测显示 VS2026 的 Azure BYOM Provider 是自定义 URL Provider，Endpoint 枚举值为 `7`，模型配置中可保存 `CustomURL`。它使用 `Authorization: Bearer <api-key>`，并会校验 `<CustomURL>/models/<modelId>`。UI 层要求 URL 必须是 `https://`。
+
+这条路线最适合 VSCopilotSwitch 试验接入：
+
+- VSCopilotSwitch 增加本地 HTTPS OpenAI-compatible 监听，或引导用户配置 HTTPS 反向代理。
+- 在 VS2026 Manage Models 中选择 Azure。
+- API Key 填写用户自定义占位值，由 VSCopilotSwitch 仅用于通过 VS2026 校验，不作为上游密钥。
+- Model ID 填写 VSCopilotSwitch 暴露的模型 ID，例如 `gpt-5.5@vscs`。
+- Resource Endpoint / Custom URL 指向 VSCopilotSwitch 的 HTTPS `/v1` 基地址。
+
+该路线仍必须由用户在 VS2026 UI 中显式配置，不能静默写入私有凭据。
+
+### 不推荐：伪装 Foundry Local
+
+虽然 BYOM 文件中 `Endpoint = 8` 对应 Foundry Local，但 VS2026 的 Foundry Local Provider 不读取 JSON 中的 URL。它会启动系统 `foundry service start`，从 CLI 输出中解析本地 `http://...` endpoint，然后请求相对路径 `/v1/models`。
+
+因此，直接把 VSCopilotSwitch 写成 Foundry Local 条目大概率不会生效，还可能破坏用户真实 Foundry Local 配置。除非后续明确实现一个兼容的 `foundry` CLI 代理并由用户显式选择，否则不要走该路线。
+
 ### 方案 B：VS 扩展提供独立 AI 面板
 
 

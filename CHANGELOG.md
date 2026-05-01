@@ -7,6 +7,7 @@
 ### Added
 
 - ✅️ 新增 VS2026 用户配置与 AI Provider 配置位置探测记录，确认 VS2026 18.0 实例配置、Copilot BYOM 配置文件、MCP 配置和常规 Copilot 设置键的实际落点；二次探测已观察到 Foundry Local 与 Azure BYOM 摘要条目。
+- ✅️ 补充 VS2026 BYOM Provider 行为分析：Azure BYOM 是自定义 HTTPS URL Provider，可作为 VSCopilotSwitch 接入试验路线；Foundry Local 依赖系统 `foundry service start`，不适合通过手写 BYOM JSON 伪装。
 - ✅️ 新增 VS2026 大模型接口接入分析文档，明确优先寻找官方 Provider / Ollama / OpenAI-compatible / VS SDK 入口，不采用 TLS 中间人、域名劫持、Token 复用或二进制 patch 作为产品路线。
 - ✅️ 新增阶段 5.6 Copilot Ollama Provider 真实协议补强路线：确认继续采用 `vscs` Ollama Provider 接入，但优先实现 Copilot 当前真实聊天入口 `/v1/chat/completions`、工具调用转发和精确能力声明，暂缓未被 Copilot 真实消费的 `/api/chat` thinking 扩展。
 - ✅️ 新增本地 OpenAI-compatible `/v1/models` 模型发现接口，复用当前启用供应商的 `/api/tags` 模型列表，并返回可直接用于 `/v1/chat/completions` 的 `@vscs` 模型 ID。
@@ -145,6 +146,7 @@
 
 ### Fixed
 
+- ✅️ 修复 OpenAI-compatible SSE 转发跳过纯 `reasoning_content` 分块的问题，避免推理模型只输出 reasoning delta 时被 Copilot 误判为无响应。
 - ✅️ 修复发布 CI 版本解析脚本：改用正则拆分预发布和 build metadata，避免 PowerShell 将 `+` 误绑定为 `Split` 的 count 参数导致 `v1.0.1` 标签构建失败；非 SemVer 分支名会回退为 CI 版本，避免进入 .NET `Version` 和产物名。
 - ✅️ 修复首页模型列表显示缺少 `@vscs` 后缀的问题：现在优先展示 `/api/tags` 暴露给 VS Code/Copilot 的公开模型名，避免界面与模型选择器不一致。
 - ✅️ 修复 OpenAI-compatible `tool_choice` 字符串序列化在 Native AOT 发布时触发 IL2026 / IL3050 分析警告的问题。

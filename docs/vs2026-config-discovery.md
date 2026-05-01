@@ -125,6 +125,25 @@ VS2026 安装目录中存在 Copilot 相关组件：
 
 当前最有价值的 AI Provider 线索仍是 `ConfiguredBringYourOwnModel_v1.json`。二次探测已经确认它记录 BYOM 摘要条目，但只包含名称、密钥可用状态、模型数组和 endpoint 枚举，不包含 URL 或 API Key。下一步应在 VS2026 UI 中新增 OpenAI-compatible / custom endpoint 类型条目，或为当前条目选择具体模型，再观察 `Models` 的元素结构和是否出现 URL 字段。
 
+## BYOM Provider 行为分析
+
+官方资料显示 Visual Studio Copilot Chat 的 BYOM 从模型选择器的 Manage Models 入口进入，支持 OpenAI、Anthropic、Google 等模型；同类 SSMS Copilot 文档还列出 Azure 与 Foundry Local。Azure 模型需要 API Key、模型部署名和 Resource Endpoint。Foundry Local 是本机模型运行时，公开资料显示其本地 OpenAI-compatible endpoint 常见形态为 `http://localhost:5272/openai/v1`，示例 API Key 为 `foundry-local`。
+
+对 VS2026 Copilot 组件做只读类型分析后，观察到以下实现细节：
+
+- `CopilotModelEndpoint` 枚举值为：`GitHub = 1`、`OpenAI = 2`、`Anthropic = 3`、`Google = 4`、`xAI = 5`、`GitHubResponses = 6`、`AzureFoundry = 7`、`FoundryLocal = 8`、`GitHubAnthropicMessages = 9`。
+- `ModelProvider` 会持久化 `Name`、`IsApiKeyAvailable`、`Models`、`Endpoint`。
+- `Model` 会持久化 `Id`、`DisplayName`、`IsToolCallingEnabled`、`IsVisionEnabled`、`MaxInputTokens`、`MaxOutputTokens`、`ProviderName`、`IsCustom`、`IsSelected` 和 `CustomURL`。
+- API Key 不在 BYOM JSON 中，VS2026 使用安全凭据存储，键名形态为 `providerName@githubUserName` 的小写字符串。
+- `AzureFoundryModelProvider` 是自定义 URL Provider，Provider 名称为 `Azure`，Endpoint 为 `AzureFoundry = 7`，使用 `Authorization: Bearer <api-key>`，模型验证走 `<CustomURL>/models/<modelId>`。UI 增加自定义模型时要求 `CustomURL` 必须是 `https://` 绝对地址。
+- `FoundryLocalModelProvider` 名称为 `Foundry Local`，Endpoint 为 `FoundryLocal = 8`，不读取 BYOM JSON 中的 URL；它会执行 `foundry service start`，从命令输出解析 `on (http://...)`，再把该地址作为 BaseAddress，请求相对路径 `/v1/models`。
+
+因此：
+
+- 不能简单把 VSCopilotSwitch 写成 `Foundry Local` 条目来接入。VS2026 会启动系统 `foundry` CLI 并使用 CLI 返回的本地 endpoint，而不是读取 BYOM JSON 的 `CustomURL`。
+- 可以优先验证 Azure 自定义 URL 路线：把 VSCopilotSwitch 暴露为 HTTPS OpenAI-compatible 服务，然后在 VS2026 的 Azure BYOM 中添加模型，`CustomURL` 指向 VSCopilotSwitch 的 HTTPS 地址。
+- 由于 Azure 自定义 URL 校验强制 HTTPS，本项目当前默认 `http://127.0.0.1:5124` 不能直接通过 VS2026 UI 校验；需要新增本地 HTTPS 监听、开发证书信任，或通过用户明确配置的 HTTPS 反向代理。
+
 ## 对实现的要求
 
 - VS2026 配置发现应枚举 `%LOCALAPPDATA%\Microsoft\VisualStudio\18.0_*`，不要硬编码 `22a431f4`。
@@ -133,6 +152,8 @@ VS2026 安装目录中存在 Copilot 相关组件：
 - 如果未来写入该文件，应只追加或更新 `Name` 属于 VSCopilotSwitch 管理的条目，并保留用户的 Foundry Local、Azure 等已有条目。
 - MCP 路径可用于后续工具接入，但不应被包装成模型 Provider 替代方案。
 - 所有写入仍必须 dry-run、备份、幂等、可撤销，并只修改 VSCopilotSwitch 管理的条目。
+- 不应伪造 `Foundry Local` Provider，因为它依赖系统 `foundry` CLI 生命周期。除非后续明确实现兼容的 `foundry` 命令代理，否则该路线不可作为安全产品方案。
+- 若走 Azure BYOM，应先实现并验证 HTTPS OpenAI-compatible endpoint：至少覆盖 `GET /models`、`GET /models/{id}`、`POST /chat/completions`，并接受 `Authorization: Bearer <用户在 VS2026 输入的占位密钥>`。
 
 ## 本轮只读命令摘要
 
@@ -146,5 +167,7 @@ VS2026 安装目录中存在 Copilot 相关组件：
 - 用户新增 BYOM 条目后，重新读取 `ConfiguredBringYourOwnModel_v1.json`，确认 Foundry Local 和 Azure 条目形状。
 - 检查最近 6 小时内 VS2026 / Copilot 相关文件变更，只发现 BYOM JSON 是 Copilot 目录下的直接变更；VS 实例目录下另有 `CurrentSettings.vssettings`、`ApplicationPrivateSettings.xml`、`privateregistry.bin` 等常规状态变更。
 - 在 `ApplicationPrivateSettings.xml`、`CurrentSettings.vssettings` 和 `settings.json` 中检索 `BringYourOwnModel`、`Foundry Local`、`Azure`、`Endpoint` 等关键词，未发现 BYOM URL 形态配置；`CurrentSettings.vssettings` 仅暴露 Copilot 常规开关和空的 `preferredModelFamily` 默认项。
+- 检索官方 Microsoft Learn 资料，确认 Visual Studio BYOM 入口在 Copilot Chat 模型选择器；Azure 需要部署名和资源 endpoint；Foundry Local 是本地运行时能力。
+- 只读反编译 VS2026 Copilot BYOM 相关类型，确认 Azure 是自定义 HTTPS URL Provider，Foundry Local 通过 `foundry service start` 获取 endpoint。
 
 未执行任何写入操作，也未读取或输出 VS / Copilot 的私有 Token、Cookie、Authorization Header 或设备凭据。

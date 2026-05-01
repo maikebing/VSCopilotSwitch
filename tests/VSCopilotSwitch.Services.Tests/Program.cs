@@ -21,6 +21,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("OpenAI response mapper emits tool calls", OpenAiResponseMapper_EmitsToolCalls),
     ("OpenAI response mapper emits reasoning content", OpenAiResponseMapper_EmitsReasoningContent),
     ("OpenAI response mapper emits tool call stream deltas", OpenAiResponseMapper_EmitsToolCallStreamDeltas),
+    ("OpenAI response mapper emits reasoning stream deltas", OpenAiResponseMapper_EmitsReasoningStreamDeltas),
     ("OpenAI model mapper emits standard model list", OpenAiModelMapper_EmitsStandardModelList),
     ("UpdateService reads latest release from GitHub", UpdateService_ReadsLatestReleaseFromGitHub),
     ("UpdateService downloads selected asset to cache", UpdateService_DownloadsSelectedAssetToCache)
@@ -330,6 +331,30 @@ static Task OpenAiResponseMapper_EmitsToolCallStreamDeltas()
     Assert.True(!serializedToolCall.TryGetProperty("id", out _), "序列化后的纯 arguments delta 不应包含 id。");
     Assert.True(!serializedToolCall.TryGetProperty("type", out _), "序列化后的纯 arguments delta 不应包含 type。");
     Assert.Equal("""{"query":"stream"}""", serializedToolCall.GetProperty("function").GetProperty("arguments").GetString() ?? string.Empty, "序列化后的 arguments delta 应保留。");
+    return Task.CompletedTask;
+}
+
+static Task OpenAiResponseMapper_EmitsReasoningStreamDeltas()
+{
+    var chunk = OpenAiChatCompletionMapper.CreateDeltaChunk(
+        "chatcmpl-test",
+        1,
+        "deepseek-reasoner@vscs",
+        new OllamaChatResponse(
+            "deepseek-reasoner@vscs",
+            DateTimeOffset.UnixEpoch,
+            new OllamaChatMessage("assistant", string.Empty, ReasoningContent: "先思考。"),
+            null,
+            false));
+
+    var delta = chunk.Choices[0].Delta;
+    Assert.True(delta.Content is null, "只有 reasoning_content 的流式 delta 不应输出空字符串 content。");
+    Assert.Equal("先思考。", delta.ReasoningContent ?? string.Empty, "流式 reasoning_content 应回传给 OpenAI-compatible 客户端。");
+
+    using var document = JsonDocument.Parse(SerializeOpenAi(chunk));
+    var serializedDelta = document.RootElement.GetProperty("choices")[0].GetProperty("delta");
+    Assert.Equal(JsonValueKind.Null.ToString(), serializedDelta.GetProperty("content").ValueKind.ToString(), "序列化后的 reasoning-only delta.content 应显式为 null。");
+    Assert.Equal("先思考。", serializedDelta.GetProperty("reasoning_content").GetString() ?? string.Empty, "序列化后的 reasoning_content 应保留。");
     return Task.CompletedTask;
 }
 
