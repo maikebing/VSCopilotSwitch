@@ -54,7 +54,11 @@ jobs:
           }
 
           $packageVersion = $inputVersion.TrimStart('v', 'V')
-          $numericPrefix = $packageVersion.Split('-', '+')[0]
+          if ($packageVersion -notmatch '^\d+(\.\d+){0,3}([-+][0-9A-Za-z][0-9A-Za-z.-]*)?$') {
+            $packageVersion = "0.0.0-ci.${{ github.run_number }}"
+          }
+
+          $numericPrefix = ($packageVersion -split '[-+]', 2)[0]
           if ($numericPrefix -notmatch '^\d+(\.\d+){0,3}$') {
             $numericPrefix = "0.0.${{ github.run_number }}.0"
           }

@@ -142,6 +142,7 @@
 
 ### Fixed
 
+- ✅️ 修复发布 CI 版本解析脚本：改用正则拆分预发布和 build metadata，避免 PowerShell 将 `+` 误绑定为 `Split` 的 count 参数导致 `v1.0.1` 标签构建失败；非 SemVer 分支名会回退为 CI 版本，避免进入 .NET `Version` 和产物名。
 - ✅️ 修复首页模型列表显示缺少 `@vscs` 后缀的问题：现在优先展示 `/api/tags` 暴露给 VS Code/Copilot 的公开模型名，避免界面与模型选择器不一致。
 - ✅️ 修复 OpenAI-compatible `tool_choice` 字符串序列化在 Native AOT 发布时触发 IL2026 / IL3050 分析警告的问题。
 - ✅️ 修复 VS Code 配置目录发现误返回 `...\Code` 产品根目录的问题；现在会返回 `...\Code\User`，并兼容旧界面传入根目录时自动规范化到 User 子目录，避免生成差异预览误读上一级残留 `chatLanguageModels.json`。

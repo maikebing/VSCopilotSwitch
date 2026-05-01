@@ -298,6 +298,7 @@ UI 方向：
 - ✅️ 自动更新策略：从 GitHub 和 Gitee Release 检查更高版本，自动下载匹配 Windows 单文件发布资产到本地缓存，更新替换仍保留为用户可控步骤。
 - ✅️ 发布 CI：GitHub Actions 覆盖 npm install、SPA build、嵌入式资源生成检查、AOT 单体应用打包和冒烟测试；分支/PR 只构建，`v*` 标签才发布 Release 资产。
 - ✅️ 发布流程包含 npm install、SPA build、嵌入式资源生成、AOT 单体应用打包。
+- ✅️ 修复发布 CI 版本解析：标签版本、预发布版本、build metadata 和非 SemVer 分支名均可稳定生成 .NET 包版本、程序集版本和 Release 标签。
 - 🔵 后做 安装包签名策略。
 - 🔵 后做 用户迁移说明。
 - 🟡 可并行 示例配置和故障排查文档。
