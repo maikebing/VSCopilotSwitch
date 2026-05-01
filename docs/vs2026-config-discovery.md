@@ -142,7 +142,7 @@ VS2026 安装目录中存在 Copilot 相关组件：
 
 - 不能简单把 VSCopilotSwitch 写成 `Foundry Local` 条目来接入。VS2026 会启动系统 `foundry` CLI 并使用 CLI 返回的本地 endpoint，而不是读取 BYOM JSON 的 `CustomURL`。
 - 可以优先验证 Azure 自定义 URL 路线：把 VSCopilotSwitch 暴露为 HTTPS OpenAI-compatible 服务，然后在 VS2026 的 Azure BYOM 中添加模型，`CustomURL` 指向 VSCopilotSwitch 的 HTTPS 地址。
-- 由于 Azure 自定义 URL 校验强制 HTTPS，本项目当前默认 `http://127.0.0.1:5124` 不能直接通过 VS2026 UI 校验；需要新增本地 HTTPS 监听、开发证书信任，或通过用户明确配置的 HTTPS 反向代理。
+- 由于 Azure 自定义 URL 校验强制 HTTPS，`http://127.0.0.1:5124` 不能直接通过 VS2026 UI 校验；发布版会额外准备受当前用户信任的本地 HTTPS 监听，开发环境可通过 `VSCOPILOTSWITCH_HTTPS_URL` 显式开启。
 
 ## 对实现的要求
 
@@ -154,6 +154,32 @@ VS2026 安装目录中存在 Copilot 相关组件：
 - 所有写入仍必须 dry-run、备份、幂等、可撤销，并只修改 VSCopilotSwitch 管理的条目。
 - 不应伪造 `Foundry Local` Provider，因为它依赖系统 `foundry` CLI 生命周期。除非后续明确实现兼容的 `foundry` 命令代理，否则该路线不可作为安全产品方案。
 - 若走 Azure BYOM，应先实现并验证 HTTPS OpenAI-compatible endpoint：至少覆盖 `GET /models`、`GET /models/{id}`、`POST /chat/completions`，并接受 `Authorization: Bearer <用户在 VS2026 输入的占位密钥>`。
+
+## Azure BYOM 试验配置
+
+VSCopilotSwitch 当前已补齐 Azure BYOM 试验所需的最小服务端能力：
+
+- `GET /v1/models`
+- `GET /v1/models/{modelId}`
+- `POST /v1/chat/completions`
+- `GET /internal/vs2026/byom`
+
+发布版会在 `http://127.0.0.1:5124` 之外默认尝试启用 `https://127.0.0.1:5443`，用于让 VS2026 Azure BYOM 接受本地地址。启动时程序会自动生成 `localhost/127.0.0.1/::1` 本地服务器证书，把带私钥证书写入当前用户 `My` 证书库，把公钥证书写入当前用户 `Root` 信任根，并把该证书交给 Kestrel；AOT 单文件不依赖 `dotnet dev-certs`。
+
+开发环境默认不自动启用 HTTPS，若需要验证 VS2026，可显式设置：
+
+```powershell
+$env:VSCOPILOTSWITCH_HTTPS_URL = 'https://127.0.0.1:5443'
+dotnet run --project .\src\VSCopilotSwitch\VSCopilotSwitch.csproj
+```
+
+也可以用 `VSCOPILOTSWITCH_VS2026_AUTO_HTTPS=false` 关闭发布版自动 HTTPS。启动后访问 `GET /internal/vs2026/byom` 获取建议填写值。VS2026 中选择 Azure Provider 后，按以下规则填写：
+
+- API Key：使用 `vscs-local` 这类占位值，VSCopilotSwitch 不把它当作上游密钥。
+- Model ID：使用 `GET /internal/vs2026/byom` 返回的 `ModelId`，例如 `gpt-5.5@vscs`。
+- Resource Endpoint / Custom URL：使用 `GET /internal/vs2026/byom` 返回的 `Endpoint`，形如 `https://127.0.0.1:5443/v1`。
+
+该流程仍是用户在 VS2026 UI 中显式配置，不直接写入 VS2026 私有凭据。
 
 ## 本轮只读命令摘要
 

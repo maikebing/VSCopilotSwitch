@@ -1256,6 +1256,15 @@ a {
   padding: 18px;
 }
 
+.vs2026-panel {
+  display: grid;
+  gap: 16px;
+  border: 1px solid #dfe5ef;
+  border-radius: 18px;
+  background: #f8fbff;
+  padding: 18px;
+}
+
 .about-panel {
   display: grid;
   gap: 16px;
@@ -1271,6 +1280,13 @@ a {
   gap: 10px;
 }
 
+.vs2026-status-grid,
+.vs2026-copy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .about-info-grid {
   display: grid;
   grid-template-columns: minmax(0, 190px) minmax(0, 1fr);
@@ -1278,6 +1294,8 @@ a {
 }
 
 .update-summary article,
+.vs2026-status-grid article,
+.vs2026-copy-item,
 .update-release,
 .update-source-item,
 .about-card,
@@ -1292,6 +1310,8 @@ a {
 }
 
 .update-summary span,
+.vs2026-status-grid span,
+.vs2026-copy-item span,
 .update-release span,
 .update-release small,
 .update-source-item span,
@@ -1302,6 +1322,45 @@ a {
 .wechat-card small {
   overflow-wrap: anywhere;
   color: var(--cc-muted);
+}
+
+.vs2026-status-grid article.ok {
+  border-color: #bfead9;
+  background: #fbfffd;
+}
+
+.vs2026-copy-item {
+  position: relative;
+  padding-right: 88px;
+}
+
+.vs2026-copy-item strong,
+.vs2026-status-grid strong {
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+.vs2026-copy-item small,
+.vs2026-status-grid small {
+  overflow-wrap: anywhere;
+  color: var(--cc-muted);
+  line-height: 1.45;
+}
+
+.vs2026-copy-item button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+.copy-feedback {
+  margin: 0;
+  border: 1px solid #bfead9;
+  border-radius: 12px;
+  background: #f0fff8;
+  color: #16745a;
+  padding: 10px 12px;
+  font-weight: 700;
 }
 
 .about-card {
@@ -1602,6 +1661,11 @@ a {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .vs2026-status-grid,
+  .vs2026-copy-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .provider-card {
     grid-template-columns: 28px 56px minmax(0, 1fr);
   }
@@ -1626,6 +1690,8 @@ a {
   .status-strip,
   .analytics-cards,
   .update-summary,
+  .vs2026-status-grid,
+  .vs2026-copy-grid,
   .about-info-grid,
   .wechat-card,
   .form-grid.two,

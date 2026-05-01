@@ -17,6 +17,9 @@ public static class OpenAiModelMapper
         return new OpenAiModelListResponse("list", models);
     }
 
+    public static OpenAiModelInfo? FindModel(OllamaTagsResponse tags, string modelId)
+        => CreateListResponse(tags).Data.FirstOrDefault(model => string.Equals(model.Id, modelId, StringComparison.OrdinalIgnoreCase));
+
     private static long ToUnixTimeSeconds(DateTimeOffset value)
         => value == default ? 0 : value.ToUnixTimeSeconds();
 

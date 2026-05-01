@@ -227,7 +227,9 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 - `POST /api/show`：Ollama 兼容模型详情接口，用于 VS Code Copilot Chat 探测模型能力和元信息；当前统一声明 400K 上下文，并按能力矩阵声明工具调用和视觉能力，不默认声明未验证的 thinking / reasoning 能力。
 - `POST /api/chat`：Ollama 兼容非流式和流式聊天；优先转发到 UI 当前启用供应商对应的上游聊天接口，支持顶层 `tools`、Ollama 官方 `think`、历史消息 `message.thinking` 和响应 `message.thinking`；未配置真实供应商时走内置 `InMemoryModelProvider` 回显。
 - `GET /v1/models`：OpenAI-compatible 标准模型发现接口，复用 `/api/tags` 的当前启用供应商模型列表，返回可直接用于 `/v1/chat/completions` 的 `@vscs` 模型 ID。
+- `GET /v1/models/{modelId}`：OpenAI-compatible 单模型校验接口，供 VS2026 Azure BYOM 验证用户填写的 Model ID。
 - `POST /v1/chat/completions`：Copilot Chat 当前真实聊天入口，支持 OpenAI-compatible 非流式和 SSE 流式响应、工具调用字段、usage、`reasoning_effort` / `thinking` 请求透传，以及 DeepSeek `reasoning_content` 响应映射。
+- `GET /internal/vs2026/byom`：返回 VS2026 Manage Models 建议填写的 HTTPS `/v1` 地址、Model ID 和占位 API Key。
 - `GET /internal/about`：返回关于页面所需的应用标题、当前版本、GitHub 地址和企业微信二维码路径。
 - `POST /internal/copilot/probe`：运行 Copilot 兼容最小探针，覆盖模型选择器、模型元信息、普通聊天、Agent 工具字段和流式结束。
 - `GET /internal/vscode/user-directories`：发现本机可能的 VS Code User 配置目录。
@@ -235,6 +237,8 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 - `GET /internal/providers/export`：导出供应商配置；默认不包含 API Key 原文、脱敏预览或加密密文，只保留 `HasApiKey` 状态。
 
 当前管理界面已提供 VS Code Ollama 配置写入向导：用户需要先选择 Windows VS Code User 目录并生成 dry-run 差异预览，确认 `vscs` Provider 条目的新增、更新或删除后才能二次确认写入；写入结果会展示备份路径、文件状态和字段级变化。顶部 VS Code Ollama 开关打开时只做状态检测，缺失配置时会跳转到写入向导并显示明确的预览/确认流程，不会静默写入。回滚入口会列出最近的 VSCopilotSwitch 备份，并在恢复指定备份前要求二次确认，同时为当前文件再创建安全备份。
+
+顶部 `VS2026` 按钮会进入设置页的 VS2026 面板，自动读取 `/internal/vs2026/byom` 并展示 VS2026 Manage Models 需要填写的 Provider、Resource Endpoint / Custom URL、Model ID、API Key 占位值，以及派生出的模型校验 URL 和聊天 URL。每个字段可单独复制，也可以一次复制全部，方便用户在 VS2026 UI 中手动填写。
 
 端到端人工验收清单见 [docs/end-to-end-acceptance-checklist.md](docs/end-to-end-acceptance-checklist.md)，覆盖新增供应商、启用、测试连接、刷新模型、VS Code 写入、Copilot 调用、本地撤销和备份回滚。Copilot 兼容验收清单见 [docs/copilot-compatibility-acceptance.md](docs/copilot-compatibility-acceptance.md)，包含手工验证路径和当前自动化探针覆盖范围。
 
@@ -245,6 +249,8 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 代理地址、熔断失败阈值、重试次数和备用路由等高级选项默认折叠，日常切换供应商时不会干扰主流程。
 
 高级选项中的本地代理地址支持端口占用检测，可填写 `5124`、`127.0.0.1:5124` 或完整 URL，并提示 `127.0.0.1` 上的目标端口是否已被其他代理占用。VSCopilotSwitch 不再把 VS Code Provider URL 指向 Ollama 默认的 `11434`，避免与用户本机原生 Ollama 服务冲突。主窗口当前由 OmniHost Win32 + Native WebView2 承载；发布包运行时从单体程序内嵌的 SPA 静态资源加载界面，不依赖外部 `wwwroot` 目录。托盘菜单由 Win32 原生方式实现，可查看当前供应商和模型，并快速切换真实供应商；点击主窗口关闭按钮只会隐藏到托盘并保持本地代理运行，只有托盘“退出”会停止宿主进程，避免引入 WinForms 依赖。
+
+发布版默认会在 `https://127.0.0.1:5443` 为 VS2026 Azure BYOM 准备本机 HTTPS 入口。程序启动时会生成只覆盖 `localhost`、`127.0.0.1` 和 `::1` 的自签服务器证书，把带私钥证书放入当前用户 `My` 证书库，把公钥证书放入当前用户 `Root` 信任根，并直接交给 Kestrel 使用；AOT 单文件不依赖用户机器安装 .NET SDK、Node.js 或手动执行 `dotnet dev-certs`。开发环境默认不自动启用该 HTTPS 口，可用 `VSCOPILOTSWITCH_HTTPS_URL=https://127.0.0.1:5443` 显式开启，也可用 `VSCOPILOTSWITCH_VS2026_AUTO_HTTPS=false` 关闭发布版自动 HTTPS。
 
 自动更新策略默认启用发布版后台下载：宿主会定时读取 GitHub Release 信息，比较当前程序集版本和远端 `tag_name`，选择匹配 `VSCopilotSwitch` / `win-x64` / `aot` 的 `.exe`、`.zip` 或 `.msi` 资产并下载到 `%LOCALAPPDATA%\VSCopilotSwitch\Updates`。设置页“更新”选项卡也提供手动检查和下载入口。当前阶段只下载发布包，不会静默替换正在运行的单文件程序；开发环境通过 `appsettings.Development.json` 关闭后台自动下载。
 

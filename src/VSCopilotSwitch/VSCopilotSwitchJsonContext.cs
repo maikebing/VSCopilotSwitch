@@ -32,6 +32,7 @@ using VSCopilotSwitch.VsCodeConfig.Models;
 [JsonSerializable(typeof(OpenAiModelListResponse))]
 [JsonSerializable(typeof(OpenAiModelInfo))]
 [JsonSerializable(typeof(OpenAiModelInfo[]))]
+[JsonSerializable(typeof(Vs2026ByomInfoResponse))]
 [JsonSerializable(typeof(OpenAiChatCompletionRequest))]
 [JsonSerializable(typeof(OpenAiChatRequestMessage))]
 [JsonSerializable(typeof(OpenAiChatCompletionResponse))]

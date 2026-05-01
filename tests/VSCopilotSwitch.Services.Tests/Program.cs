@@ -23,6 +23,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("OpenAI response mapper emits tool call stream deltas", OpenAiResponseMapper_EmitsToolCallStreamDeltas),
     ("OpenAI response mapper emits reasoning stream deltas", OpenAiResponseMapper_EmitsReasoningStreamDeltas),
     ("OpenAI model mapper emits standard model list", OpenAiModelMapper_EmitsStandardModelList),
+    ("OpenAI model mapper finds model by id", OpenAiModelMapper_FindsModelById),
+    ("Local HTTPS certificate host resolver accepts loopback only", LocalHttpsCertificateHostResolver_AcceptsLoopbackOnly),
     ("UpdateService reads latest release from GitHub", UpdateService_ReadsLatestReleaseFromGitHub),
     ("UpdateService downloads selected asset to cache", UpdateService_DownloadsSelectedAssetToCache)
 };
@@ -353,7 +355,7 @@ static Task OpenAiResponseMapper_EmitsReasoningStreamDeltas()
 
     using var document = JsonDocument.Parse(SerializeOpenAi(chunk));
     var serializedDelta = document.RootElement.GetProperty("choices")[0].GetProperty("delta");
-    Assert.Equal(JsonValueKind.Null.ToString(), serializedDelta.GetProperty("content").ValueKind.ToString(), "序列化后的 reasoning-only delta.content 应显式为 null。");
+    Assert.True(!serializedDelta.TryGetProperty("content", out _), "序列化后的 reasoning-only delta 不应输出空 content 字段。");
     Assert.Equal("先思考。", serializedDelta.GetProperty("reasoning_content").GetString() ?? string.Empty, "序列化后的 reasoning_content 应保留。");
     return Task.CompletedTask;
 }
@@ -391,6 +393,61 @@ static Task OpenAiModelMapper_EmitsStandardModelList()
     Assert.Equal("model", response.Data[0].Object, "模型条目 object 应为 model。");
     Assert.Equal(1_800_000_000, response.Data[0].Created, "模型条目 created 应来自 Ollama tags modified_at。");
     Assert.Equal("openai", response.Data[0].OwnedBy, "模型条目 owned_by 应优先使用 Provider 名称。");
+    return Task.CompletedTask;
+}
+
+static Task OpenAiModelMapper_FindsModelById()
+{
+    var tags = new OllamaTagsResponse(new[]
+    {
+        new OllamaModelInfo(
+            "gpt-5.5@vscs",
+            "gpt-5.5@vscs",
+            DateTimeOffset.FromUnixTimeSeconds(1_800_000_000),
+            0,
+            "vscopilotswitch:openai:gpt-5.5",
+            new OllamaModelDetails("gpt-5.5", "provider-adapter", "llama", new[] { "llama", "openai" }, "remote", "remote"),
+            new[] { "completion", "chat", "tools" },
+            400000,
+            new Dictionary<string, object>
+            {
+                ["vscopilotswitch.provider"] = "openai"
+            },
+            SupportsToolCalling: true,
+            SupportsVision: false,
+            SupportsThinking: false,
+            SupportsReasoning: false)
+    });
+
+    var found = OpenAiModelMapper.FindModel(tags, "GPT-5.5@VSCS");
+    var missing = OpenAiModelMapper.FindModel(tags, "missing@vscs");
+
+    Assert.True(found is not null, "VS2026 Azure BYOM 校验 /v1/models/{id} 时应能按模型 id 忽略大小写匹配。 ");
+    Assert.Equal("gpt-5.5@vscs", found!.Id, "返回的模型 id 应保持公开可调用名称。 ");
+    Assert.True(missing is null, "未知模型应返回空，HTTP 层会映射为 404。 ");
+    return Task.CompletedTask;
+}
+
+static Task LocalHttpsCertificateHostResolver_AcceptsLoopbackOnly()
+{
+    var hosts = LocalHttpsCertificateService.ResolveLoopbackHttpsHosts(new[]
+    {
+        "http://127.0.0.1:5124",
+        "https://localhost:5443",
+        "https://127.0.0.1:5444"
+    });
+
+    Assert.Equal("127.0.0.1,localhost", string.Join(",", hosts), "本地证书只应收集 HTTPS 回环地址。");
+
+    try
+    {
+        LocalHttpsCertificateService.ResolveLoopbackHttpsHosts(new[] { "https://example.com:5443" });
+        throw new InvalidOperationException("非回环 HTTPS 地址不应允许自动证书。");
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("回环地址", StringComparison.Ordinal))
+    {
+    }
+
     return Task.CompletedTask;
 }
 
@@ -474,12 +531,12 @@ static string ToOrderSnapshot(ProviderConfigView provider)
     => $"{provider.Id}:{provider.SortOrder}:{provider.Active}";
 
 static string SerializeOpenAi<T>(T value)
-    => JsonSerializer.Serialize(
-        value,
-        new JsonSerializerOptions
-        {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        });
+    => value switch
+    {
+        OpenAiChatCompletionResponse response => JsonSerializer.Serialize(response, TestJsonContext.Default.OpenAiChatCompletionResponse),
+        OpenAiChatCompletionChunk chunk => JsonSerializer.Serialize(chunk, TestJsonContext.Default.OpenAiChatCompletionChunk),
+        _ => JsonSerializer.Serialize(value)
+    };
 
 static RequestAnalyticsService CreateAnalyticsService(params UsagePriceRule[] rules)
     => new(new UsageCostEstimator(Options.Create(new UsagePricingOptions
@@ -623,6 +680,11 @@ internal sealed class ProbeModelProvider : IModelProvider
         yield return new ChatStreamChunk(request.Model, string.Empty, Done: true, "stop");
     }
 }
+
+[JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(OpenAiChatCompletionResponse))]
+[JsonSerializable(typeof(OpenAiChatCompletionChunk))]
+internal sealed partial class TestJsonContext : JsonSerializerContext;
 
 internal static class Assert
 {

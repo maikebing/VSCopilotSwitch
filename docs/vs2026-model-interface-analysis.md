@@ -69,6 +69,13 @@ VSCopilotSwitch 需要做的工作：
 
 该路线仍必须由用户在 VS2026 UI 中显式配置，不能静默写入私有凭据。
 
+当前实现进展：
+
+- 已支持通过环境变量 `VSCOPILOTSWITCH_HTTPS_URL` 或配置项 `Vs2026:HttpsUrl` 额外开启 HTTPS 监听，例如 `https://127.0.0.1:5443`。
+- 已补齐 VS2026 Azure BYOM 校验需要的 `GET /v1/models/{modelId}`，返回与 `GET /v1/models` 同形态的单个模型对象。
+- 已提供 `GET /internal/vs2026/byom`，用于显示 VS2026 Manage Models 中应填写的 HTTPS `/v1` 地址、模型 ID 和占位 API Key。
+- 发布版已内置本地 HTTPS 证书流程：默认尝试启用 `https://127.0.0.1:5443`，启动时生成 `localhost/127.0.0.1/::1` 当前用户证书，分别写入 `My` / `Root` 证书库并交给 Kestrel，AOT 单文件不再依赖 ASP.NET Core 开发证书或 `dotnet dev-certs`。
+
 ### 不推荐：伪装 Foundry Local
 
 虽然 BYOM 文件中 `Endpoint = 8` 对应 Foundry Local，但 VS2026 的 Foundry Local Provider 不读取 JSON 中的 URL。它会启动系统 `foundry service start`，从 CLI 输出中解析本地 `http://...` endpoint，然后请求相对路径 `/v1/models`。
@@ -118,6 +125,7 @@ VSCopilotSwitch 需要做的工作：
 - 增加 `VisualStudioConfigService`，只做只读发现、dry-run、备份、幂等写入和撤销。
 - 在 UI 顶部 `VS2026` 入口中接入“检测 VS2026 支持情况”。
 - 补充 `/v1/models`，以覆盖更标准的 OpenAI-compatible 模型发现路径。
+- 补充 `/v1/models/{modelId}`，满足 VS2026 Azure BYOM 对单模型校验端点的调用。
 - 增加请求日志中的客户端识别，区分 VS Code、VS2026、Ollama CLI 和其他客户端。
 
 ## 最小验收路径

@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using OmniHost;
@@ -21,9 +22,23 @@ using VSCopilotSwitch.Services;
 using VSCopilotSwitch.VsCodeConfig.Models;
 using VSCopilotSwitch.VsCodeConfig.Services;
 
-var configuredServerUrl = ResolveServerUrl();
 var builder = OmniApplication.CreateSlimBuilder(args);
-builder.WebHost.UseUrls(configuredServerUrl);
+var configuredServerUrls = ResolveServerUrls(builder.Configuration);
+var configuredServerUrl = configuredServerUrls[0];
+var configuredHttpsServerUrl = configuredServerUrls.FirstOrDefault(IsHttpsUrl);
+var localHttpsCertificate = LocalHttpsCertificateService.EnsureTrustedForServerUrls(configuredServerUrls);
+if (localHttpsCertificate is not null)
+{
+    builder.WebHost.ConfigureKestrel(options =>
+    {
+        options.ConfigureHttpsDefaults(httpsOptions =>
+        {
+            httpsOptions.ServerCertificate = localHttpsCertificate.Certificate;
+        });
+    });
+}
+
+builder.WebHost.UseUrls(configuredServerUrls);
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -210,6 +225,49 @@ webApp.MapGet("/v1/models", async (
     {
         return ToOpenAiErrorResult(ex);
     }
+});
+
+webApp.MapGet("/v1/models/{modelId}", async (
+    string modelId,
+    IOllamaProxyService ollama,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var tags = await ollama.ListTagsAsync(cancellationToken);
+        var model = OpenAiModelMapper.FindModel(tags, modelId);
+        return model is null
+            ? Results.NotFound(new OpenAiErrorResponse(new OpenAiErrorBody($"模型 {modelId} 不存在。", "not_found_error", "model_not_found")))
+            : Results.Ok(model);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex)
+    {
+        return ToOpenAiErrorResult(ex);
+    }
+});
+
+webApp.MapGet("/internal/vs2026/byom", async (
+    IOllamaProxyService ollama,
+    CancellationToken cancellationToken) =>
+{
+    var tags = await ollama.ListTagsAsync(cancellationToken);
+    var model = tags.Models.FirstOrDefault(item => !string.IsNullOrWhiteSpace(item.Name));
+    var modelId = model?.Name ?? "gpt-5.5@vscs";
+    var httpsBaseUrl = configuredHttpsServerUrl is null ? null : NormalizePublicBaseUrl(configuredHttpsServerUrl);
+    var endpoint = httpsBaseUrl is null ? null : $"{httpsBaseUrl}/v1";
+
+    return Results.Ok(new Vs2026ByomInfoResponse(
+        endpoint,
+        modelId,
+        "vscs-local",
+        configuredHttpsServerUrl is not null,
+        configuredHttpsServerUrl is null
+            ? "未启用 HTTPS 监听。发布版默认会尝试启用 https://127.0.0.1:5443；如果端口被占用，可设置 VSCOPILOTSWITCH_HTTPS_URL 指向其他本机回环端口。"
+            : $"可在 VS2026 Manage Models 中选择 Azure，填入该 HTTPS /v1 地址和模型 ID。本地 HTTPS 证书已写入当前用户证书库，指纹 {FormatCertificateThumbprint(localHttpsCertificate?.Thumbprint)}。"));
 });
 
 webApp.MapPost("/api/show", async (
@@ -431,13 +489,53 @@ webApp.MapGet("/{**path}", async context =>
 
 await app.RunAsync();
 
-static string ResolveServerUrl()
+static string[] ResolveServerUrls(IConfiguration configuration)
 {
     var configuredUrls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
-    var configuredUrl = configuredUrls?
+    var urls = configuredUrls?
         .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        .FirstOrDefault();
+        .ToList() ?? new List<string>();
+    if (urls.Count == 0)
+    {
+        urls.Add("http://127.0.0.1:5124");
+    }
 
+    var vs2026HttpsUrl = FirstNonEmpty(
+        Environment.GetEnvironmentVariable("VSCOPILOTSWITCH_HTTPS_URL"),
+        configuration["Vs2026:HttpsUrl"]);
+    if (string.IsNullOrWhiteSpace(vs2026HttpsUrl) && IsVs2026AutoHttpsEnabled(configuration) && IsTcpPortAvailable(5443))
+    {
+        vs2026HttpsUrl = "https://127.0.0.1:5443";
+    }
+
+    if (!string.IsNullOrWhiteSpace(vs2026HttpsUrl))
+    {
+        urls.Add(vs2026HttpsUrl);
+    }
+
+    return urls
+        .Select(ValidateServerUrl)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+}
+
+static bool IsVs2026AutoHttpsEnabled(IConfiguration configuration)
+{
+    var value = FirstNonEmpty(
+        Environment.GetEnvironmentVariable("VSCOPILOTSWITCH_VS2026_AUTO_HTTPS"),
+        configuration["Vs2026:AutoHttps"]);
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return true;
+    }
+
+    return bool.TryParse(value, out var enabled)
+        ? enabled
+        : throw new InvalidOperationException("Vs2026:AutoHttps 必须是 true 或 false。");
+}
+
+static string ValidateServerUrl(string configuredUrl)
+{
     if (Uri.TryCreate(configuredUrl, UriKind.Absolute, out var uri)
         && uri.Scheme is "http" or "https"
         && uri.Port is >= 1 and <= 65535)
@@ -450,17 +548,49 @@ static string ResolveServerUrl()
         return NormalizePublicBaseUrl(uri.AbsoluteUri);
     }
 
-    return "http://127.0.0.1:5124";
+    throw new InvalidOperationException($"监听地址无效：{configuredUrl}。请使用 http://127.0.0.1:5124 或 https://127.0.0.1:5443 这类完整 URL。");
 }
+
+static string? FirstNonEmpty(params string?[] values)
+    => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+
+static bool IsHttpsUrl(string value)
+    => Uri.TryCreate(value, UriKind.Absolute, out var uri)
+       && string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
 
 static string ResolveStartedServerUrl(WebApplication webApp, string fallbackUrl)
 {
-    return webApp.Services
+    var addresses = webApp.Services
         .GetRequiredService<IServer>()
         .Features
         .Get<IServerAddressesFeature>()?
-        .Addresses
-        .SingleOrDefault() ?? fallbackUrl;
+        .Addresses;
+    if (addresses is null || addresses.Count == 0)
+    {
+        return fallbackUrl;
+    }
+
+    return addresses.FirstOrDefault(IsHttpUrl)
+        ?? addresses.FirstOrDefault(IsHttpsUrl)
+        ?? addresses.FirstOrDefault()
+        ?? fallbackUrl;
+}
+
+static bool IsHttpUrl(string value)
+    => Uri.TryCreate(value, UriKind.Absolute, out var uri)
+       && string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase);
+
+static string FormatCertificateThumbprint(string? thumbprint)
+{
+    if (string.IsNullOrWhiteSpace(thumbprint))
+    {
+        return "未知";
+    }
+
+    var trimmed = thumbprint.Replace(" ", string.Empty, StringComparison.Ordinal);
+    return trimmed.Length <= 12
+        ? trimmed
+        : $"{trimmed[..6]}...{trimmed[^6..]}";
 }
 
 static bool IsTcpPortAvailable(int targetPort)
@@ -1117,6 +1247,13 @@ public sealed record OpenAiModelInfo(
     [property: JsonPropertyName("object")] string Object,
     [property: JsonPropertyName("created")] long Created,
     [property: JsonPropertyName("owned_by")] string OwnedBy);
+
+public sealed record Vs2026ByomInfoResponse(
+    string? Endpoint,
+    string ModelId,
+    string ApiKeyPlaceholder,
+    bool HttpsEnabled,
+    string Message);
 
 public sealed record ApplyVsCodeOllamaConfigRequest(
     string UserDirectory,

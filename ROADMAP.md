@@ -22,7 +22,7 @@
 - ⬜ 表示尚未开始编码，不能在变更日志或验收说明中描述成已完成。
 - UI 骨架、静态假数据、仅 appsettings 配置可用、仅单元层通过，都不能等同于产品闭环完成。
 
-当前主线：✅️ 阶段 5.5 真实功能闭环和阶段 5.6 Copilot Ollama Provider 真实协议补强已完成。继续采用“伪装为 Ollama Provider”的接入方式；发现阶段维护 `/api/version`、`/api/tags`、`/api/show` 和 OpenAI-compatible `/v1/models`，聊天阶段以 Copilot 当前真实调用的 `/v1/chat/completions` 为主，同时补齐 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 兼容面。VS2026 已完成 BYOM 二次只读探测，Azure BYOM 可通过 HTTPS CustomURL 作为 VSCopilotSwitch 接入试验路线，Foundry Local 依赖系统 `foundry` CLI 不适合伪装；不采用 TLS 中间人、域名劫持或 Token 复用路线。下一步进入阶段 6 稳定性与路由。
+当前主线：✅️ 阶段 5.5 真实功能闭环和阶段 5.6 Copilot Ollama Provider 真实协议补强已完成。继续采用“伪装为 Ollama Provider”的接入方式；发现阶段维护 `/api/version`、`/api/tags`、`/api/show`、OpenAI-compatible `/v1/models` 和 `/v1/models/{modelId}`，聊天阶段以 Copilot 当前真实调用的 `/v1/chat/completions` 为主，同时补齐 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 兼容面。VS2026 已进入 Azure BYOM A1 接入试验：发布版可自动启用本机回环 HTTPS、生成并信任当前用户本地证书，再把 `/v1` 暴露给 Azure CustomURL；Foundry Local 依赖系统 `foundry` CLI 不适合伪装；不采用 TLS 中间人、域名劫持或 Token 复用路线。下一步进入阶段 6 稳定性与路由。
 
 ## 阶段 0：项目基线
 
@@ -223,6 +223,8 @@
 9. ✅️ 在真实 VS Code 请求日志确认 Copilot 会发送 reasoning / thinking 相关字段后，实现 DeepSeek thinking 专用链路：`reasoning_content` 同进程缓存、工具结果跨轮恢复、流式 `reasoning_content` 映射和 400 reasoning 错误修复提示；该链路仅由请求字段或 DeepSeek thinking 模型触发，不默认对 Copilot 能力声明暴露。
 10. ✅️ 完成 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 兼容评估与最小实现：`tools` 已走现有管道，新增 `think` 请求字段、历史消息 `message.thinking` 读取、响应 `message.thinking` 输出和 DeepSeek `think: "high"` 到 `reasoning_effort` 的桥接；Copilot 主路径仍保持 `/v1/chat/completions`，不因该兼容面默认虚报 thinking/reasoning 能力。
 11. ✅️ 加固 OpenAI-compatible SSE 转发：纯 `reasoning_content` 流式分块也会写给客户端，避免推理模型在普通 content 为空时被 Copilot 误判为无响应。
+12. ✅️ 内置 VS2026 本地 HTTPS 证书流程：发布版自动准备 `https://127.0.0.1:5443`，生成只覆盖 `localhost/127.0.0.1/::1` 的当前用户证书，写入 `My` / `Root` 证书库并提供给 Kestrel，AOT 单文件不再依赖 `dotnet dev-certs`。
+13. ✅️ 增加设置页 VS2026 面板：顶部 `VS2026` 按钮直达 Azure BYOM 填写信息，自动读取 `/internal/vs2026/byom`，展示 Provider、HTTPS Endpoint、Model ID、API Key 占位值和校验/聊天 URL，并支持逐项复制。
 
 验收标准：
 

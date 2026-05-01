@@ -8,6 +8,9 @@
 
 - ✅️ 新增 VS2026 用户配置与 AI Provider 配置位置探测记录，确认 VS2026 18.0 实例配置、Copilot BYOM 配置文件、MCP 配置和常规 Copilot 设置键的实际落点；二次探测已观察到 Foundry Local 与 Azure BYOM 摘要条目。
 - ✅️ 补充 VS2026 BYOM Provider 行为分析：Azure BYOM 是自定义 HTTPS URL Provider，可作为 VSCopilotSwitch 接入试验路线；Foundry Local 依赖系统 `foundry service start`，不适合通过手写 BYOM JSON 伪装。
+- ✅️ 启动 VS2026 Azure BYOM A1 接入试验：支持通过 `VSCOPILOTSWITCH_HTTPS_URL` / `Vs2026:HttpsUrl` 额外开启 HTTPS 监听，补齐 `GET /v1/models/{modelId}` 单模型校验接口，并新增 `/internal/vs2026/byom` 返回 VS2026 Manage Models 建议填写值。
+- ✅️ VS2026 HTTPS 监听新增发布版内置本地证书流程：AOT 程序启动时可自动生成 `localhost/127.0.0.1/::1` 证书，写入当前用户 `My` / `Root` 证书库并交给 Kestrel 使用，不再依赖用户机器安装 .NET SDK 或手动执行 `dotnet dev-certs`。
+- ✅️ 设置页新增 VS2026 面板：顶部 `VS2026` 按钮会打开 Azure BYOM 填写信息，自动展示 Provider、Resource Endpoint / Custom URL、Model ID、API Key 占位值、校验 URL 和聊天 URL，并提供逐项复制与复制全部。
 - ✅️ 新增 VS2026 大模型接口接入分析文档，明确优先寻找官方 Provider / Ollama / OpenAI-compatible / VS SDK 入口，不采用 TLS 中间人、域名劫持、Token 复用或二进制 patch 作为产品路线。
 - ✅️ 新增阶段 5.6 Copilot Ollama Provider 真实协议补强路线：确认继续采用 `vscs` Ollama Provider 接入，但优先实现 Copilot 当前真实聊天入口 `/v1/chat/completions`、工具调用转发和精确能力声明，暂缓未被 Copilot 真实消费的 `/api/chat` thinking 扩展。
 - ✅️ 新增本地 OpenAI-compatible `/v1/models` 模型发现接口，复用当前启用供应商的 `/api/tags` 模型列表，并返回可直接用于 `/v1/chat/completions` 的 `@vscs` 模型 ID。

@@ -88,6 +88,21 @@ type VsCodeOllamaConfigStatus = {
   Message: string;
 };
 
+type Vs2026ByomInfo = {
+  Endpoint: string | null;
+  ModelId: string;
+  ApiKeyPlaceholder: string;
+  HttpsEnabled: boolean;
+  Message: string;
+};
+
+type Vs2026CopyField = {
+  Label: string;
+  Value: string;
+  CopyValue: string | null;
+  Hint: string;
+};
+
 type PortStatus = {
   Port: number;
   Available: boolean;
@@ -235,6 +250,7 @@ const backups = ref<ConfigBackup[]>([]);
 const selectedBackupPath = ref('');
 const restoreResult = ref<RestoreResult | null>(null);
 const vscodeOllamaStatus = ref<VsCodeOllamaConfigStatus | null>(null);
+const vs2026ByomInfo = ref<Vs2026ByomInfo | null>(null);
 const portStatus = ref<PortStatus | null>(null);
 const analytics = ref<AnalyticsSnapshot | null>(null);
 const updateCheck = ref<UpdateCheckResult | null>(null);
@@ -249,6 +265,7 @@ const exportConfigLoading = ref(false);
 const backupsLoading = ref(false);
 const restoreLoading = ref(false);
 const vscodeConfigSwitchLoading = ref(false);
+const vs2026Loading = ref(false);
 const vscodeSetupPromptVisible = ref(false);
 const portChecking = ref(false);
 const modelsLoading = ref(false);
@@ -259,11 +276,13 @@ const applyConfirmationArmed = ref(false);
 const restoreConfirmationArmed = ref(false);
 const errorMessage = ref('');
 const modelErrorMessage = ref('');
+const vs2026ErrorMessage = ref('');
+const vs2026CopyFeedback = ref('');
 const providerConnectionResult = ref<ProviderConnectionTestResult | null>(null);
 const modelsRefreshedAt = ref<string | null>(null);
 const recoveryAdvice = ref<RecoveryAdvice | null>(null);
 const currentView = ref<'list' | 'edit' | 'settings' | 'analytics'>('list');
-const settingsTab = ref<'general' | 'updates' | 'backups' | 'about'>('general');
+const settingsTab = ref<'general' | 'vs2026' | 'updates' | 'backups' | 'about'>('general');
 const aboutInfo = ref<AboutInfo | null>(null);
 const showApiKey = ref(false);
 const showAdvancedOptions = ref(false);
@@ -363,6 +382,61 @@ const canApplyVsCodeConfig = computed(() => Boolean(preview.value?.DryRun && sel
 const selectedBackup = computed(() => backups.value.find((backup) => backup.BackupPath === selectedBackupPath.value));
 const applyConfirmText = computed(() => (applyConfirmationArmed.value ? '已预览风险，再次点击写入' : '确认写入 VS Code Ollama 配置'));
 const restoreConfirmText = computed(() => (restoreConfirmationArmed.value ? '已确认风险，再次点击恢复' : '恢复选中备份'));
+const vs2026ModelId = computed(() => vs2026ByomInfo.value?.ModelId || toVs2026ModelId(models.value[0]?.name || providerModel.value || 'gpt-5.5'));
+const vs2026Endpoint = computed(() => vs2026ByomInfo.value?.Endpoint ?? '');
+const vs2026ValidationUrl = computed(() => {
+  if (!vs2026Endpoint.value) {
+    return '';
+  }
+
+  return `${vs2026Endpoint.value}/models/${encodeURIComponent(vs2026ModelId.value)}`;
+});
+const vs2026ChatUrl = computed(() => (vs2026Endpoint.value ? `${vs2026Endpoint.value}/chat/completions` : ''));
+const vs2026StatusText = computed(() => {
+  if (vs2026Loading.value) {
+    return '读取中';
+  }
+
+  return vs2026ByomInfo.value?.HttpsEnabled ? 'HTTPS 已就绪' : 'HTTPS 未启用';
+});
+const vs2026CopyFields = computed<Vs2026CopyField[]>(() => [
+  {
+    Label: 'Provider',
+    Value: 'Azure',
+    CopyValue: 'Azure',
+    Hint: 'VS2026 Manage Models 中的 Provider 类型'
+  },
+  {
+    Label: 'Resource Endpoint / Custom URL',
+    Value: vs2026Endpoint.value || 'HTTPS 未启用',
+    CopyValue: vs2026Endpoint.value || null,
+    Hint: '填入 VS2026 的资源端点'
+  },
+  {
+    Label: 'Model ID',
+    Value: vs2026ModelId.value,
+    CopyValue: vs2026ModelId.value,
+    Hint: '填入 VS2026 的模型 ID'
+  },
+  {
+    Label: 'API Key',
+    Value: vs2026ByomInfo.value?.ApiKeyPlaceholder || 'vscs-local',
+    CopyValue: vs2026ByomInfo.value?.ApiKeyPlaceholder || 'vscs-local',
+    Hint: '本地校验占位值'
+  },
+  {
+    Label: '校验 URL',
+    Value: vs2026ValidationUrl.value || '等待 HTTPS 地址',
+    CopyValue: vs2026ValidationUrl.value || null,
+    Hint: 'VS2026 会请求的模型校验地址'
+  },
+  {
+    Label: '聊天 URL',
+    Value: vs2026ChatUrl.value || '等待 HTTPS 地址',
+    CopyValue: vs2026ChatUrl.value || null,
+    Hint: '通过 Custom URL 推导出的聊天入口'
+  }
+]);
 const vscodeConfigSwitchText = computed(() => {
   if (vscodeConfigSwitchLoading.value) {
     return '检查中';
@@ -391,6 +465,15 @@ function displayModelName(model?: ModelInfo) {
   const name = model.name || model.model || '';
   const separatorIndex = name.indexOf('/');
   return separatorIndex >= 0 ? name.slice(separatorIndex + 1) : name;
+}
+
+function toVs2026ModelId(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 'gpt-5.5@vscs';
+  }
+
+  return trimmed.toLowerCase().endsWith('@vscs') ? trimmed : `${trimmed}@vscs`;
 }
 
 function formatNumber(value: number) {
@@ -571,6 +654,7 @@ async function loadDashboard() {
     restoreResult.value = null;
     await refreshModels(false);
     await refreshVsCodeOllamaStatus(false);
+    await loadVs2026ByomInfo(false);
   } catch (error) {
     setError(messageFromError(error, '加载状态失败。'));
   } finally {
@@ -600,6 +684,31 @@ async function refreshModels(showGlobalError = true) {
     }
   } finally {
     modelsLoading.value = false;
+  }
+}
+
+async function loadVs2026ByomInfo(showGlobalError = true) {
+  vs2026Loading.value = true;
+  vs2026ErrorMessage.value = '';
+  if (showGlobalError) {
+    clearError();
+  }
+
+  try {
+    const response = await fetch('/internal/vs2026/byom');
+    if (!response.ok) {
+      throw new Error(await readPublicError(response, '读取 VS2026 BYOM 配置信息失败。'));
+    }
+
+    vs2026ByomInfo.value = (await response.json()) as Vs2026ByomInfo;
+  } catch (error) {
+    const message = messageFromError(error, '读取 VS2026 BYOM 配置信息失败。');
+    vs2026ErrorMessage.value = message;
+    if (showGlobalError) {
+      setError(message);
+    }
+  } finally {
+    vs2026Loading.value = false;
   }
 }
 
@@ -1192,6 +1301,9 @@ async function saveProvider() {
 
     providers.value = mapProviderViews(await response.json());
     await refreshModels(false);
+    if (settingsTab.value === 'vs2026') {
+      await loadVs2026ByomInfo(false);
+    }
     openList();
   } catch (error) {
     setError(messageFromError(error, '保存供应商失败。'));
@@ -1292,6 +1404,13 @@ function openSettings() {
   vscodeSetupPromptVisible.value = false;
 }
 
+async function openVs2026Settings() {
+  settingsTab.value = 'vs2026';
+  currentView.value = 'settings';
+  vscodeSetupPromptVisible.value = false;
+  await loadVs2026ByomInfo(false);
+}
+
 async function openUpdates() {
   settingsTab.value = 'updates';
   currentView.value = 'settings';
@@ -1318,6 +1437,9 @@ async function activateProvider(providerId: string) {
 
     providers.value = mapProviderViews(await response.json());
     await refreshModels(false);
+    if (settingsTab.value === 'vs2026') {
+      await loadVs2026ByomInfo(false);
+    }
   } catch (error) {
     setError(messageFromError(error, '启用供应商失败。'));
   }
@@ -1336,6 +1458,49 @@ async function openExternalUrl(url: string) {
   }
 
   window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+async function copyText(value: string, label: string) {
+  const text = value.trim();
+  if (!text) {
+    return;
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      copyTextFallback(text);
+    }
+
+    vs2026CopyFeedback.value = `${label} 已复制`;
+    window.setTimeout(() => {
+      if (vs2026CopyFeedback.value === `${label} 已复制`) {
+        vs2026CopyFeedback.value = '';
+      }
+    }, 1800);
+  } catch (error) {
+    setError(messageFromError(error, '复制失败，请手动选中文本复制。'));
+  }
+}
+
+function copyTextFallback(value: string) {
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', 'readonly');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+}
+
+async function copyVs2026All() {
+  const lines = vs2026CopyFields.value
+    .filter((field) => field.CopyValue)
+    .map((field) => `${field.Label}: ${field.CopyValue}`);
+  await copyText(lines.join('\n'), 'VS2026 配置');
 }
 
 function beginProviderDrag(providerId: string, event: DragEvent) {
@@ -1464,8 +1629,12 @@ onMounted(loadDashboard);
       </section>
 
       <section class="quick-switch" aria-label="快速切换">
-        <button class="pill active" type="button"><span class="ide-icon vs-icon">VS</span> VS2026</button>
-        <button class="pill selected" type="button"><span class="ide-icon vscode-icon">⌁</span> VSCode</button>
+        <button class="pill" :class="{ selected: currentView === 'settings' && settingsTab === 'vs2026' }" type="button" @click="openVs2026Settings">
+          <span class="ide-icon vs-icon">VS</span> VS2026
+        </button>
+        <button class="pill" :class="{ selected: currentView === 'settings' && settingsTab === 'general' }" type="button" @click="openSettings">
+          <span class="ide-icon vscode-icon">⌁</span> VSCode
+        </button>
       </section>
 
       <label class="top-config-switch" :title="vscodeConfigSwitchTitle">
@@ -1890,6 +2059,10 @@ onMounted(loadDashboard);
               <strong>常规</strong>
               <span>VS Code 配置写入、代理基础状态</span>
             </button>
+            <button type="button" :class="{ active: settingsTab === 'vs2026' }" @click="openVs2026Settings">
+              <strong>VS2026</strong>
+              <span>{{ vs2026StatusText }} · {{ vs2026ModelId }}</span>
+            </button>
             <button type="button" :class="{ active: settingsTab === 'updates' }" @click="openUpdates">
               <strong>更新</strong>
               <span>{{ updateStatusText }}</span>
@@ -2006,6 +2179,65 @@ onMounted(loadDashboard);
                 </div>
               </section>
 
+            </template>
+
+            <template v-else-if="settingsTab === 'vs2026'">
+              <section class="settings-section">
+                <div>
+                  <span>VS2026</span>
+                  <h3>Azure BYOM 填写信息</h3>
+                </div>
+                <p>{{ vs2026ByomInfo?.Message ?? '正在读取本地 VS2026 BYOM 建议信息。' }}</p>
+              </section>
+
+              <section class="vs2026-panel" aria-label="VS2026 BYOM 设置">
+                <div class="wizard-title">
+                  <div>
+                    <span>Manage Models</span>
+                    <h3>{{ vs2026StatusText }}</h3>
+                  </div>
+                  <div class="wizard-actions">
+                    <button class="secondary-button" type="button" :disabled="vs2026Loading" @click="loadVs2026ByomInfo(true)">
+                      {{ vs2026Loading ? '读取中...' : '刷新信息' }}
+                    </button>
+                    <button class="save-button" type="button" :disabled="vs2026Loading || vs2026CopyFields.every((field) => !field.CopyValue)" @click="copyVs2026All">
+                      复制全部
+                    </button>
+                  </div>
+                </div>
+
+                <p v-if="vs2026ErrorMessage" class="model-error">{{ vs2026ErrorMessage }}</p>
+                <p v-if="vs2026CopyFeedback" class="copy-feedback">{{ vs2026CopyFeedback }}</p>
+
+                <div class="vs2026-status-grid">
+                  <article :class="{ ok: vs2026ByomInfo?.HttpsEnabled }">
+                    <span>HTTPS</span>
+                    <strong>{{ vs2026ByomInfo?.HttpsEnabled ? '已启用' : '未启用' }}</strong>
+                    <small>{{ vs2026Endpoint || '等待 https://127.0.0.1:5443' }}</small>
+                  </article>
+                  <article>
+                    <span>当前供应商</span>
+                    <strong>{{ activeProvider?.name ?? '未选择' }}</strong>
+                    <small>{{ activeProvider?.vendor ?? 'provider' }}</small>
+                  </article>
+                  <article>
+                    <span>当前模型</span>
+                    <strong>{{ vs2026ModelId }}</strong>
+                    <small>{{ activeProvider?.model || providerModel }}</small>
+                  </article>
+                </div>
+
+                <div class="vs2026-copy-grid">
+                  <article v-for="field in vs2026CopyFields" :key="field.Label" class="vs2026-copy-item">
+                    <span>{{ field.Label }}</span>
+                    <strong>{{ field.Value }}</strong>
+                    <small>{{ field.Hint }}</small>
+                    <button class="secondary-button compact" type="button" :disabled="!field.CopyValue" @click="copyText(field.CopyValue ?? '', field.Label)">
+                      复制
+                    </button>
+                  </article>
+                </div>
+              </section>
             </template>
 
             <template v-else-if="settingsTab === 'updates'">
