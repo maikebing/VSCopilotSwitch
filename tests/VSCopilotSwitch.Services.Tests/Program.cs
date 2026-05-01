@@ -21,7 +21,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("OpenAI response mapper emits tool calls", OpenAiResponseMapper_EmitsToolCalls),
     ("OpenAI response mapper emits reasoning content", OpenAiResponseMapper_EmitsReasoningContent),
     ("OpenAI response mapper emits tool call stream deltas", OpenAiResponseMapper_EmitsToolCallStreamDeltas),
-    ("UpdateService selects newest release across mirrors", UpdateService_SelectsNewestReleaseAcrossMirrors),
+    ("OpenAI model mapper emits standard model list", OpenAiModelMapper_EmitsStandardModelList),
+    ("UpdateService reads latest release from GitHub", UpdateService_ReadsLatestReleaseFromGitHub),
     ("UpdateService downloads selected asset to cache", UpdateService_DownloadsSelectedAssetToCache)
 };
 
@@ -332,50 +333,69 @@ static Task OpenAiResponseMapper_EmitsToolCallStreamDeltas()
     return Task.CompletedTask;
 }
 
-static async Task UpdateService_SelectsNewestReleaseAcrossMirrors()
+static Task OpenAiModelMapper_EmitsStandardModelList()
+{
+    var modifiedAt = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
+    var tags = new OllamaTagsResponse(new[]
+    {
+        new OllamaModelInfo(
+            "gpt-5.5@vscs",
+            "gpt-5.5@vscs",
+            modifiedAt,
+            0,
+            "vscopilotswitch:openai:gpt-5.5",
+            new OllamaModelDetails("gpt-5.5", "provider-adapter", "llama", new[] { "llama", "openai" }, "remote", "remote"),
+            new[] { "completion", "chat", "tools" },
+            400000,
+            new Dictionary<string, object>
+            {
+                ["vscopilotswitch.provider"] = "openai",
+                ["general.basename"] = "gpt-5.5"
+            },
+            SupportsToolCalling: true,
+            SupportsVision: false,
+            SupportsThinking: false,
+            SupportsReasoning: false)
+    });
+
+    var response = OpenAiModelMapper.CreateListResponse(tags);
+
+    Assert.Equal("list", response.Object, "OpenAI 模型列表 object 应为 list。");
+    Assert.Equal(1, response.Data.Count, "模型列表应包含当前可调用模型。");
+    Assert.Equal("gpt-5.5@vscs", response.Data[0].Id, "OpenAI-compatible 模型 id 应使用可直接调用的 @vscs 名称。");
+    Assert.Equal("model", response.Data[0].Object, "模型条目 object 应为 model。");
+    Assert.Equal(1_800_000_000, response.Data[0].Created, "模型条目 created 应来自 Ollama tags modified_at。");
+    Assert.Equal("openai", response.Data[0].OwnedBy, "模型条目 owned_by 应优先使用 Provider 名称。");
+    return Task.CompletedTask;
+}
+
+static async Task UpdateService_ReadsLatestReleaseFromGitHub()
 {
     using var workspace = TestWorkspace.Create();
     var service = workspace.CreateUpdateService(new Dictionary<string, string>
     {
         ["https://example.test/github"] = """
             {
-              "tag_name": "v1.2.0",
-              "name": "GitHub 1.2.0",
-              "published_at": "2026-01-01T00:00:00Z",
+              "tag_name": "v1.3.0",
+              "name": "GitHub 1.3.0",
+              "published_at": "2026-02-01T00:00:00Z",
               "assets": [
                 {
                   "name": "VSCopilotSwitch-win-x64-aot.zip",
                   "browser_download_url": "https://example.test/download/github.zip",
-                  "size": 1024
+                  "size": 2048
                 }
               ]
             }
-            """,
-        ["https://example.test/gitee"] = """
-            {
-              "id": 130,
-              "tag_name": "v1.3.0",
-              "name": "Gitee 1.3.0",
-              "published_at": "2026-02-01T00:00:00Z",
-              "assets": []
-            }
-            """,
-        ["https://gitee.com/api/v5/repos/example.test/mirror/releases/130/attach_files"] = """
-            [
-                {
-                  "name": "VSCopilotSwitch-win-x64-aot.zip",
-                  "download_url": "https://example.test/download/gitee.zip",
-                  "size": 2048
-                }
-            ]
             """
     });
 
     var result = await service.CheckAsync();
 
     Assert.True(result.UpdateAvailable, "发现更高版本时应标记可更新。");
-    Assert.Equal("1.3.0", result.LatestRelease?.Version ?? string.Empty, "应在 GitHub 和 Gitee 中选择最高版本。");
-    Assert.Equal("Gitee", result.LatestRelease?.SourceName ?? string.Empty, "最高版本来源应保留。");
+    Assert.Equal("1.3.0", result.LatestRelease?.Version ?? string.Empty, "应读取 GitHub Release 最新版本。");
+    Assert.Equal("GitHub", result.LatestRelease?.SourceName ?? string.Empty, "自动更新来源应为 GitHub。");
+    Assert.Equal("https://example.test/download/github.zip", result.LatestRelease?.Asset?.DownloadUrl ?? string.Empty, "应选择 GitHub Release 资产下载地址。");
 }
 
 static async Task UpdateService_DownloadsSelectedAssetToCache()
@@ -396,14 +416,6 @@ static async Task UpdateService_DownloadsSelectedAssetToCache()
                   "size": 19
                 }
               ]
-            }
-            """,
-        ["https://example.test/gitee"] = """
-            {
-              "tag_name": "v1.1.0",
-              "name": "Gitee 1.1.0",
-              "published_at": "2025-12-01T00:00:00Z",
-              "assets": []
             }
             """,
         ["https://example.test/download/update.zip"] = payload
@@ -510,13 +522,6 @@ internal sealed class TestWorkspace : IDisposable
                         Name = "GitHub",
                         Kind = "GitHub",
                         ApiUrl = "https://example.test/github"
-                    },
-                    new UpdateSourceOptions
-                    {
-                        Name = "Gitee",
-                        Kind = "Gitee",
-                        Repository = "example.test/mirror",
-                        ApiUrl = "https://example.test/gitee"
                     }
                 ]
             },

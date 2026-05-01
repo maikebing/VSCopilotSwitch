@@ -226,6 +226,7 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 - `GET /api/version`：Ollama 兼容版本探测接口，用于让 VS Code 确认本地代理满足 Ollama 0.6.4+ 要求。
 - `POST /api/show`：Ollama 兼容模型详情接口，用于 VS Code Copilot Chat 探测模型能力和元信息；当前统一声明 400K 上下文，并按能力矩阵声明工具调用和视觉能力，不默认声明未验证的 thinking / reasoning 能力。
 - `POST /api/chat`：Ollama 兼容非流式和流式聊天；优先转发到 UI 当前启用供应商对应的上游聊天接口，支持顶层 `tools`、Ollama 官方 `think`、历史消息 `message.thinking` 和响应 `message.thinking`；未配置真实供应商时走内置 `InMemoryModelProvider` 回显。
+- `GET /v1/models`：OpenAI-compatible 标准模型发现接口，复用 `/api/tags` 的当前启用供应商模型列表，返回可直接用于 `/v1/chat/completions` 的 `@vscs` 模型 ID。
 - `POST /v1/chat/completions`：Copilot Chat 当前真实聊天入口，支持 OpenAI-compatible 非流式和 SSE 流式响应、工具调用字段、usage、`reasoning_effort` / `thinking` 请求透传，以及 DeepSeek `reasoning_content` 响应映射。
 - `GET /internal/about`：返回关于页面所需的应用标题、当前版本、GitHub 地址和企业微信二维码路径。
 - `POST /internal/copilot/probe`：运行 Copilot 兼容最小探针，覆盖模型选择器、模型元信息、普通聊天、Agent 工具字段和流式结束。
@@ -245,7 +246,7 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 
 高级选项中的本地代理地址支持端口占用检测，可填写 `5124`、`127.0.0.1:5124` 或完整 URL，并提示 `127.0.0.1` 上的目标端口是否已被其他代理占用。VSCopilotSwitch 不再把 VS Code Provider URL 指向 Ollama 默认的 `11434`，避免与用户本机原生 Ollama 服务冲突。主窗口当前由 OmniHost Win32 + Native WebView2 承载；发布包运行时从单体程序内嵌的 SPA 静态资源加载界面，不依赖外部 `wwwroot` 目录。托盘菜单由 Win32 原生方式实现，可查看当前供应商和模型，并快速切换真实供应商；点击主窗口关闭按钮只会隐藏到托盘并保持本地代理运行，只有托盘“退出”会停止宿主进程，避免引入 WinForms 依赖。
 
-自动更新策略默认启用发布版后台下载：宿主会定时读取 GitHub 与 Gitee 的 Release 信息，比较当前程序集版本和远端 `tag_name`，选择最高版本中匹配 `VSCopilotSwitch` / `win-x64` / `aot` 的 `.exe`、`.zip` 或 `.msi` 资产并下载到 `%LOCALAPPDATA%\VSCopilotSwitch\Updates`。设置页“更新”选项卡也提供手动检查和下载入口。当前阶段只下载发布包，不会静默替换正在运行的单文件程序；开发环境通过 `appsettings.Development.json` 关闭后台自动下载。
+自动更新策略默认启用发布版后台下载：宿主会定时读取 GitHub Release 信息，比较当前程序集版本和远端 `tag_name`，选择匹配 `VSCopilotSwitch` / `win-x64` / `aot` 的 `.exe`、`.zip` 或 `.msi` 资产并下载到 `%LOCALAPPDATA%\VSCopilotSwitch\Updates`。设置页“更新”选项卡也提供手动检查和下载入口。当前阶段只下载发布包，不会静默替换正在运行的单文件程序；开发环境通过 `appsettings.Development.json` 关闭后台自动下载。
 
 发布 CI 位于 `.github/workflows/release.yml`，在 Windows runner 上执行完整链路：`npm install --prefix src/VSCopilotSwitch.Ui`、`npm run ui:build`、检查 `dist/index.html` 和静态资源数量、运行 .NET build/tests、发布 `win-x64` Native AOT 单文件、启动发布产物访问 `/health` 冒烟，并打包 `VSCopilotSwitch-<version>-win-x64-aot.zip` 与 `.sha256`。分支 push 和 PR 只构建、测试并上传 workflow artifact；只有推送 `v*` 标签时才会把这两个文件上传到 GitHub Release。Release zip 只包含 `VSCopilotSwitch.exe`，自动更新下载到的也是这个单文件包；本地可用 `npm run release:win-x64` 复用 npm install、SPA build 和 AOT 发布顺序。Release 发布配置显式启用 full trim 和 Native AOT size 优化，关闭发布包不需要的调试器、EventSource 与 HTTP activity propagation 支持，以控制单文件体积。
 
@@ -301,4 +302,4 @@ Windows 端已进入源码集成阶段：宿主项目直接引用 `external/Omni
 
 `OmniHost.NativeWebView2` 基于 `WebView2Aot` generated COM binding 实现，不再依赖 classic `Microsoft.Web.WebView2.Core` 托管 wrapper；发布时会把对应架构的 `WebView2Loader.dll` 作为嵌入式资源加载，便于 Native AOT 单文件分发。
 
-当前阶段仍保留本地 HTTP 服务边界，便于 VS Code 配置 API、Ollama 兼容代理和 Vue SPA 继续复用现有开发链路；托盘菜单、窗口聚焦、关闭隐藏到托盘、快速切换供应商、退出代理和 GitHub/Gitee 更新包缓存下载已在 OmniHost Windows 宿主层接入，后续会继续补齐跨平台宿主策略。
+当前阶段仍保留本地 HTTP 服务边界，便于 VS Code 配置 API、Ollama 兼容代理和 Vue SPA 继续复用现有开发链路；托盘菜单、窗口聚焦、关闭隐藏到托盘、快速切换供应商、退出代理和 GitHub Release 更新包缓存下载已在 OmniHost Windows 宿主层接入，后续会继续补齐跨平台宿主策略。

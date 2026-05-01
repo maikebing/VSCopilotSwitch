@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -190,13 +189,6 @@ public sealed class UpdateService : IUpdateService
             }
 
             var release = ParseRelease(source, releaseElement);
-            if (release.Asset is null
-                && source.Kind.Equals("Gitee", StringComparison.OrdinalIgnoreCase)
-                && TryGetReleaseId(releaseElement, out var releaseId))
-            {
-                release = await LoadGiteeAttachFilesAsync(source, release, releaseId, cancellationToken);
-            }
-
             return new UpdateSourceCheckResult(DisplaySourceName(source), true, "已读取 Release。", release);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -228,59 +220,9 @@ public sealed class UpdateService : IUpdateService
             asset);
     }
 
-    private async Task<UpdateReleaseInfo> LoadGiteeAttachFilesAsync(
-        UpdateSourceOptions source,
-        UpdateReleaseInfo release,
-        string releaseId,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(source.Repository))
-        {
-            return release;
-        }
-
-        var url = $"https://gitee.com/api/v5/repos/{source.Repository}/releases/{releaseId}/attach_files";
-        using var response = await _httpClient.GetAsync(url, cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            return release;
-        }
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        if (document.RootElement.ValueKind is not JsonValueKind.Array)
-        {
-            return release;
-        }
-
-        var assets = document.RootElement.EnumerateArray()
-            .Select(ParseAttachFileAsset)
-            .Where(static asset => asset is not null)
-            .Cast<UpdateAssetInfo>()
-            .ToArray();
-        return release with { Asset = SelectAsset(assets, _options.AssetNameHints) };
-    }
-
-    private static UpdateAssetInfo? ParseAttachFileAsset(JsonElement asset)
-    {
-        var name = FirstString(asset, "name", "filename", "file_name") ?? string.Empty;
-        var downloadUrl = FirstString(asset, "download_url", "downloadUrl", "url") ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(downloadUrl))
-        {
-            return null;
-        }
-
-        return new UpdateAssetInfo(
-            name,
-            downloadUrl,
-            FirstLong(asset, "size", "size_bytes", "sizeBytes") ?? 0,
-            FirstString(asset, "content_type", "contentType"),
-            FirstString(asset, "digest", "sha256"));
-    }
-
     private IEnumerable<UpdateAssetInfo> ReadAssets(JsonElement release)
     {
-        foreach (var propertyName in new[] { "assets", "attach_files", "attachFiles" })
+        foreach (var propertyName in new[] { "assets" })
         {
             if (!release.TryGetProperty(propertyName, out var assets) || assets.ValueKind is not JsonValueKind.Array)
             {
@@ -374,9 +316,12 @@ public sealed class UpdateService : IUpdateService
 
     private IReadOnlyList<UpdateSourceOptions> ResolveSources()
     {
-        if (_options.Sources.Count > 0)
+        var configuredGitHubSources = _options.Sources
+            .Where(source => source.Kind.Equals("GitHub", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (configuredGitHubSources.Length > 0)
         {
-            return _options.Sources;
+            return configuredGitHubSources;
         }
 
         return
@@ -385,12 +330,6 @@ public sealed class UpdateService : IUpdateService
             {
                 Name = "GitHub",
                 Kind = "GitHub",
-                Repository = "maikebing/VSCopilotSwitch"
-            },
-            new UpdateSourceOptions
-            {
-                Name = "Gitee",
-                Kind = "Gitee",
                 Repository = "maikebing/VSCopilotSwitch"
             }
         ];
@@ -408,9 +347,12 @@ public sealed class UpdateService : IUpdateService
             throw new InvalidOperationException($"更新源 {DisplaySourceName(source)} 未配置 Repository。");
         }
 
-        return source.Kind.Equals("Gitee", StringComparison.OrdinalIgnoreCase)
-            ? $"https://gitee.com/api/v5/repos/{source.Repository}/releases/latest"
-            : $"https://api.github.com/repos/{source.Repository}/releases/latest";
+        if (!source.Kind.Equals("GitHub", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"更新源 {DisplaySourceName(source)} 不受支持；当前仅支持 GitHub Release。");
+        }
+
+        return $"https://api.github.com/repos/{source.Repository}/releases/latest";
     }
 
     private string ResolveCacheDirectory()
@@ -512,24 +454,6 @@ public sealed class UpdateService : IUpdateService
         }
 
         return null;
-    }
-
-    private static bool TryGetReleaseId(JsonElement element, [NotNullWhen(true)] out string? releaseId)
-    {
-        releaseId = null;
-        if (!element.TryGetProperty("id", out var value))
-        {
-            return false;
-        }
-
-        releaseId = value.ValueKind switch
-        {
-            JsonValueKind.String => value.GetString(),
-            JsonValueKind.Number when value.TryGetInt64(out var number) => number.ToString(),
-            _ => null
-        };
-
-        return !string.IsNullOrWhiteSpace(releaseId);
     }
 
     private static DateTimeOffset? FirstDate(JsonElement element, params string[] names)

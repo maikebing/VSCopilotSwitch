@@ -22,7 +22,7 @@
 - ⬜ 表示尚未开始编码，不能在变更日志或验收说明中描述成已完成。
 - UI 骨架、静态假数据、仅 appsettings 配置可用、仅单元层通过，都不能等同于产品闭环完成。
 
-当前主线：✅️ 阶段 5.5 真实功能闭环和阶段 5.6 Copilot Ollama Provider 真实协议补强已完成。继续采用“伪装为 Ollama Provider”的接入方式；发现阶段维护 `/api/version`、`/api/tags`、`/api/show`，聊天阶段以 Copilot 当前真实调用的 `/v1/chat/completions` 为主，同时补齐 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 兼容面。下一步进入阶段 6 稳定性与路由。
+当前主线：✅️ 阶段 5.5 真实功能闭环和阶段 5.6 Copilot Ollama Provider 真实协议补强已完成。继续采用“伪装为 Ollama Provider”的接入方式；发现阶段维护 `/api/version`、`/api/tags`、`/api/show` 和 OpenAI-compatible `/v1/models`，聊天阶段以 Copilot 当前真实调用的 `/v1/chat/completions` 为主，同时补齐 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 兼容面。VS2026 已完成 BYOM 二次只读探测，`%LOCALAPPDATA%\Microsoft\VisualStudio\Copilot\BringYourOwnModel\ConfiguredBringYourOwnModel_v1.json` 已确认包含 Foundry Local / Azure 摘要条目，但仍未落出自定义 URL 或模型元素结构；不采用 TLS 中间人、域名劫持或 Token 复用路线。下一步进入阶段 6 稳定性与路由。
 
 ## 阶段 0：项目基线
 
@@ -213,7 +213,7 @@
 ### 实现顺序
 
 1. ✅️ 完成 Copilot Ollama Provider 调用路径核对：当前发现阶段会访问 `/api/version`、`/api/tags`、`/api/show`，真实聊天阶段走 OpenAI-compatible 的 `/v1/chat/completions`，模型能力主要读取 `/api/show` 的 `capabilities` 与 `model_info`。
-2. ✅️ 实现本地 `/v1/chat/completions` 入口：支持 OpenAI Chat Completions 非流式和 SSE 流式响应，复用当前启用供应商路由、模型后缀剥离、错误脱敏和取消流程，并兜底常见 URL 拼接变体避免继续返回 405。
+2. ✅️ 实现本地 `/v1/models` 与 `/v1/chat/completions` 入口：模型发现返回可直接调用的 `@vscs` 模型 ID；聊天支持 OpenAI Chat Completions 非流式和 SSE 流式响应，复用当前启用供应商路由、模型后缀剥离、错误脱敏和取消流程，并兜底常见 URL 拼接变体避免继续返回 405。
 3. ✅️ 扩展核心 Chat 请求/响应中间模型：支持 `tools`、`tool_choice`、assistant `tool_calls`、tool result 消息、`finish_reason`、usage 和流式 delta，避免继续把 Provider 抽象限制在纯文本 `role/content`。
 4. ✅️ 将 Copilot 传入的 OpenAI function tools 转发到 Provider Adapter：OpenAI-compatible、OpenAI Official、DeepSeek、NVIDIA NIM、MoArk 先走 OpenAI 工具协议；Claude 单独映射到 Anthropic tool use。
 5. ✅️ 补齐工具调用响应回传：上游 `tool_calls` 需要稳定转换为 OpenAI-compatible `/v1/chat/completions` 的 `choices[].message.tool_calls` 或流式 `choices[].delta.tool_calls`，并增加 HTTP 出口形状回归测试，确保 Copilot Agent 模式能继续执行工具结果回合。
@@ -226,6 +226,7 @@
 验收标准：
 
 - VS Code Copilot Chat 通过 `vscs` Ollama Provider 能发现模型并发起 `/v1/chat/completions` 请求。
+- OpenAI-compatible 客户端可通过 `/v1/models` 发现与 `/api/tags` 一致的可调用模型 ID。
 - 普通聊天和流式聊天均可通过当前 UI 启用的真实供应商返回结果。
 - Agent 模式下 Copilot 能向代理发送工具定义，代理能把上游工具调用稳定回传给 Copilot。
 - `/api/show` 和 `/api/tags` 不虚报 `vision`、`tools`、thinking/reasoning 等能力，避免 Copilot 发送当前模型无法处理的输入。
@@ -295,7 +296,7 @@ UI 方向：
 - 🔧 API Key 本地加密存储：供应商配置已用 Windows 当前用户保护数据加密；仍需抽象为跨平台 Secret Store，并补配置导入导出策略。
 - 🟡 可并行 日志脱敏和崩溃报告脱敏。
 - ✅️ 配置导出时默认不包含密钥。
-- ✅️ 自动更新策略：从 GitHub 和 Gitee Release 检查更高版本，自动下载匹配 Windows 单文件发布资产到本地缓存，更新替换仍保留为用户可控步骤。
+- ✅️ 自动更新策略：从 GitHub Release 检查更高版本，自动下载匹配 Windows 单文件发布资产到本地缓存，更新替换仍保留为用户可控步骤。
 - ✅️ 发布 CI：GitHub Actions 覆盖 npm install、SPA build、嵌入式资源生成检查、AOT 单体应用打包和冒烟测试；分支/PR 只构建，`v*` 标签才发布 Release 资产。
 - ✅️ 发布流程包含 npm install、SPA build、嵌入式资源生成、AOT 单体应用打包。
 - ✅️ 修复发布 CI 版本解析：标签版本、预发布版本、build metadata 和非 SemVer 分支名均可稳定生成 .NET 包版本、程序集版本和 Release 标签。

@@ -6,7 +6,10 @@
 
 ### Added
 
+- ✅️ 新增 VS2026 用户配置与 AI Provider 配置位置探测记录，确认 VS2026 18.0 实例配置、Copilot BYOM 配置文件、MCP 配置和常规 Copilot 设置键的实际落点；二次探测已观察到 Foundry Local 与 Azure BYOM 摘要条目。
+- ✅️ 新增 VS2026 大模型接口接入分析文档，明确优先寻找官方 Provider / Ollama / OpenAI-compatible / VS SDK 入口，不采用 TLS 中间人、域名劫持、Token 复用或二进制 patch 作为产品路线。
 - ✅️ 新增阶段 5.6 Copilot Ollama Provider 真实协议补强路线：确认继续采用 `vscs` Ollama Provider 接入，但优先实现 Copilot 当前真实聊天入口 `/v1/chat/completions`、工具调用转发和精确能力声明，暂缓未被 Copilot 真实消费的 `/api/chat` thinking 扩展。
+- ✅️ 新增本地 OpenAI-compatible `/v1/models` 模型发现接口，复用当前启用供应商的 `/api/tags` 模型列表，并返回可直接用于 `/v1/chat/completions` 的 `@vscs` 模型 ID。
 - ✅️ 新增本地 OpenAI-compatible `/v1/chat/completions` 入口，支持 Copilot Chat 当前发送的非流式和 SSE 流式聊天请求，并复用现有 Ollama Provider 路由、`@vscs` 模型后缀处理和脱敏错误映射。
 - ✅️ `/v1/chat/completions` 新增常见 URL 拼接变体兜底，避免 Provider URL 手工带 `/v1` 或 `/api` 时继续被 ASP.NET Core fallback 判定为 405。
 - ✅️ 将 VS Code/Copilot 可见模型后缀和托管 Ollama Provider 名称统一为 `vscs` / `@vscs`。
@@ -84,7 +87,7 @@
 - ✅️ 新增供应商配置导出 API 和首页导出入口，默认导出不包含 API Key 原文、脱敏预览或加密密文，只保留密钥存在状态。
 - ✅️ 新增本地端口占用检测 API 与高级选项中的端口检测提示。
 - ✅️ 实现主窗口生命周期：点击关闭按钮时隐藏到托盘并保持本地代理运行，托盘“打开”恢复聚焦，托盘“退出”才真正停止宿主进程。
-- ✅️ 新增自动更新策略：后台按配置从 GitHub 和 Gitee Release 检查版本，选择更高版本的 Windows 发布资产下载到本地缓存，并在设置页提供手动检查和下载入口。
+- ✅️ 自动更新策略收敛为 GitHub Release 单源：后台和设置页手动检查都会从 GitHub Release 读取最新版本，并下载匹配的 Windows 发布资产到本地缓存。
 - ✅️ 设置页新增“关于”页面，展示应用标题、当前版本、GitHub 地址和企业微信二维码。
 - ✅️ 新增发布 CI：GitHub Actions 会执行 npm install、Vue SPA build、嵌入式资源检查、.NET 测试、Windows `win-x64` AOT 单文件发布和冒烟测试；分支/PR 只构建，`v*` 标签才上传 Release 资产。
 - ✅️ 发布包收敛为真正单文件资产：Release zip 只包含 `VSCopilotSwitch.exe`，避免把调试符号或生成清单放进自动更新包。

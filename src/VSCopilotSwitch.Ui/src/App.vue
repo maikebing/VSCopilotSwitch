@@ -2012,9 +2012,9 @@ onMounted(loadDashboard);
               <section class="settings-section">
                 <div>
                   <span>更新</span>
-                  <h3>GitHub / Gitee 自动更新</h3>
+                  <h3>GitHub 自动更新</h3>
                 </div>
-                <p>后台会按策略检查 GitHub 和 Gitee Release，发现更高版本时只下载发布包到本地缓存，不会静默替换正在运行的程序。</p>
+                <p>后台会按策略检查 GitHub Release，发现更高版本时只下载发布包到本地缓存，不会静默替换正在运行的程序。</p>
               </section>
 
               <section class="update-panel" aria-label="自动更新状态">

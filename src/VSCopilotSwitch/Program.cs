@@ -193,6 +193,25 @@ webApp.MapGet("/api/tags", async (IOllamaProxyService ollama, CancellationToken 
     }
 });
 
+webApp.MapGet("/v1/models", async (
+    IOllamaProxyService ollama,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var tags = await ollama.ListTagsAsync(cancellationToken);
+        return Results.Ok(OpenAiModelMapper.CreateListResponse(tags));
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex)
+    {
+        return ToOpenAiErrorResult(ex);
+    }
+});
+
 webApp.MapPost("/api/show", async (
     OllamaShowRequest request,
     IOllamaProxyService ollama,
@@ -860,6 +879,12 @@ static async Task WriteOpenAiErrorAsync(
         cancellationToken);
 }
 
+static IResult ToOpenAiErrorResult(Exception exception)
+{
+    var (statusCode, response) = MapOpenAiException(exception);
+    return new OpenAiErrorResult(statusCode, response);
+}
+
 static (int StatusCode, OpenAiErrorResponse Response) MapOpenAiException(Exception exception)
 {
     var (statusCode, ollamaError) = MapOllamaException(exception);
@@ -1079,6 +1104,16 @@ public sealed record PortStatusResponse(int Port, bool Available, string Message
 public sealed record OllamaVersionResponse(
     [property: JsonPropertyName("version")] string Version);
 
+public sealed record OpenAiModelListResponse(
+    [property: JsonPropertyName("object")] string Object,
+    [property: JsonPropertyName("data")] IReadOnlyList<OpenAiModelInfo> Data);
+
+public sealed record OpenAiModelInfo(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("object")] string Object,
+    [property: JsonPropertyName("created")] long Created,
+    [property: JsonPropertyName("owned_by")] string OwnedBy);
+
 public sealed record ApplyVsCodeOllamaConfigRequest(
     string UserDirectory,
     ManagedOllamaConfig? Config,
@@ -1194,6 +1229,20 @@ sealed class OllamaErrorResult(int statusCode, OllamaErrorResponse response) : I
             httpContext.Response.Body,
             response,
             VSCopilotSwitchJsonContext.Default.OllamaErrorResponse,
+            httpContext.RequestAborted);
+    }
+}
+
+sealed class OpenAiErrorResult(int statusCode, OpenAiErrorResponse response) : IResult
+{
+    public async Task ExecuteAsync(HttpContext httpContext)
+    {
+        httpContext.Response.StatusCode = statusCode;
+        httpContext.Response.ContentType = "application/json; charset=utf-8";
+        await JsonSerializer.SerializeAsync(
+            httpContext.Response.Body,
+            response,
+            VSCopilotSwitchJsonContext.Default.OpenAiErrorResponse,
             httpContext.RequestAborted);
     }
 }
