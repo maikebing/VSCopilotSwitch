@@ -1020,22 +1020,7 @@ static IResult ToOpenAiErrorResult(Exception exception)
 }
 
 static (int StatusCode, OpenAiErrorResponse Response) MapOpenAiException(Exception exception)
-{
-    var (statusCode, ollamaError) = MapOllamaException(exception);
-    var type = statusCode switch
-    {
-        StatusCodes.Status400BadRequest => "invalid_request_error",
-        StatusCodes.Status401Unauthorized => "authentication_error",
-        StatusCodes.Status404NotFound => "not_found_error",
-        StatusCodes.Status409Conflict => "invalid_request_error",
-        StatusCodes.Status429TooManyRequests => "rate_limit_error",
-        StatusCodes.Status503ServiceUnavailable => "service_unavailable_error",
-        StatusCodes.Status504GatewayTimeout => "timeout_error",
-        _ => "api_error"
-    };
-
-    return (statusCode, new OpenAiErrorResponse(new OpenAiErrorBody(ollamaError.Error, type, ollamaError.Code)));
-}
+    => OpenAiErrorMapper.Map(exception);
 
 static (int StatusCode, OllamaErrorResponse Response) MapOllamaException(Exception exception)
 {

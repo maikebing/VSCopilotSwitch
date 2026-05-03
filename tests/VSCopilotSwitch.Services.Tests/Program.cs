@@ -24,6 +24,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("OpenAI response mapper emits reasoning stream deltas", OpenAiResponseMapper_EmitsReasoningStreamDeltas),
     ("OpenAI model mapper emits standard model list", OpenAiModelMapper_EmitsStandardModelList),
     ("OpenAI model mapper finds model by id", OpenAiModelMapper_FindsModelById),
+    ("OpenAI error mapper separates unavailable from rate limit", OpenAiErrorMapper_SeparatesUnavailableFromRateLimit),
     ("Local HTTPS certificate host resolver accepts loopback only", LocalHttpsCertificateHostResolver_AcceptsLoopbackOnly),
     ("UpdateService reads latest release from GitHub", UpdateService_ReadsLatestReleaseFromGitHub),
     ("UpdateService downloads selected asset to cache", UpdateService_DownloadsSelectedAssetToCache)
@@ -425,6 +426,26 @@ static Task OpenAiModelMapper_FindsModelById()
     Assert.True(found is not null, "VS2026 Azure BYOM 校验 /v1/models/{id} 时应能按模型 id 忽略大小写匹配。 ");
     Assert.Equal("gpt-5.5@vscs", found!.Id, "返回的模型 id 应保持公开可调用名称。 ");
     Assert.True(missing is null, "未知模型应返回空，HTTP 层会映射为 404。 ");
+    return Task.CompletedTask;
+}
+
+static Task OpenAiErrorMapper_SeparatesUnavailableFromRateLimit()
+{
+    var (unavailableStatusCode, unavailableResponse) = OpenAiErrorMapper.Map(new OllamaProxyException(
+        OllamaProxyErrorKind.ProviderUnavailable,
+        "provider_unavailable",
+        "sub2api 网络请求失败，请检查 API 地址和网络连接。"));
+    var (rateLimitedStatusCode, rateLimitedResponse) = OpenAiErrorMapper.Map(new OllamaProxyException(
+        OllamaProxyErrorKind.ProviderRateLimited,
+        "provider_rate_limited",
+        "sub2api 请求过于频繁，请稍后重试。"));
+
+    Assert.Equal(StatusCodes.Status502BadGateway, unavailableStatusCode, "OpenAI-compatible 出口不应把 Provider 网络不可用返回为 503，避免 Copilot 误判成限流。");
+    Assert.Equal("api_error", unavailableResponse.Error.Type, "Provider 网络不可用应按上游 API 故障暴露。");
+    Assert.Equal("provider_unavailable", unavailableResponse.Error.Code, "Provider 网络不可用应保留精确错误码。");
+    Assert.Equal(StatusCodes.Status429TooManyRequests, rateLimitedStatusCode, "真实 Provider 限流仍应返回 429。");
+    Assert.Equal("rate_limit_error", rateLimitedResponse.Error.Type, "真实 Provider 限流仍应使用 OpenAI rate_limit_error。");
+    Assert.Equal("provider_rate_limited", rateLimitedResponse.Error.Code, "真实 Provider 限流应保留精确错误码。");
     return Task.CompletedTask;
 }
 

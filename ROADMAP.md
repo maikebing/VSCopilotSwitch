@@ -225,6 +225,7 @@
 11. ✅️ 加固 OpenAI-compatible SSE 转发：纯 `reasoning_content` 流式分块也会写给客户端，避免推理模型在普通 content 为空时被 Copilot 误判为无响应。
 12. ✅️ 内置 VS2026 本地 HTTPS 证书流程：发布版自动准备 `https://127.0.0.1:5443`，生成只覆盖 `localhost/127.0.0.1/::1` 的当前用户证书，写入 `My` / `Root` 证书库并提供给 Kestrel，AOT 单文件不再依赖 `dotnet dev-certs`。
 13. ✅️ 增加设置页 VS2026 面板：顶部 `VS2026` 按钮直达 Azure BYOM 填写信息，自动读取 `/internal/vs2026/byom`，展示 Provider、HTTPS Endpoint、Model ID、API Key 占位值和校验/聊天 URL，并支持逐项复制。
+14. ✅️ 修复 Copilot 错误分类兼容：OpenAI-compatible 出口将 `provider_unavailable` 映射为 502 / `api_error`，避免 Copilot 把上游网络不可用误报为限流；真实 `provider_rate_limited` 继续保持 429 / `rate_limit_error`。
 
 验收标准：
 

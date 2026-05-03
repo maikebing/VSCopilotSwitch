@@ -149,6 +149,7 @@
 
 ### Fixed
 
+- ✅️ 修复 OpenAI-compatible 出口把 Provider 网络不可用返回为 503 的问题；现在 `provider_unavailable` 使用 502 / `api_error`，避免 Copilot 把 sub2api 网络失败误显示成“Rate limit exceeded”，真实限流仍保留 429 / `rate_limit_error`。
 - ✅️ 修复 OpenAI-compatible SSE 转发跳过纯 `reasoning_content` 分块的问题，避免推理模型只输出 reasoning delta 时被 Copilot 误判为无响应。
 - ✅️ 修复发布 CI 版本解析脚本：改用正则拆分预发布和 build metadata，避免 PowerShell 将 `+` 误绑定为 `Split` 的 count 参数导致 `v1.0.1` 标签构建失败；非 SemVer 分支名会回退为 CI 版本，避免进入 .NET `Version` 和产物名。
 - ✅️ 修复首页模型列表显示缺少 `@vscs` 后缀的问题：现在优先展示 `/api/tags` 暴露给 VS Code/Copilot 的公开模型名，避免界面与模型选择器不一致。
