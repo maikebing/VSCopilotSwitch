@@ -132,45 +132,6 @@ jobs:
             /p:FileVersion=${{ steps.version.outputs.assembly_version }} `
             /p:InformationalVersion=${{ steps.version.outputs.version }}+${{ github.sha }}
 
-      - name: Smoke test published executable
-        shell: pwsh
-        run: |
-          $exe = Join-Path $env:PUBLISH_DIR "VSCopilotSwitch.exe"
-          if (-not (Test-Path $exe)) {
-            throw "Published executable was not found: $exe"
-          }
-
-          $oldUrls = $env:ASPNETCORE_URLS
-          $env:ASPNETCORE_URLS = "http://127.0.0.1:5142"
-          $process = $null
-          try {
-            $process = Start-Process -FilePath $exe -WorkingDirectory $env:PUBLISH_DIR -PassThru -WindowStyle Hidden
-            $deadline = (Get-Date).AddSeconds(30)
-            $result = $null
-            do {
-              Start-Sleep -Milliseconds 500
-              try {
-                $result = Invoke-RestMethod -Uri "http://127.0.0.1:5142/health" -TimeoutSec 2
-              } catch {
-                $result = $null
-              }
-            } while ($null -eq $result -and (Get-Date) -lt $deadline)
-
-            if ($null -eq $result -or $result.Status -ne "ok") {
-              throw "Published executable health check failed."
-            }
-
-            $result | ConvertTo-Json -Compress
-          }
-          finally {
-            if ($process -and -not $process.HasExited) {
-              Stop-Process -Id $process.Id -Force
-              Wait-Process -Id $process.Id -Timeout 5 -ErrorAction SilentlyContinue
-            }
-
-            $env:ASPNETCORE_URLS = $oldUrls
-          }
-
       - name: Package release artifact
         id: package
         shell: pwsh

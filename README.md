@@ -254,7 +254,7 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 
 自动更新策略默认启用发布版后台下载：宿主会定时读取 GitHub Release 信息，比较当前程序集版本和远端 `tag_name`，选择匹配 `VSCopilotSwitch` / `win-x64` / `aot` 的 `.exe`、`.zip` 或 `.msi` 资产并下载到 `%LOCALAPPDATA%\VSCopilotSwitch\Updates`。设置页“更新”选项卡也提供手动检查和下载入口。当前阶段只下载发布包，不会静默替换正在运行的单文件程序；开发环境通过 `appsettings.Development.json` 关闭后台自动下载。
 
-发布 CI 位于 `.github/workflows/release.yml`，在 Windows runner 上执行完整链路：`npm install --prefix src/VSCopilotSwitch.Ui`、`npm run ui:build`、检查 `dist/index.html` 和静态资源数量、运行 .NET build/tests、发布 `win-x64` Native AOT 单文件、启动发布产物访问 `/health` 冒烟，并打包 `VSCopilotSwitch-<version>-win-x64-aot.zip` 与 `.sha256`。分支 push 和 PR 只构建、测试并上传 workflow artifact；只有推送 `v*` 标签时才会把这两个文件上传到 GitHub Release。Release zip 只包含 `VSCopilotSwitch.exe`，自动更新下载到的也是这个单文件包；本地可用 `npm run release:win-x64` 复用 npm install、SPA build 和 AOT 发布顺序。Release 发布配置显式启用 full trim 和 Native AOT size 优化，关闭发布包不需要的调试器、EventSource 与 HTTP activity propagation 支持，以控制单文件体积。
+发布 CI 位于 `.github/workflows/release.yml`，在 Windows runner 上执行完整链路：`npm install --prefix src/VSCopilotSwitch.Ui`、`npm run ui:build`、检查 `dist/index.html` 和静态资源数量、运行 .NET build/tests、发布 `win-x64` Native AOT 单文件，并打包 `VSCopilotSwitch-<version>-win-x64-aot.zip` 与 `.sha256`。分支 push 和 PR 只构建、测试并上传 workflow artifact；只有推送 `v*` 标签时才会把这两个文件上传到 GitHub Release。CI 不再启动完整桌面发布产物做 `/health` 冒烟，避免 WebView2、托盘和无交互 Windows 会话造成不稳定失败；发布前运行验证仍保留在本地人工验收流程中。Release zip 只包含 `VSCopilotSwitch.exe`，自动更新下载到的也是这个单文件包；本地可用 `npm run release:win-x64` 复用 npm install、SPA build 和 AOT 发布顺序。Release 发布配置显式启用 full trim 和 Native AOT size 优化，关闭发布包不需要的调试器、EventSource 与 HTTP activity propagation 支持，以控制单文件体积。
 
 仓库包含一个无外部测试框架依赖的 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份：
 

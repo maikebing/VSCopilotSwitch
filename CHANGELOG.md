@@ -93,7 +93,7 @@
 - ✅️ 实现主窗口生命周期：点击关闭按钮时隐藏到托盘并保持本地代理运行，托盘“打开”恢复聚焦，托盘“退出”才真正停止宿主进程。
 - ✅️ 自动更新策略收敛为 GitHub Release 单源：后台和设置页手动检查都会从 GitHub Release 读取最新版本，并下载匹配的 Windows 发布资产到本地缓存。
 - ✅️ 设置页新增“关于”页面，展示应用标题、当前版本、GitHub 地址和企业微信二维码。
-- ✅️ 新增发布 CI：GitHub Actions 会执行 npm install、Vue SPA build、嵌入式资源检查、.NET 测试、Windows `win-x64` AOT 单文件发布和冒烟测试；分支/PR 只构建，`v*` 标签才上传 Release 资产。
+- ✅️ 新增发布 CI：GitHub Actions 会执行 npm install、Vue SPA build、嵌入式资源检查、.NET 测试、Windows `win-x64` AOT 单文件发布和打包；分支/PR 只构建，`v*` 标签才上传 Release 资产。
 - ✅️ 发布包收敛为真正单文件资产：Release zip 只包含 `VSCopilotSwitch.exe`，避免把调试符号或生成清单放进自动更新包。
 - ✅️ 新增 Windows 托盘菜单最小增强，支持打开或聚焦主界面、查看当前提供商和代理状态、退出并停止本地代理。
 - ✅️ Win32 原生托盘菜单接入当前启用供应商和模型状态，并支持对已保存密钥和模型名的真实供应商做快速切换。
@@ -149,6 +149,7 @@
 
 ### Fixed
 
+- ✅️ 移除发布 CI 中的 `Smoke test published executable` 步骤；该检查会启动完整桌面程序并依赖 WebView2、托盘和无交互 Windows 会话，容易在 GitHub Actions 上误失败，发布 CI 现在只负责构建、测试、AOT 发布和打包。
 - ✅️ 修复 OpenAI-compatible 出口把 Provider 网络不可用返回为 503 的问题；现在 `provider_unavailable` 使用 502 / `api_error`，避免 Copilot 把 sub2api 网络失败误显示成“Rate limit exceeded”，真实限流仍保留 429 / `rate_limit_error`。
 - ✅️ 修复 OpenAI-compatible SSE 转发跳过纯 `reasoning_content` 分块的问题，避免推理模型只输出 reasoning delta 时被 Copilot 误判为无响应。
 - ✅️ 修复发布 CI 版本解析脚本：改用正则拆分预发布和 build metadata，避免 PowerShell 将 `+` 误绑定为 `Split` 的 count 参数导致 `v1.0.1` 标签构建失败；非 SemVer 分支名会回退为 CI 版本，避免进入 .NET `Version` 和产物名。

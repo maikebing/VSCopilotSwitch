@@ -301,9 +301,10 @@ UI 方向：
 - 🟡 可并行 日志脱敏和崩溃报告脱敏。
 - ✅️ 配置导出时默认不包含密钥。
 - ✅️ 自动更新策略：从 GitHub Release 检查更高版本，自动下载匹配 Windows 单文件发布资产到本地缓存，更新替换仍保留为用户可控步骤。
-- ✅️ 发布 CI：GitHub Actions 覆盖 npm install、SPA build、嵌入式资源生成检查、AOT 单体应用打包和冒烟测试；分支/PR 只构建，`v*` 标签才发布 Release 资产。
+- ✅️ 发布 CI：GitHub Actions 覆盖 npm install、SPA build、嵌入式资源生成检查、.NET 测试和 AOT 单体应用打包；分支/PR 只构建，`v*` 标签才发布 Release 资产。
 - ✅️ 发布流程包含 npm install、SPA build、嵌入式资源生成、AOT 单体应用打包。
 - ✅️ 修复发布 CI 版本解析：标签版本、预发布版本、build metadata 和非 SemVer 分支名均可稳定生成 .NET 包版本、程序集版本和 Release 标签。
+- ✅️ 移除发布 CI 中启动完整桌面 exe 的 `/health` 冒烟步骤；运行时冒烟保留为本地发布前人工验收，避免无交互 Windows runner 上的 WebView2、托盘和窗口会话差异阻塞打包。
 - 🔵 后做 安装包签名策略。
 - 🔵 后做 用户迁移说明。
 - 🟡 可并行 示例配置和故障排查文档。
