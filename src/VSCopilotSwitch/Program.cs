@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
@@ -29,6 +30,8 @@ var configuredHttpsServerUrl = configuredServerUrls.FirstOrDefault(IsHttpsUrl);
 var localHttpsCertificate = LocalHttpsCertificateService.EnsureTrustedForServerUrls(configuredServerUrls);
 if (localHttpsCertificate is not null)
 {
+    // CreateSlimBuilder 不会自动启用 https:// URL 绑定所需的 Kestrel HTTPS 配置服务。
+    builder.WebHost.UseKestrelHttpsConfiguration();
     builder.WebHost.ConfigureKestrel(options =>
     {
         options.ConfigureHttpsDefaults(httpsOptions =>

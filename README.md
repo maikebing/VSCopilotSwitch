@@ -250,7 +250,7 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 
 高级选项中的本地代理地址支持端口占用检测，可填写 `5124`、`127.0.0.1:5124` 或完整 URL，并提示 `127.0.0.1` 上的目标端口是否已被其他代理占用。VSCopilotSwitch 不再把 VS Code Provider URL 指向 Ollama 默认的 `11434`，避免与用户本机原生 Ollama 服务冲突。主窗口当前由 OmniHost Win32 + Native WebView2 承载；发布包运行时从单体程序内嵌的 SPA 静态资源加载界面，不依赖外部 `wwwroot` 目录。托盘菜单由 Win32 原生方式实现，可查看当前供应商和模型，并快速切换真实供应商；点击主窗口关闭按钮只会隐藏到托盘并保持本地代理运行，只有托盘“退出”会停止宿主进程，避免引入 WinForms 依赖。
 
-发布版默认会在 `https://127.0.0.1:5443` 为 VS2026 Azure BYOM 准备本机 HTTPS 入口。程序启动时会生成只覆盖 `localhost`、`127.0.0.1` 和 `::1` 的自签服务器证书，把带私钥证书放入当前用户 `My` 证书库，把公钥证书放入当前用户 `Root` 信任根，并直接交给 Kestrel 使用；AOT 单文件不依赖用户机器安装 .NET SDK、Node.js 或手动执行 `dotnet dev-certs`。开发环境默认不自动启用该 HTTPS 口，可用 `VSCOPILOTSWITCH_HTTPS_URL=https://127.0.0.1:5443` 显式开启，也可用 `VSCOPILOTSWITCH_VS2026_AUTO_HTTPS=false` 关闭发布版自动 HTTPS。
+发布版默认会在 `https://127.0.0.1:5443` 为 VS2026 Azure BYOM 准备本机 HTTPS 入口。程序启动时会生成只覆盖 `localhost`、`127.0.0.1` 和 `::1` 的自签服务器证书，把带私钥证书放入当前用户 `My` 证书库，把公钥证书放入当前用户 `Root` 信任根，并直接交给 Kestrel 使用；AOT 单文件不依赖用户机器安装 .NET SDK、Node.js 或手动执行 `dotnet dev-certs`。该入口会显式启用 Kestrel HTTPS 配置服务，避免精简宿主在绑定 `https://` 地址时启动失败。开发环境默认不自动启用该 HTTPS 口，可用 `VSCOPILOTSWITCH_HTTPS_URL=https://127.0.0.1:5443` 显式开启，也可用 `VSCOPILOTSWITCH_VS2026_AUTO_HTTPS=false` 关闭发布版自动 HTTPS。
 
 自动更新策略默认启用发布版后台下载：宿主会定时读取 GitHub Release 信息，比较当前程序集版本和远端 `tag_name`，选择匹配 `VSCopilotSwitch` / `win-x64` / `aot` 的 `.exe`、`.zip` 或 `.msi` 资产并下载到 `%LOCALAPPDATA%\VSCopilotSwitch\Updates`。设置页“更新”选项卡也提供手动检查和下载入口。当前阶段只下载发布包，不会静默替换正在运行的单文件程序；开发环境通过 `appsettings.Development.json` 关闭后台自动下载。
 
