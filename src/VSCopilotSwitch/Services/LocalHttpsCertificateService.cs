@@ -152,10 +152,20 @@ public static class LocalHttpsCertificateService
 
         using var publicCertificate = X509CertificateLoader.LoadCertificate(certificate.Export(X509ContentType.Cert));
         SetFriendlyName(publicCertificate);
-        using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
-        store.Open(OpenFlags.ReadWrite);
-        store.Add(publicCertificate);
-        return true;
+        try
+        {
+            using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.ReadWrite);
+            store.Add(publicCertificate);
+            return true;
+        }
+        catch (CryptographicException)
+        {
+            // 用户在 Windows 安全弹窗中点击"否"会抛出此异常。
+            // 此时仍可使用证书提供 HTTPS，只是浏览器/客户端会把它当作不受信任。
+            // 降级返回 false 而不是阻塞启动。
+            return false;
+        }
     }
 
     private static X509Certificate2? FindCertificate(StoreName storeName, string? thumbprint)

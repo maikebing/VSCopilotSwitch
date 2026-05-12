@@ -23,11 +23,39 @@ using VSCopilotSwitch.Services;
 using VSCopilotSwitch.VsCodeConfig.Models;
 using VSCopilotSwitch.VsCodeConfig.Services;
 
+// WinExe 没有附着控制台，启动期任何同步异常默认静默退出。
+// 把未处理异常落盘到 %LocalAppData%\VSCopilotSwitch\startup-error.log，让"什么也没看见"的崩溃可定位。
+AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+{
+    if (e.ExceptionObject is Exception unhandled)
+    {
+        StartupDiagnostics.WriteCrashLog(unhandled);
+    }
+};
+
 var builder = OmniApplication.CreateSlimBuilder(args);
 var configuredServerUrls = ResolveServerUrls(builder.Configuration);
 var configuredServerUrl = configuredServerUrls[0];
 var configuredHttpsServerUrl = configuredServerUrls.FirstOrDefault(IsHttpsUrl);
-var localHttpsCertificate = LocalHttpsCertificateService.EnsureTrustedForServerUrls(configuredServerUrls);
+LocalHttpsCertificateStatus? localHttpsCertificate;
+try
+{
+    localHttpsCertificate = LocalHttpsCertificateService.EnsureTrustedForServerUrls(configuredServerUrls);
+}
+catch (Exception ex)
+{
+    // 证书安装/根证书信任失败时（如用户在系统弹窗中点了"否"），降级为不启用 HTTPS，
+    // 而不是让整个 WinExe 静默闪退。
+    StartupDiagnostics.WriteCrashLog(ex, "EnsureTrustedForServerUrls failed; HTTPS will be disabled.");
+    localHttpsCertificate = null;
+    configuredServerUrls = configuredServerUrls.Where(url => !IsHttpsUrl(url)).ToArray();
+    configuredServerUrl = configuredServerUrls.Length > 0 ? configuredServerUrls[0] : "http://127.0.0.1:5124";
+    configuredHttpsServerUrl = null;
+    if (configuredServerUrls.Length == 0)
+    {
+        configuredServerUrls = new[] { configuredServerUrl };
+    }
+}
 if (localHttpsCertificate is not null)
 {
     // CreateSlimBuilder 不会自动启用 https:// URL 绑定所需的 Kestrel HTTPS 配置服务。
