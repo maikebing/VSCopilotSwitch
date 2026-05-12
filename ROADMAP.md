@@ -247,6 +247,7 @@
 - 🔵 后做 备用路由：主模型失败后切换到备用模型。
 - 🔵 后做 限流策略：按供应商、模型和 API Key 控制并发。
 - 🟡 可并行 健康检查：API Key、模型列表和聊天探测；需先完成阶段 5.5 的启用供应商真实路由。
+- ✅️ OpenAI-compatible 路由别名加固：补齐 `/openai/v1/models`、`/openai/v1/models/{modelId}`、`/openai/v1/chat/completions`，并统一到共享路径表和回归测试，避免 Visual Studio / BYOM 基址带 `/openai/v1` 时再次返回 405。
 - ✅️ 本地日志：脱敏记录请求摘要、耗时、失败原因、真实 usage、估算 Token 和按本地单价表计算的费用。
 - 🔵 后做 UI 展示熔断、重试、降级和健康状态，并避免用模糊状态误导用户。
 

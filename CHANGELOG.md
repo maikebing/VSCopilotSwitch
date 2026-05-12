@@ -17,6 +17,7 @@
 - ✅️ 新增本地 OpenAI-compatible `/v1/models` 模型发现接口，复用当前启用供应商的 `/api/tags` 模型列表，并返回可直接用于 `/v1/chat/completions` 的 `@vscs` 模型 ID。
 - ✅️ 新增本地 OpenAI-compatible `/v1/chat/completions` 入口，支持 Copilot Chat 当前发送的非流式和 SSE 流式聊天请求，并复用现有 Ollama Provider 路由、`@vscs` 模型后缀处理和脱敏错误映射。
 - ✅️ `/v1/chat/completions` 新增常见 URL 拼接变体兜底，避免 Provider URL 手工带 `/v1` 或 `/api` 时继续被 ASP.NET Core fallback 判定为 405。
+- ✅️ 补齐 `/openai/v1/models`、`/openai/v1/models/{modelId}` 和 `/openai/v1/chat/completions` 别名，兼容 Visual Studio / OpenAI 客户端以 `/openai/v1` 作为基址时的真实请求路径，修复返回 405 的回归。
 - ✅️ 将 VS Code/Copilot 可见模型后缀和托管 Ollama Provider 名称统一为 `vscs` / `@vscs`。
 - ✅️ 扩展核心 Chat 中间模型：请求可承载 `tools`、`tool_choice`、assistant `tool_calls` 和 tool result 消息，响应可承载 `finish_reason`、usage 与流式 delta，为后续 Provider 工具调用转发和回传打基础。
 - ✅️ Provider Adapter 工具调用链路接通：OpenAI-compatible 共享层透传 OpenAI `tools` / `tool_choice` / `tool_calls`，Claude Adapter 映射 Anthropic `tools` / `tool_use` / `tool_result`，并把上游工具调用、usage 和流式 delta 回传给 Copilot 兼容入口。

@@ -24,6 +24,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("OpenAI response mapper emits reasoning stream deltas", OpenAiResponseMapper_EmitsReasoningStreamDeltas),
     ("OpenAI model mapper emits standard model list", OpenAiModelMapper_EmitsStandardModelList),
     ("OpenAI model mapper finds model by id", OpenAiModelMapper_FindsModelById),
+    ("OpenAI compatibility paths include /openai/v1 aliases", OpenAiCompatibilityPaths_IncludeOpenAiPrefixAliases),
     ("OpenAI error mapper separates unavailable from rate limit", OpenAiErrorMapper_SeparatesUnavailableFromRateLimit),
     ("Local HTTPS certificate host resolver accepts loopback only", LocalHttpsCertificateHostResolver_AcceptsLoopbackOnly),
     ("UpdateService reads latest release from GitHub", UpdateService_ReadsLatestReleaseFromGitHub),
@@ -244,6 +245,38 @@ static async Task RequestAnalytics_ExtractsStreamedUsage()
     Assert.Equal(1000000, entry.OutputTokens, "流式 SSE 中的 usage.completion_tokens 应被解析。");
     Assert.Equal("provider", entry.UsageSource, "流式解析到上游 usage 时应标记为 provider。");
     Assert.Equal(5m, entry.Cost, "流式费用应按配置单价精算。");
+}
+
+static async Task OpenAiCompatibilityPaths_IncludeOpenAiPrefixAliases()
+{
+    Assert.True(
+        OpenAiCompatibilityPaths.ModelListPaths.Contains("/openai/v1/models", StringComparer.OrdinalIgnoreCase),
+        "OpenAI-compatible 模型列表入口应兼容 /openai/v1/models。");
+    Assert.True(
+        OpenAiCompatibilityPaths.ModelDetailPaths.Contains("/openai/v1/models/{modelId}", StringComparer.OrdinalIgnoreCase),
+        "OpenAI-compatible 单模型入口应兼容 /openai/v1/models/{modelId}。");
+    Assert.True(
+        OpenAiCompatibilityPaths.ChatCompletionPaths.Contains("/openai/v1/chat/completions", StringComparer.OrdinalIgnoreCase),
+        "OpenAI-compatible 聊天入口应兼容 /openai/v1/chat/completions。");
+    Assert.True(
+        OpenAiCompatibilityPaths.IsChatCompletionPath("/openai/v1/chat/completions"),
+        "请求分析和路由识别应把 /openai/v1/chat/completions 当作聊天入口。");
+
+    var analytics = CreateAnalyticsService();
+    var context = CreateAnalyticsContext(
+        "/openai/v1/chat/completions",
+        """{"model":"gpt-5.5@vscs","messages":[{"role":"user","content":"ping"}]}""");
+
+    await analytics.InvokeAsync(context, async () =>
+    {
+        context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsync("""{"error":{"message":"method not allowed"}}""");
+    });
+
+    var entry = analytics.GetSnapshot("http://127.0.0.1:5124").Requests.Single();
+    Assert.Equal("/openai/v1/chat/completions", entry.Path, "分析统计应保留真实命中的 /openai/v1 路径。");
+    Assert.Equal("gpt-5.5@vscs", entry.Model ?? string.Empty, "分析统计应从 /openai/v1 聊天请求体中解析模型名。");
 }
 
 static Task OpenAiResponseMapper_EmitsToolCalls()

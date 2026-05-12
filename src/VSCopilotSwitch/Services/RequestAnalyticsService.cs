@@ -221,10 +221,7 @@ public sealed class RequestAnalyticsService : IRequestAnalyticsService
     }
 
     private static bool IsOpenAiChatCompletionPath(string path)
-        => string.Equals(path, "/v1/chat/completions", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(path, "/chat/completions", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(path, "/v1/v1/chat/completions", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(path, "/api/v1/chat/completions", StringComparison.OrdinalIgnoreCase);
+        => OpenAiCompatibilityPaths.IsChatCompletionPath(path);
 
     private static int EstimateInputTokens(HttpContext context)
     {

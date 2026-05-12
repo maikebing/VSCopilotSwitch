@@ -226,9 +226,9 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 - `GET /api/version`：Ollama 兼容版本探测接口，用于让 VS Code 确认本地代理满足 Ollama 0.6.4+ 要求。
 - `POST /api/show`：Ollama 兼容模型详情接口，用于 VS Code Copilot Chat 探测模型能力和元信息；当前统一声明 400K 上下文，并按能力矩阵声明工具调用和视觉能力，不默认声明未验证的 thinking / reasoning 能力。
 - `POST /api/chat`：Ollama 兼容非流式和流式聊天；优先转发到 UI 当前启用供应商对应的上游聊天接口，支持顶层 `tools`、Ollama 官方 `think`、历史消息 `message.thinking` 和响应 `message.thinking`；未配置真实供应商时走内置 `InMemoryModelProvider` 回显。
-- `GET /v1/models`：OpenAI-compatible 标准模型发现接口，复用 `/api/tags` 的当前启用供应商模型列表，返回可直接用于 `/v1/chat/completions` 的 `@vscs` 模型 ID。
-- `GET /v1/models/{modelId}`：OpenAI-compatible 单模型校验接口，供 VS2026 Azure BYOM 验证用户填写的 Model ID。
-- `POST /v1/chat/completions`：Copilot Chat 当前真实聊天入口，支持 OpenAI-compatible 非流式和 SSE 流式响应、工具调用字段、usage、`reasoning_effort` / `thinking` 请求透传，以及 DeepSeek `reasoning_content` 响应映射。
+- `GET /v1/models`：OpenAI-compatible 标准模型发现接口，复用 `/api/tags` 的当前启用供应商模型列表，返回可直接用于 `/v1/chat/completions` 的 `@vscs` 模型 ID；同时兼容部分客户端会拼出的 `/openai/v1/models` 别名。
+- `GET /v1/models/{modelId}`：OpenAI-compatible 单模型校验接口，供 VS2026 Azure BYOM 验证用户填写的 Model ID；同时兼容 `/openai/v1/models/{modelId}` 别名。
+- `POST /v1/chat/completions`：Copilot Chat 当前真实聊天入口，支持 OpenAI-compatible 非流式和 SSE 流式响应、工具调用字段、usage、`reasoning_effort` / `thinking` 请求透传，以及 DeepSeek `reasoning_content` 响应映射；同时兼容 `/openai/v1/chat/completions`、`/chat/completions` 等常见基址拼接变体。
 - `GET /internal/vs2026/byom`：返回 VS2026 Manage Models 建议填写的 HTTPS `/v1` 地址、Model ID 和占位 API Key。
 - `GET /internal/about`：返回关于页面所需的应用标题、当前版本、GitHub 地址和企业微信二维码路径。
 - `POST /internal/copilot/probe`：运行 Copilot 兼容最小探针，覆盖模型选择器、模型元信息、普通聊天、Agent 工具字段和流式结束。

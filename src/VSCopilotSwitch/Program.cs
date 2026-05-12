@@ -239,47 +239,53 @@ webApp.MapGet("/api/tags", async (IOllamaProxyService ollama, CancellationToken 
     }
 });
 
-webApp.MapGet("/v1/models", async (
-    IOllamaProxyService ollama,
-    CancellationToken cancellationToken) =>
+foreach (var path in OpenAiCompatibilityPaths.ModelListPaths)
 {
-    try
+    webApp.MapGet(path, async (
+        IOllamaProxyService ollama,
+        CancellationToken cancellationToken) =>
     {
-        var tags = await ollama.ListTagsAsync(cancellationToken);
-        return Results.Ok(OpenAiModelMapper.CreateListResponse(tags));
-    }
-    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-    {
-        throw;
-    }
-    catch (Exception ex)
-    {
-        return ToOpenAiErrorResult(ex);
-    }
-});
+        try
+        {
+            var tags = await ollama.ListTagsAsync(cancellationToken);
+            return Results.Ok(OpenAiModelMapper.CreateListResponse(tags));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return ToOpenAiErrorResult(ex);
+        }
+    });
+}
 
-webApp.MapGet("/v1/models/{modelId}", async (
-    string modelId,
-    IOllamaProxyService ollama,
-    CancellationToken cancellationToken) =>
+foreach (var path in OpenAiCompatibilityPaths.ModelDetailPaths)
 {
-    try
+    webApp.MapGet(path, async (
+        string modelId,
+        IOllamaProxyService ollama,
+        CancellationToken cancellationToken) =>
     {
-        var tags = await ollama.ListTagsAsync(cancellationToken);
-        var model = OpenAiModelMapper.FindModel(tags, modelId);
-        return model is null
-            ? Results.NotFound(new OpenAiErrorResponse(new OpenAiErrorBody($"模型 {modelId} 不存在。", "not_found_error", "model_not_found")))
-            : Results.Ok(model);
-    }
-    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-    {
-        throw;
-    }
-    catch (Exception ex)
-    {
-        return ToOpenAiErrorResult(ex);
-    }
-});
+        try
+        {
+            var tags = await ollama.ListTagsAsync(cancellationToken);
+            var model = OpenAiModelMapper.FindModel(tags, modelId);
+            return model is null
+                ? Results.NotFound(new OpenAiErrorResponse(new OpenAiErrorBody($"模型 {modelId} 不存在。", "not_found_error", "model_not_found")))
+                : Results.Ok(model);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return ToOpenAiErrorResult(ex);
+        }
+    });
+}
 
 webApp.MapGet("/internal/vs2026/byom", async (
     IOllamaProxyService ollama,
@@ -354,14 +360,7 @@ webApp.MapPost("/api/chat", async (
     }
 });
 
-var openAiChatCompletionPaths = new[]
-{
-    "/v1/chat/completions",
-    "/chat/completions",
-    "/v1/v1/chat/completions",
-    "/api/v1/chat/completions"
-};
-foreach (var path in openAiChatCompletionPaths)
+foreach (var path in OpenAiCompatibilityPaths.ChatCompletionPaths)
 {
     webApp.MapPost(path, HandleOpenAiChatCompletionAsync);
 }
