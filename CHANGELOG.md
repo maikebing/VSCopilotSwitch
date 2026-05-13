@@ -6,6 +6,7 @@
 
 ### Added
 
+- ✅️ 新增 VSCopilotSwitch 使用指南，覆盖快速开始、供应商配置、VS Code Copilot Chat、VS2026 BYOM、OpenAI-compatible / Ollama 客户端接入、托盘、分析统计和常见问题。
 - ✅️ 新增 VS2026 用户配置与 AI Provider 配置位置探测记录，确认 VS2026 18.0 实例配置、Copilot BYOM 配置文件、MCP 配置和常规 Copilot 设置键的实际落点；二次探测已观察到 Foundry Local 与 Azure BYOM 摘要条目。
 - ✅️ 补充 VS2026 BYOM Provider 行为分析：Azure BYOM 是自定义 HTTPS URL Provider，可作为 VSCopilotSwitch 接入试验路线；Foundry Local 依赖系统 `foundry service start`，不适合通过手写 BYOM JSON 伪装。
 - ✅️ 启动 VS2026 Azure BYOM A1 接入试验：支持通过 `VSCOPILOTSWITCH_HTTPS_URL` / `Vs2026:HttpsUrl` 额外开启 HTTPS 监听，补齐 `GET /v1/models/{modelId}` 单模型校验接口，并新增 `/internal/vs2026/byom` 返回 VS2026 Manage Models 建议填写值。
