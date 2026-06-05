@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/VSCopilotSwitch.Core/VSCopilotSwitch.Core.csproj" />
+    <Project Path="src/VSCopilotSwitch.MewUi/VSCopilotSwitch.MewUi.csproj" />
     <Project Path="src/VSCopilotSwitch.Ui/VSCopilotSwitch.Ui.esproj">
       <Build />
       <Deploy />
@@ -13,12 +14,10 @@
     <Project Path="tests/VSCopilotSwitch.Services.Tests/VSCopilotSwitch.Services.Tests.csproj" />
     <Project Path="tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.VsCodeConfig.Tests.csproj" />
   </Folder>
+  <Folder Name="/external/" />
+  <Folder Name="/external/OmniHost/" />
   <Folder Name="/external/OmniHost/src/">
     <Project Path="external/OmniHost/src/OmniHost.Abstractions/OmniHost.Abstractions.csproj" />
-    <Project Path="external/OmniHost/src/OmniHost.Core/OmniHost.Core.csproj" />
-    <Project Path="external/OmniHost/src/OmniHost/OmniHost.csproj" />
-    <Project Path="external/OmniHost/src/OmniHost.Windows/OmniHost.Windows.csproj" />
-    <Project Path="external/OmniHost/src/OmniHost.WebView2/OmniHost.WebView2.csproj" />
     <Project Path="external/OmniHost/src/OmniHost.NativeWebView2/OmniHost.NativeWebView2.csproj" />
   </Folder>
 </Solution>

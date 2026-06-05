@@ -291,9 +291,31 @@
 UI 方向：
 
 - 参考 `cc switch` 的快速切换体验，但所有关键写入动作必须有明确预览和确认。
-- 使用 Vue 3 组织 SPA 页面、状态管理和路由。
+- 当前默认使用 Vue 3 组织 SPA 页面、状态管理和路由；MewUI 重写按阶段 7.5 并行推进。
 - 强调当前生效模型、上游供应商、健康状态和 VS Code 配置状态。
 - 避免复杂设置淹没主流程，高级配置集中到展开区域。
+
+## 阶段 7.5：MewUI 原生界面重写
+
+目标：使用 `aprillz/MewUI` 重写管理界面，降低前端发布链路复杂度，并保持 Native AOT、小体积和本地桌面体验；迁移期间保留现有 Vue/OmniHost 界面作为可运行基线。
+
+- ✅️ 调研 MewUI 定位与版本边界：MewUI 是 code-first .NET GUI 框架，不是 Vue 组件库；当前 NuGet 可用版本为 `0.15.2`，项目仍标注 experimental prototype，迁移必须锁定版本并分阶段验证。
+- ✅️ 新增 MewUI 迁移说明文档 `docs/mewui-migration.md`，明确并行迁移、安全写入边界和后续接管条件。
+- ✅️ 新增 `src/VSCopilotSwitch.MewUi` 原生入口项目：使用 `Aprillz.MewUI.Windows` 构建原生窗口，读取 `/health`、`/internal/providers`、`/api/tags` 和 `/internal/vscode/user-directories` 展示代理、供应商、模型和 VS Code 目录状态。
+- ✅️ 合并 MewUI 窗口和本地代理 API：MewUI 程序启动时在同一进程内监听 `http://127.0.0.1:5124/`，提供 Ollama / OpenAI-compatible / `/internal` API，不再需要先运行 `npm run proxy:dev` 或 Vue 调试服务。
+- ✅️ 当前 MewUI 窗口保持只读安全边界：不写供应商、不写 VS Code 配置、不导出密钥；写入类工作流继续按后续任务迁移。
+- 🔧 MewUI 供应商管理页：新增、编辑、测试连接、启用、删除和排序，必须复用现有 Provider 配置 API 和脱敏策略。
+- 🔧 MewUI VS Code 配置向导：目录选择、dry-run 差异、二次确认写入、备份列表和回滚，必须复用现有配置服务。
+- 🔧 MewUI 分析统计和 VS2026 面板：迁移请求日志、usage/费用统计、BYOM 填写信息复制与刷新状态。
+- 🔵 后做 MewUI 宿主接管：覆盖核心工作流并通过 AOT、托盘、配置写入和本地代理验收后，再评估将 MewUI 设为默认窗口入口。
+- 🔵 后做 清理 Vue 发布链路：MewUI 接管默认入口后，移除不再需要的 SPA Proxy、嵌入式 SPA 资源收集和前端 CI 步骤。
+
+验收标准：
+
+- MewUI 界面展示的信息与现有 Vue 管理界面使用同一后端 API，状态不漂移。
+- 所有写入动作仍有 dry-run、备份、差异预览、二次确认和失败回滚路径。
+- MewUI 运行和发布包不依赖 npm、Node.js 或前端开发服务器。
+- MewUI 接管前，现有 Vue/OmniHost 管理界面始终可以作为回退入口运行。
 
 ## 阶段 8：安全与发布
 

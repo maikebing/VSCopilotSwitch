@@ -9,10 +9,10 @@ VSCopilotSwitch 是一个面向 VS Code / GitHub Copilot Chat 体验的本地模
 - 自动修改 VS Code 用户目录中的 Ollama Provider 配置，当前只维护 `chatLanguageModels.json` 中的 `vscs` 条目。
 - 提供熔断、重试、健康检查、限流、故障降级等稳定性能力。
 - 基于 [OmniHost](https://github.com/maikebing/OmniHost) 优先实现 Windows 桌面端；macOS、Linux、WSL 暂不实现，后续跨平台阶段再补齐。
-- 界面使用 Vue 3 + TypeScript，以 Visual Studio SPA 模式在项目内调试、构建和发布。
+- 当前默认界面仍保留 Vue 3 + TypeScript 作为回退基线；MewUI 原生界面已在独立项目中合并本地代理 API 和原生窗口，后续在迁移分支逐步接管默认入口。
 - 最终发布支持 AOT，并将 SPA 构建产物和 WebView2 Loader 作为嵌入式资源打包进单体应用。
 - 系统托盘使用 Win32 原生实现，避免主项目依赖 WinForms 并影响 AOT 发布。
-- UI 参考 `cc switch` 的快速切换体验，采用浅色卡片式供应商列表和添加/编辑表单，强调当前供应商、模型、密钥、代理和 VS Code 配置的一站式管理。
+- UI 参考 `cc switch` 的快速切换体验，强调当前供应商、模型、密钥、代理和 VS Code 配置的一站式管理；MewUI 迁移期间必须继续保留配置写入预览、备份和二次确认边界。
 
 ## 核心能力
 
@@ -77,13 +77,13 @@ Copilot Chat 当前真实聊天入口使用 OpenAI-compatible `/v1/chat/completi
 
 ## 技术方向
 
-项目界面和宿主能力基于 OmniHost，前端界面使用 Vue 3 SPA。开发阶段通过项目内 npm 脚本启动 SPA 调试服务；发布阶段先构建 SPA 静态产物，再作为嵌入式资源打包进 AOT 单体应用，由宿主在运行时加载内置 SPA 资源。实现上建议分层：
+项目默认界面和宿主能力仍保留 OmniHost + Vue 3 SPA 作为回退基线。开发阶段通过项目内 npm 脚本启动 SPA 调试服务；发布阶段先构建 SPA 静态产物，再作为嵌入式资源打包进 AOT 单体应用，由宿主在运行时加载内置 SPA 资源。MewUI 原生界面迁移已新增单进程原生入口，MewUI 程序会自己启动本地 Ollama / OpenAI-compatible API，不需要先启动 npm、Vue 或 OmniHost，详见 `docs/mewui-migration.md`。实现上建议分层：
 
 - `host`：OmniHost 桌面宿主、系统托盘、窗口生命周期、SPA 资源加载；当前优先 Windows，跨平台能力后续补齐。
 - `core`：协议转换、路由、熔断、配置模型、加密存储。
 - `providers`：各供应商 Adapter。
 - `vscode-config`：VS Code 配置发现、备份、写入、回滚。
-- `ui`：Vue 3 SPA，负责供应商配置、模型切换、状态面板、日志和向导；当前主界面采用 `cc switch` 风格的浅色卡片布局，关键写入能力仍通过预览入口承接。
+- `ui`：当前为 Vue 3 SPA，负责供应商配置、模型切换、状态面板、日志和向导；MewUI 原型先读取现有 `/internal` API 展示状态，后续逐页迁移并复用相同安全写入流程。
 
 
 ### 托盘能力
@@ -105,6 +105,7 @@ src/
   VSCopilotSwitch.Core/          # Ollama 协议模型、代理服务和 Provider 抽象
   VSCopilotSwitch.VsCodeConfig/  # VS Code 配置目录发现、安全读写、备份和干运行预览
   VSCopilotSwitch.Ui/            # Vue 3 + TypeScript + Vite SPA，包含 Visual Studio JavaScript .esproj
+  VSCopilotSwitch.MewUi/         # MewUI 原生窗口和同进程本地代理 API 迁移入口
 ```
 
 ## 开发命令
@@ -124,6 +125,20 @@ dotnet run --project src/VSCopilotSwitch --urls http://127.0.0.1:5124
 # SpaProxy 会自动以 HTTP 调用此脚本；也可单独启动 Vue 调试服务
 npm --prefix src/VSCopilotSwitch.Ui run dev
 ```
+
+MewUI 原生界面入口会在同一进程内启动本地代理 API，不需要 npm 或 Vue 开发服务：
+
+```powershell
+dotnet run --project src\VSCopilotSwitch.MewUi
+```
+
+也可使用工作区脚本：
+
+```powershell
+npm run mewui:dev
+```
+
+这里的 `npm run mewui:dev` 只是脚本包装，实际仍执行 `dotnet run --project src/VSCopilotSwitch.MewUi`。MewUI 本身不依赖 npm；npm 只属于现有 Vue SPA 的开发和发布链路。
 
 ## 供应商配置与运行时路由
 

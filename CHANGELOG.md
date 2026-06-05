@@ -6,6 +6,8 @@
 
 ### Added
 
+- ✅️ 新增 MewUI 原生界面迁移原型：`src/VSCopilotSwitch.MewUi` 使用 `Aprillz.MewUI.Windows` 以只读方式展示代理状态、当前供应商、模型列表和 VS Code 配置目录，并通过 `docs/mewui-migration.md` 记录迁移边界、运行方式和后续接管条件。
+- ✅️ MewUI 原生入口合并本地代理 API：`src/VSCopilotSwitch.MewUi` 启动时会在同一进程内监听 `http://127.0.0.1:5124/`，提供 Ollama / OpenAI-compatible / `/internal` API，运行 MewUI 不再需要先启动 `npm run proxy:dev` 或 Vue 调试服务。
 - ✅️ 新增 VSCopilotSwitch 使用指南，覆盖快速开始、供应商配置、VS Code Copilot Chat、VS2026 BYOM、OpenAI-compatible / Ollama 客户端接入、托盘、分析统计和常见问题。
 - ✅️ 新增 VS2026 用户配置与 AI Provider 配置位置探测记录，确认 VS2026 18.0 实例配置、Copilot BYOM 配置文件、MCP 配置和常规 Copilot 设置键的实际落点；二次探测已观察到 Foundry Local 与 Azure BYOM 摘要条目。
 - ✅️ 补充 VS2026 BYOM Provider 行为分析：Azure BYOM 是自定义 HTTPS URL Provider，可作为 VSCopilotSwitch 接入试验路线；Foundry Local 依赖系统 `foundry service start`，不适合通过手写 BYOM JSON 伪装。
@@ -133,6 +135,7 @@
 
 ### Changed
 
+- ✅️ 更新 MewUI 迁移文档和开发命令说明：`npm run mewui:dev` 只是工作区脚本包装，实际执行 `dotnet run --project src/VSCopilotSwitch.MewUi`；npm 仅属于旧 Vue SPA 开发和发布链路。
 - ✅️ 统一 `ROADMAP.md` 任务状态标记：使用 `✅️`、`🔧`、`⬜`、`🔴 现在做`、`🟡 可并行`、`🔵 后做` 六类状态，并明确当前主线。
 - ✅️ 校准路线图诚实状态：新增阶段 5.5 真实功能闭环，把 UI 保存供应商尚未接入 Ollama 代理路由标为当前主线，避免将骨架或占位能力误标为完成。
 - ✅️ 桌面宿主标题栏改为系统原生标题栏，默认跟随操作系统窗口风格和深浅色偏好；页面配色同步支持系统主题。
