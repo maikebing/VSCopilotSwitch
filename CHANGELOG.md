@@ -8,6 +8,7 @@
 
 - ✅️ 合并为单一主应用：`src/VSCopilotSwitch` 现在同时承载 MewUI 原生窗口、本地代理 API、VS2026 HTTPS 证书流程和 Win32 托盘，仓库不再保留独立 `src/VSCopilotSwitch.MewUi` 可执行项目。
 - ✅️ Native AOT 发布链路收敛为真正单体：`win-x64` Release 发布目录只生成 `VSCopilotSwitch.exe`，默认解决方案和发布 CI 不再依赖 npm、Node.js、Vue SPA build、OmniHost 或 WebView2。
+- ✅️ 清理过期项目和目录：删除旧 Vue SPA 项目 `src/VSCopilotSwitch.Ui`、OmniHost submodule 目录 `external/OmniHost`、旧 `wwwroot` 占位目录、`.gitmodules` 和根 `package.json`，并将应用/托盘图标迁入主项目 `src/VSCopilotSwitch/Assets`。
 - ✅️ Win32 托盘图标改为从单体发布包内嵌资源按后缀解析，避免 MSBuild 资源名格式变化导致 AOT exe 运行时找不到图标。
 - ✅️ 新增 MewUI 原生界面迁移原型：`src/VSCopilotSwitch` 使用 `Aprillz.MewUI.Windows` 以只读方式展示代理状态、当前供应商、模型列表和 VS Code 配置目录，并通过 `docs/mewui-migration.md` 记录迁移边界、运行方式和后续接管条件。
 - ✅️ MewUI 原生入口合并本地代理 API：`src/VSCopilotSwitch` 启动时会在同一进程内监听 `http://127.0.0.1:5124/`，提供 Ollama / OpenAI-compatible / `/internal` API，运行 MewUI 不再需要先启动 `npm run proxy:dev` 或 Vue 调试服务。

@@ -9,15 +9,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Remove="wwwroot\**\*" />
-    <EmbeddedResource Include="..\VSCopilotSwitch.Ui\public\favicon.ico" LogicalName="Assets\VSCopilotSwitch.ico" />
+    <EmbeddedResource Include="Assets\VSCopilotSwitch.ico" LogicalName="Assets\VSCopilotSwitch.ico" />
     <None Update="appsettings*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <AssemblyName>VSCopilotSwitch</AssemblyName>
-    <ApplicationIcon>..\VSCopilotSwitch.Ui\public\favicon.ico</ApplicationIcon>
+    <ApplicationIcon>Assets\VSCopilotSwitch.ico</ApplicationIcon>
     <TargetFramework>net10.0-windows</TargetFramework>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>

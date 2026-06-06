@@ -38,6 +38,7 @@
 - ✅️ 按 Visual Studio SPA 模式加入前端 `.esproj`，并让后端通过 `SpaProxy` 关联 Vue 调试服务。
 - ✅️ 将前端工程切换为 VueApp2 同款 Vue 3 + TypeScript 技术栈。
 - ✅️ 确认 OmniHost 正式集成方式：当前阶段通过 `external/OmniHost` 源码项目引用接入，便于同步修改 Win32/WebView2 宿主能力。
+- ✅️ 阶段 7.5 已删除上述过期 Vue / OmniHost / npm 工程目录，当前仓库基线只保留主项目、Core、VS Code Config 和测试项目。
 - ✅️ 明确当前阶段安全边界：本地代理默认只监听 `127.0.0.1`，配置写入必须 dry-run、备份、幂等且不得记录敏感密钥；许可证和外部贡献流程顺延到公开发布前补齐。
 
 验收标准：
@@ -308,6 +309,7 @@ UI 方向：
 - ✅️ 合并应用入口：移除独立 `src/VSCopilotSwitch.MewUi` 可执行项目，将 MewUI 窗口、本地代理 API、VS2026 HTTPS 证书流程和 Win32 托盘统一并入 `src/VSCopilotSwitch`，最终只有一个主应用。
 - ✅️ 单体 AOT 发布：主项目切换为 MewUI 原生窗口默认入口，发布链路不再构建 Vue SPA 或引用 OmniHost，`win-x64` Native AOT 发布目录只生成 `VSCopilotSwitch.exe`。
 - ✅️ 单体托盘资源验证：托盘图标从主程序内嵌资源释放到本地缓存，资源查找不依赖固定清单名称，避免单文件 AOT 运行时丢失托盘图标。
+- ✅️ 清理过期项目目录：删除旧 Vue SPA 项目、OmniHost submodule、旧 `wwwroot` 占位目录、`.gitmodules` 和根 npm 工作区脚本，应用图标迁入主项目 `Assets`。
 - ✅️ 当前 MewUI 窗口保持只读安全边界：不写供应商、不写 VS Code 配置、不导出密钥；写入类工作流继续按后续任务迁移。
 - 🔧 MewUI 供应商管理页：新增、编辑、测试连接、启用、删除和排序，必须复用现有 Provider 配置 API 和脱敏策略。
 - 🔧 MewUI VS Code 配置向导：目录选择、dry-run 差异、二次确认写入、备份列表和回滚，必须复用现有配置服务。
@@ -317,7 +319,7 @@ UI 方向：
 
 验收标准：
 
-- MewUI 界面展示的信息与现有 Vue 管理界面使用同一后端 API，状态不漂移。
+- MewUI 界面展示的信息与本地代理 `/internal` API 状态一致，不在 UI 层绕过后端服务。
 - 所有写入动作仍有 dry-run、备份、差异预览、二次确认和失败回滚路径。
 - MewUI 运行和发布包不依赖 npm、Node.js 或前端开发服务器。
 - 默认发布链路只生成一个 `VSCopilotSwitch.exe`，不依赖 npm、Node.js、Vue、OmniHost 或 WebView2。

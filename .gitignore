@@ -420,13 +420,9 @@ FodyWeavers.xsd
 
 # VSCopilotSwitch local build state
 .dotnet-home/
-src/VSCopilotSwitch.Ui/node_modules/
-src/VSCopilotSwitch.Ui/dist/
 **/bin/
 **/obj/
-.npm-cache/
 
 /.run-out
 /.build-out
 /.dotnet-home
-/.npm-cache

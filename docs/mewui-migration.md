@@ -17,7 +17,7 @@ MewUI 原生入口已经并入主项目 `src/VSCopilotSwitch`：
 - 本地代理已在同一程序内提供 Ollama / OpenAI-compatible / `/internal` API。
 - 当前窗口仍不保存供应商、不写入 VS Code 配置、不导出密钥；写入流程继续复用现有安全服务后续迁移。
 - Win32 托盘已经接入主项目：关闭窗口会隐藏到托盘，托盘可打开或聚焦主界面、查看当前供应商和模型、快速切换真实供应商并退出程序。
-- Release `win-x64` 发布通过 Native AOT 生成单个 `VSCopilotSwitch.exe`，不再需要构建或嵌入 Vue SPA。
+- Release `win-x64` 发布通过 Native AOT 生成单个 `VSCopilotSwitch.exe`，不再需要构建或嵌入 Vue SPA；旧 Vue 项目、OmniHost submodule 和 npm 工作区脚本已经清理。
 
 运行 MewUI 原生入口：
 
@@ -25,17 +25,9 @@ MewUI 原生入口已经并入主项目 `src/VSCopilotSwitch`：
 dotnet run --project src\VSCopilotSwitch
 ```
 
-也可使用仓库脚本：
-
-```powershell
-npm run mewui:dev
-```
-
-这里的 `npm run mewui:dev` 只是兼容旧命令名的工作区脚本包装，实际执行的是 `dotnet run --project src/VSCopilotSwitch`；MewUI 本身不依赖 npm。
-
 ## 迁移原则
 
-- 主应用默认使用 MewUI 原生窗口；Vue / OmniHost 旧链路不再参与默认构建和发布。
+- 主应用默认使用 MewUI 原生窗口；Vue / OmniHost 旧链路已移除，不再参与默认构建、开发和发布。
 - MewUI 写入 VS Code 配置前必须复用现有 dry-run、备份、差异预览和二次确认流程。
 - MewUI 供应商编辑不得显示或回传 API Key 原文，只能使用脱敏预览和受保护本地存储。
 - MewUI 与后端交互优先复用现有 `/internal` API，不把 Provider 私有协议写进 UI 层。

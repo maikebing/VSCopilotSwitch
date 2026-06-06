@@ -9,7 +9,7 @@ VSCopilotSwitch 的基本思路是：先在本工具里保存并启用一个真�
 - 当前优先支持 Windows 桌面端。
 - 准备一个可用的供应商 API Key，例如 sub2api 中转站、OpenAI-compatible 网关、OpenAI Official、DeepSeek、Claude、NVIDIA NIM 或 MoArk。
 - 如需接入 VS Code Copilot Chat，确保 VS Code 用户配置目录可写。
-- 如需源码运行，需要本机安装 .NET SDK 和 Node.js；发布版单文件运行不需要用户安装 Node.js。
+- 如需源码运行，需要本机安装 .NET SDK；发布版单文件运行不需要用户安装 .NET SDK。
 
 ## 10 分钟快速开始
 
@@ -18,7 +18,7 @@ VSCopilotSwitch 的基本思路是：先在本工具里保存并启用一个真�
    发布版直接运行 `VSCopilotSwitch.exe`。源码开发时可在仓库根目录运行：
 
    ```powershell
-   npm run host:dev
+   dotnet run --project src/VSCopilotSwitch
    ```
 
    默认本地代理地址是：
@@ -124,7 +124,7 @@ https://127.0.0.1:5443
 
 ```powershell
 $env:VSCOPILOTSWITCH_HTTPS_URL = "https://127.0.0.1:5443"
-npm run host:dev
+dotnet run --project src/VSCopilotSwitch
 ```
 
 如果 `5443` 被占用，可改成其他本机回环端口。
@@ -242,4 +242,3 @@ DeepSeek thinking 专用链路只在请求携带 `reasoning_effort`、`thinking`
 - 上游 API Key 只应保存在 VSCopilotSwitch 的供应商配置中。
 - 导出配置默认不包含密钥原文、脱敏预览或加密密文。
 - 修改 VS Code 配置前必须看 dry-run 差异，并确认备份路径。
-

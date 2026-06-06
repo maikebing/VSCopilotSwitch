@@ -9,5 +9,4 @@
     <Project Path="tests/VSCopilotSwitch.Services.Tests/VSCopilotSwitch.Services.Tests.csproj" />
     <Project Path="tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.VsCodeConfig.Tests.csproj" />
   </Folder>
-  <Folder Name="/external/" />
 </Solution>

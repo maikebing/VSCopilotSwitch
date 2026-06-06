@@ -77,7 +77,7 @@ Copilot Chat 当前真实聊天入口使用 OpenAI-compatible `/v1/chat/completi
 
 ## 技术方向
 
-项目默认界面和宿主能力已收敛到主项目 `src/VSCopilotSwitch`：MewUI 原生窗口、本地 ASP.NET Core API、Ollama / OpenAI-compatible 代理、VS Code 配置服务和 Win32 托盘在同一个可执行程序内启动。Vue SPA 源码暂时保留为历史界面参考，但不再参与默认解决方案构建、发布 CI 或 AOT 单文件打包。实现上建议分层：
+项目默认界面和宿主能力已收敛到主项目 `src/VSCopilotSwitch`：MewUI 原生窗口、本地 ASP.NET Core API、Ollama / OpenAI-compatible 代理、VS Code 配置服务和 Win32 托盘在同一个可执行程序内启动。旧 Vue SPA、OmniHost submodule 和 npm 工作区脚本已经移除，默认开发、测试和发布链路全部走 .NET。实现上建议分层：
 
 - `host`：MewUI 原生窗口、系统托盘、后台生命周期和本地 API 启停；当前优先 Windows，跨平台能力后续补齐。
 - `core`：协议转换、路由、熔断、配置模型、加密存储。
@@ -104,7 +104,6 @@ src/
   VSCopilotSwitch/               # MewUI 原生窗口、本地宿主与 HTTP API，最终可执行文件名为 VSCopilotSwitch
   VSCopilotSwitch.Core/          # Ollama 协议模型、代理服务和 Provider 抽象
   VSCopilotSwitch.VsCodeConfig/  # VS Code 配置目录发现、安全读写、备份和干运行预览
-  VSCopilotSwitch.Ui/            # 保留的旧 Vue 3 + TypeScript + Vite SPA 源码，不参与默认发布
 ```
 
 ## 开发命令
@@ -121,15 +120,6 @@ dotnet run --project src/VSCopilotSwitch
 # 仅调试 VS Code 专用 Ollama 兼容入口时，可显式监听 127.0.0.1:5124
 dotnet run --project src/VSCopilotSwitch --urls http://127.0.0.1:5124
 ```
-
-也可使用工作区脚本启动同一个主项目：
-
-```powershell
-npm run host:dev
-npm run mewui:dev
-```
-
-`npm run mewui:dev` 现在只是兼容旧命令名，实际执行 `dotnet run --project src/VSCopilotSwitch`。正式发布链路不需要 npm；Vue SPA 源码只作为旧界面参考保留。
 
 ## 供应商配置与运行时路由
 
@@ -260,7 +250,7 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 
 自动更新策略默认启用发布版后台下载：宿主会定时读取 GitHub Release 信息，比较当前程序集版本和远端 `tag_name`，选择匹配 `VSCopilotSwitch` / `win-x64` / `aot` 的 `.exe`、`.zip` 或 `.msi` 资产并下载到 `%LOCALAPPDATA%\VSCopilotSwitch\Updates`。设置页“更新”选项卡也提供手动检查和下载入口。当前阶段只下载发布包，不会静默替换正在运行的单文件程序；开发环境通过 `appsettings.Development.json` 关闭后台自动下载。
 
-发布 CI 位于 `.github/workflows/release.yml`，在 Windows runner 上执行 .NET restore、build、三组测试、`win-x64` Native AOT 单文件发布，并打包 `VSCopilotSwitch-<version>-win-x64-aot.zip` 与 `.sha256`。分支 push 和 PR 只构建、测试并上传 workflow artifact；只有推送 `v*` 标签时才会把这两个文件上传到 GitHub Release。CI 不再启动完整桌面发布产物做 `/health` 冒烟，避免托盘和无交互 Windows 会话造成不稳定失败；发布前运行验证仍保留在本地人工验收流程中。Release zip 只包含 `VSCopilotSwitch.exe`，自动更新下载到的也是这个单文件包；本地可用 `npm run release:win-x64` 直接执行 AOT 发布。Release 发布配置显式启用 full trim 和 Native AOT size 优化，关闭发布包不需要的调试器、EventSource 与 HTTP activity propagation 支持，以控制单文件体积。
+发布 CI 位于 `.github/workflows/release.yml`，在 Windows runner 上执行 .NET restore、build、三组测试、`win-x64` Native AOT 单文件发布，并打包 `VSCopilotSwitch-<version>-win-x64-aot.zip` 与 `.sha256`。分支 push 和 PR 只构建、测试并上传 workflow artifact；只有推送 `v*` 标签时才会把这两个文件上传到 GitHub Release。CI 不再启动完整桌面发布产物做 `/health` 冒烟，避免托盘和无交互 Windows 会话造成不稳定失败；发布前运行验证仍保留在本地人工验收流程中。Release zip 只包含 `VSCopilotSwitch.exe`，自动更新下载到的也是这个单文件包；本地可用 `dotnet publish src/VSCopilotSwitch -c Release -r win-x64 --self-contained true /p:PublishAot=true /p:PublishSingleFile=true` 直接执行 AOT 发布。Release 发布配置显式启用 full trim 和 Native AOT size 优化，关闭发布包不需要的调试器、EventSource 与 HTTP activity propagation 支持，以控制单文件体积。
 
 仓库包含一个无外部测试框架依赖的 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份：
 
