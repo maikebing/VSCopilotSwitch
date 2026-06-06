@@ -83,7 +83,7 @@ Copilot Chat 当前真实聊天入口使用 OpenAI-compatible `/v1/chat/completi
 - `core`：协议转换、路由、熔断、配置模型、加密存储。
 - `providers`：各供应商 Adapter。
 - `vscode-config`：VS Code 配置发现、备份、写入、回滚。
-- `ui`：当前默认是 MewUI 原生界面，先以只读方式展示代理、供应商、模型和 VS Code 目录状态；供应商管理、配置写入向导、分析统计等写入或复杂工作流继续复用现有 `/internal` API 和安全服务逐步迁移。
+- `ui`：当前默认是 MewUI 原生工作台，提供概览、供应商、VS Code、分析和 VS2026 选项卡；供应商管理、VS Code 配置写入/撤销、备份回滚、分析探针和 BYOM 信息复制都复用现有 `/internal` API、安全存储、dry-run、备份和二次确认流程。
 
 
 ### 托盘能力
@@ -232,13 +232,11 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 - `POST /internal/vscode/apply-ollama`：对 `chatLanguageModels.json` 中的 `vscs` Ollama Provider 条目做干运行预览或安全写入，写入前会备份已有文件。
 - `GET /internal/providers/export`：导出供应商配置；默认不包含 API Key 原文、脱敏预览或加密密文，只保留 `HasApiKey` 状态。
 
-当前管理界面已提供 VS Code Ollama 配置写入向导：用户需要先选择 Windows VS Code User 目录并生成 dry-run 差异预览，确认 `vscs` Provider 条目的新增、更新或删除后才能二次确认写入；写入结果会展示备份路径、文件状态和字段级变化。顶部 VS Code Ollama 开关打开时只做状态检测，缺失配置时会跳转到写入向导并显示明确的预览/确认流程，不会静默写入。回滚入口会列出最近的 VSCopilotSwitch 备份，并在恢复指定备份前要求二次确认，同时为当前文件再创建安全备份。
+当前 MewUI 原生工作台已提供 VS Code Ollama 配置写入向导：用户需要先选择 Windows VS Code User 目录并生成 dry-run 差异预览，确认 `vscs` Provider 条目的新增、更新或删除后才能执行写入或撤销；写入结果会展示备份路径、文件状态和字段级变化。备份入口会列出最近的 VSCopilotSwitch 备份，并在恢复指定备份前要求再次点击确认，同时为当前文件再创建安全备份。
 
-顶部 `VS2026` 按钮会进入设置页的 VS2026 面板，自动读取 `/internal/vs2026/byom` 并展示 VS2026 Manage Models 需要填写的 Provider、Resource Endpoint / Custom URL、Model ID、API Key 占位值，以及派生出的模型校验 URL 和聊天 URL。每个字段可单独复制，也可以一次复制全部，方便用户在 VS2026 UI 中手动填写。
+原生工作台的 `VS2026` 选项卡会自动读取 `/internal/vs2026/byom`，展示 VS2026 Manage Models 需要填写的 Provider、Resource Endpoint / Custom URL、Model ID、API Key 占位值，以及派生出的模型校验 URL 和聊天 URL，并支持一次复制全部，方便用户在 VS2026 UI 中手动填写。
 
 端到端人工验收清单见 [docs/end-to-end-acceptance-checklist.md](docs/end-to-end-acceptance-checklist.md)，覆盖新增供应商、启用、测试连接、刷新模型、VS Code 写入、Copilot 调用、本地撤销和备份回滚。Copilot 兼容验收清单见 [docs/copilot-compatibility-acceptance.md](docs/copilot-compatibility-acceptance.md)，包含手工验证路径和当前自动化探针覆盖范围。
-
-设置页还提供“关于”页面，展示应用标题、当前版本、GitHub 项目地址和企业微信二维码，便于用户确认版本并进入项目仓库或反馈渠道。
 
 当配置预览、写入、备份读取或恢复失败时，界面会按权限不足、JSON 无效、文件占用、端口冲突等类型展示可执行修复建议，帮助用户在不覆盖原配置的前提下处理问题。
 
@@ -270,7 +268,7 @@ dotnet run --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.Vs
 
 阶段 5 首批 Provider Adapter 首版已完成，阶段 5.5 已把 UI、受保护供应商配置、Provider Adapter 和 Ollama 代理串成真实闭环：当前已支持 UI 启用供应商驱动 `/api/tags` 与 `/api/chat`，并在首页展示真实模型刷新状态、上游模型名和失败原因；供应商测试连接、协议类型选择、VS Code 写入当前代理模型、托盘快速切换和端到端验收清单也已接入。
 
-右上角工具栏提供“分析统计”入口，可查看当前本地进程内存中的请求日志、监听端口状态、Token、费用、耗时和 User-Agent。分析服务会优先解析上游返回的真实 `usage`；若响应缺少 usage，才退回按正文长度估算，并在每条日志中标记来源。费用按本地 `UsagePricing` 单价表计算，不硬编码会过期的供应商官方价格；未配置单价时请求会标记为“未计价”。每条日志可展开查看脱敏后的请求头、请求体、响应头和响应体；Authorization、Cookie、API Key、Token 等敏感字段会被替换，正文采样也会限制长度。
+原生工作台的 `分析` 选项卡可查看当前本地进程内存中的请求日志、监听端口状态、Token、费用、耗时和 User-Agent，并可清空日志或运行 Copilot 兼容探针。分析服务会优先解析上游返回的真实 `usage`；若响应缺少 usage，才退回按正文长度估算，并在每条日志中标记来源。费用按本地 `UsagePricing` 单价表计算，不硬编码会过期的供应商官方价格；未配置单价时请求会标记为“未计价”。日志链路会脱敏 Authorization、Cookie、API Key、Token 等敏感字段，并限制正文采样长度。
 
 可通过配置或环境变量维护本地单价表，费率单位为“每百万 Token”：
 
@@ -301,6 +299,6 @@ dotnet run --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.Vs
 
 ## 当前 MewUI 接入状态
 
-Windows 端已合并为一个主应用：`src/VSCopilotSwitch` 直接引用 `Aprillz.MewUI.Windows`，启动时先在同一进程内启动 ASP.NET Core 本地 API，再打开 MewUI 原生窗口展示代理状态、当前供应商、模型列表和 VS Code 配置目录。开发模式和发布模式都不需要启动 Vue、OmniHost、SpaProxy 或 npm 调试服务。
+Windows 端已合并为一个主应用：`src/VSCopilotSwitch` 直接引用 `Aprillz.MewUI.Windows`，启动时先在同一进程内启动 ASP.NET Core 本地 API，再打开 MewUI 原生工作台展示概览、供应商、VS Code、分析和 VS2026 选项卡。开发模式和发布模式都不需要启动 Vue、OmniHost、SpaProxy 或 npm 调试服务。
 
-当前 MewUI 界面仍保持只读安全边界，不在 UI 层直接写供应商或 VS Code 配置；后续供应商管理、VS Code 写入向导、分析统计和 VS2026 面板会继续复用现有 `/internal` API、dry-run 差异预览、备份和二次确认流程逐步迁移。Win32 托盘已接入主窗口生命周期：关闭窗口会隐藏到托盘，托盘可打开或聚焦主界面、查看当前供应商/模型、快速切换真实供应商并退出程序。
+当前 MewUI 界面已经承接核心写入工作流：供应商页支持新增、编辑、测试连接、启用、删除和排序，API Key 使用密码输入框并只发送给后端加密保存；VS Code 页支持目录选择、dry-run 写入/撤销预览、确认写入/撤销、备份列表和二次确认回滚；分析页和 VS2026 页分别提供请求统计、Copilot 探针和 BYOM 填写信息复制。所有写入仍通过 `/internal` API 和安全服务完成，不在 UI 层直接改配置文件或绕过脱敏策略。Win32 托盘已接入主窗口生命周期：关闭窗口会隐藏到托盘，托盘可打开或聚焦主界面、查看当前供应商/模型、快速切换真实供应商并退出程序。

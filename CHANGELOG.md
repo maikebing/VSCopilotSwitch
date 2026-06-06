@@ -12,6 +12,8 @@
 - ✅️ Win32 托盘图标改为从单体发布包内嵌资源按后缀解析，避免 MSBuild 资源名格式变化导致 AOT exe 运行时找不到图标。
 - ✅️ 新增 MewUI 原生界面迁移原型：`src/VSCopilotSwitch` 使用 `Aprillz.MewUI.Windows` 以只读方式展示代理状态、当前供应商、模型列表和 VS Code 配置目录，并通过 `docs/mewui-migration.md` 记录迁移边界、运行方式和后续接管条件。
 - ✅️ MewUI 原生入口合并本地代理 API：`src/VSCopilotSwitch` 启动时会在同一进程内监听 `http://127.0.0.1:5124/`，提供 Ollama / OpenAI-compatible / `/internal` API，运行 MewUI 不再需要先启动 `npm run proxy:dev` 或 Vue 调试服务。
+- ✅️ MewUI 原生工作台接管核心功能：新增概览、供应商、VS Code、分析和 VS2026 选项卡，支持供应商新增/编辑/测试/启用/删除/排序、VS Code dry-run 写入/撤销/备份回滚、分析日志与 Copilot 探针、VS2026 BYOM 信息复制。
+- ✅️ MewUI 写入安全门槛补齐：API Key 使用密码输入框且只发送给后端加密保存，VS Code 写入和撤销必须先生成 dry-run 预览，供应商删除和备份恢复需要再次点击确认。
 - ✅️ 新增 VSCopilotSwitch 使用指南，覆盖快速开始、供应商配置、VS Code Copilot Chat、VS2026 BYOM、OpenAI-compatible / Ollama 客户端接入、托盘、分析统计和常见问题。
 - ✅️ 新增 VS2026 用户配置与 AI Provider 配置位置探测记录，确认 VS2026 18.0 实例配置、Copilot BYOM 配置文件、MCP 配置和常规 Copilot 设置键的实际落点；二次探测已观察到 Foundry Local 与 Azure BYOM 摘要条目。
 - ✅️ 补充 VS2026 BYOM Provider 行为分析：Azure BYOM 是自定义 HTTPS URL Provider，可作为 VSCopilotSwitch 接入试验路线；Foundry Local 依赖系统 `foundry service start`，不适合通过手写 BYOM JSON 伪装。
