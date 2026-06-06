@@ -1,14 +1,23 @@
-using OmniHost;
-
 namespace VSCopilotSwitch.Services;
 
 public interface ITrayMenuService
 {
     string GetToolTip();
 
-    IReadOnlyList<OmniTrayMenuItem> GetMenuItems();
+    IReadOnlyList<TrayMenuItem> GetMenuItems();
 
     ValueTask HandleCommandAsync(string commandId, CancellationToken cancellationToken);
+}
+
+public sealed record TrayMenuItem(
+    string CommandId,
+    string Text,
+    bool Enabled = true,
+    bool Checked = false,
+    bool IsSeparator = false)
+{
+    public static TrayMenuItem CreateSeparator()
+        => new(string.Empty, string.Empty, Enabled: false, IsSeparator: true);
 }
 
 public sealed class TrayMenuService : ITrayMenuService
@@ -32,16 +41,16 @@ public sealed class TrayMenuService : ITrayMenuService
         return $"VSCopilotSwitch - {active.Name} / {DisplayModel(active)}";
     }
 
-    public IReadOnlyList<OmniTrayMenuItem> GetMenuItems()
+    public IReadOnlyList<TrayMenuItem> GetMenuItems()
     {
         var providers = ListProviders();
         var active = providers.FirstOrDefault(provider => provider.Active);
-        var items = new List<OmniTrayMenuItem>
+        var items = new List<TrayMenuItem>
         {
             new(string.Empty, $"当前供应商：{DisplayProvider(active)}", Enabled: false),
             new(string.Empty, $"当前模型：{DisplayModel(active)}", Enabled: false),
             new(string.Empty, "代理服务：运行中", Enabled: false),
-            OmniTrayMenuItem.CreateSeparator(),
+            TrayMenuItem.CreateSeparator(),
             new(string.Empty, "快速切换真实供应商", Enabled: false)
         };
 
@@ -55,7 +64,7 @@ public sealed class TrayMenuService : ITrayMenuService
             }
 
             var status = realProvider ? string.Empty : "（缺少密钥或模型）";
-            items.Add(new OmniTrayMenuItem(
+            items.Add(new TrayMenuItem(
                 $"{ActivateProviderPrefix}{provider.Id}",
                 $"{provider.Name} · {DisplayModel(provider)}{status}",
                 Enabled: realProvider && !provider.Active,
@@ -64,7 +73,7 @@ public sealed class TrayMenuService : ITrayMenuService
 
         if (realProviderCount == 0)
         {
-            items.Add(new OmniTrayMenuItem(string.Empty, "没有可切换的真实供应商", Enabled: false));
+            items.Add(new TrayMenuItem(string.Empty, "没有可切换的真实供应商", Enabled: false));
         }
 
         return items;

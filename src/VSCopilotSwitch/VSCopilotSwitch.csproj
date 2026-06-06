@@ -1,20 +1,17 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.SpaProxy">
-      <Version>10.*-*</Version>
-    </PackageReference>
+    <PackageReference Include="Aprillz.MewUI.Windows" Version="0.15.2" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\VSCopilotSwitch.Core\VSCopilotSwitch.Core.csproj" />
     <ProjectReference Include="..\VSCopilotSwitch.VsCodeConfig\VSCopilotSwitch.VsCodeConfig.csproj" />
-    <ProjectReference Include="..\..\external\OmniHost\src\OmniHost\OmniHost.csproj" />
-    <ProjectReference Include="..\..\external\OmniHost\src\OmniHost.NativeWebView2\OmniHost.NativeWebView2.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="..\..\src\VSCopilotSwitch.Ui\dist\**\*" Condition="Exists('..\..\src\VSCopilotSwitch.Ui\dist')" LogicalName="Spa\%(RecursiveDir)%(Filename)%(Extension)" />
     <Content Remove="wwwroot\**\*" />
-    <Content Update="appsettings*.json" CopyToPublishDirectory="Never" />
+    <EmbeddedResource Include="..\VSCopilotSwitch.Ui\public\favicon.ico" LogicalName="Assets\VSCopilotSwitch.ico" />
+    <None Update="appsettings*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -26,10 +23,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <NoWarn>MSB3277</NoWarn>
-    <SpaRoot>..\VSCopilotSwitch.Ui</SpaRoot>
-    <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
-    <SpaProxyServerUrl>http://localhost:5173</SpaProxyServerUrl>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <MewUIBackend>Gdi</MewUIBackend>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -45,8 +41,16 @@
     <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
     <UseSizeOptimizedLinq>true</UseSizeOptimizedLinq>
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <StripSymbols>true</StripSymbols>
     <DebugType>None</DebugType>
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
+
+  <Target Name="RemoveNonSingleFilePublishCompanions" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Filename)%(Extension)' == 'aspnetcorev2_inprocess.dll'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
 
 </Project>

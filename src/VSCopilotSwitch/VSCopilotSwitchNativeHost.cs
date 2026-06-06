@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Text.Json;
@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -18,14 +19,14 @@ using VSCopilotSwitch.Services;
 using VSCopilotSwitch.VsCodeConfig.Models;
 using VSCopilotSwitch.VsCodeConfig.Services;
 
-namespace VSCopilotSwitch.MewUi;
+namespace VSCopilotSwitch;
 
-internal sealed class MewUiNativeHost : IAsyncDisposable
+internal sealed class VSCopilotSwitchNativeHost : IAsyncDisposable
 {
     private readonly WebApplication _webApp;
     private readonly string _configuredServerUrl;
 
-    private MewUiNativeHost(WebApplication webApp, string configuredServerUrl)
+    private VSCopilotSwitchNativeHost(WebApplication webApp, string configuredServerUrl)
     {
         _webApp = webApp;
         _configuredServerUrl = configuredServerUrl;
@@ -33,19 +34,53 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
 
     public string ServerUrl { get; private set; } = string.Empty;
 
-    public static async Task<MewUiNativeHost> StartAsync(string[] args, CancellationToken cancellationToken = default)
+    public IServiceProvider Services => _webApp.Services;
+
+    public static async Task<VSCopilotSwitchNativeHost> StartAsync(string[] args, CancellationToken cancellationToken = default)
     {
         var builder = WebApplication.CreateSlimBuilder(args);
         var configuredServerUrls = ResolveServerUrls(builder.Configuration);
         var configuredServerUrl = configuredServerUrls[0];
+        var configuredHttpsServerUrl = configuredServerUrls.FirstOrDefault(IsHttpsUrl);
+        LocalHttpsCertificateStatus? localHttpsCertificate;
+        try
+        {
+            localHttpsCertificate = LocalHttpsCertificateService.EnsureTrustedForServerUrls(configuredServerUrls);
+        }
+        catch (Exception ex)
+        {
+            // 本地证书安装或信任失败不能阻断主程序启动；降级保留 HTTP 代理入口。
+            StartupDiagnostics.WriteCrashLog(ex, "EnsureTrustedForServerUrls failed; HTTPS will be disabled.");
+            localHttpsCertificate = null;
+            configuredServerUrls = configuredServerUrls.Where(url => !IsHttpsUrl(url)).ToArray();
+            configuredServerUrl = configuredServerUrls.Length > 0 ? configuredServerUrls[0] : "http://127.0.0.1:5124";
+            configuredHttpsServerUrl = null;
+            if (configuredServerUrls.Length == 0)
+            {
+                configuredServerUrls = new[] { configuredServerUrl };
+            }
+        }
+
+        if (localHttpsCertificate is not null)
+        {
+            builder.WebHost.UseKestrelHttpsConfiguration();
+            builder.WebHost.ConfigureKestrel(options =>
+            {
+                options.ConfigureHttpsDefaults(httpsOptions =>
+                {
+                    httpsOptions.ServerCertificate = localHttpsCertificate.Certificate;
+                });
+            });
+        }
+
         builder.WebHost.UseUrls(configuredServerUrls);
 
         ConfigureServices(builder.Services, builder.Configuration);
 
         var webApp = builder.Build();
-        ConfigurePipeline(webApp, configuredServerUrl);
+        ConfigurePipeline(webApp, configuredServerUrl, configuredHttpsServerUrl, localHttpsCertificate);
 
-        var host = new MewUiNativeHost(webApp, configuredServerUrl);
+        var host = new VSCopilotSwitchNativeHost(webApp, configuredServerUrl);
         await webApp.StartAsync(cancellationToken);
         host.ServerUrl = ResolveStartedServerUrl(webApp, configuredServerUrl);
         return host;
@@ -63,7 +98,7 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
         {
             options.SerializerOptions.PropertyNamingPolicy = null;
             options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-            options.SerializerOptions.TypeInfoResolverChain.Insert(0, MewUiApiJsonContext.Default);
+            options.SerializerOptions.TypeInfoResolverChain.Insert(0, VSCopilotSwitchApiJsonContext.Default);
         });
 
         services.AddSingleton<IProviderConfigService, ProviderConfigService>();
@@ -82,7 +117,11 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
         services.AddSingleton<IVsCodeConfigService, VsCodeConfigService>();
     }
 
-    private static void ConfigurePipeline(WebApplication webApp, string configuredServerUrl)
+    private static void ConfigurePipeline(
+        WebApplication webApp,
+        string configuredServerUrl,
+        string? configuredHttpsServerUrl,
+        LocalHttpsCertificateStatus? localHttpsCertificate)
     {
         webApp.Use(async (context, next) =>
         {
@@ -245,13 +284,17 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
             var tags = await ollama.ListTagsAsync(cancellationToken);
             var model = tags.Models.FirstOrDefault(item => !string.IsNullOrWhiteSpace(item.Name));
             var modelId = model?.Name ?? "gpt-5.5@vscs";
+            var httpsBaseUrl = configuredHttpsServerUrl is null ? null : NormalizePublicBaseUrl(configuredHttpsServerUrl);
+            var endpoint = httpsBaseUrl is null ? null : $"{httpsBaseUrl}/v1";
 
             return Results.Ok(new Vs2026ByomInfoResponse(
-                null,
+                endpoint,
                 modelId,
                 "vscs-local",
-                false,
-                "MewUI 原生入口当前只启用 HTTP 本地代理；VS2026 HTTPS BYOM 面板会在后续阶段迁移。"));
+                configuredHttpsServerUrl is not null,
+                configuredHttpsServerUrl is null
+                    ? "未启用 HTTPS 监听。发布版默认会尝试启用 https://127.0.0.1:5443；如果端口被占用，可设置 VSCOPILOTSWITCH_HTTPS_URL 指向其他本机回环端口。"
+                    : $"可在 VS2026 Manage Models 中选择 Azure，填入该 HTTPS /v1 地址和模型 ID。本地 HTTPS 证书已写入当前用户证书库，指纹 {FormatCertificateThumbprint(localHttpsCertificate?.Thumbprint)}。"));
         });
 
         webApp.MapPost("/api/show", async (
@@ -294,7 +337,7 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
                 await JsonSerializer.SerializeAsync(
                     httpContext.Response.Body,
                     response,
-                    MewUiApiJsonContext.Default.OllamaChatResponse,
+                    VSCopilotSwitchApiJsonContext.Default.OllamaChatResponse,
                     cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -477,10 +520,38 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
             urls.Add("http://127.0.0.1:5124");
         }
 
+        var vs2026HttpsUrl = FirstNonEmpty(
+            Environment.GetEnvironmentVariable("VSCOPILOTSWITCH_HTTPS_URL"),
+            configuration["Vs2026:HttpsUrl"]);
+        if (string.IsNullOrWhiteSpace(vs2026HttpsUrl) && IsVs2026AutoHttpsEnabled(configuration) && IsTcpPortAvailable(5443))
+        {
+            vs2026HttpsUrl = "https://127.0.0.1:5443";
+        }
+
+        if (!string.IsNullOrWhiteSpace(vs2026HttpsUrl))
+        {
+            urls.Add(vs2026HttpsUrl);
+        }
+
         return urls
             .Select(ValidateServerUrl)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static bool IsVs2026AutoHttpsEnabled(IConfiguration configuration)
+    {
+        var value = FirstNonEmpty(
+            Environment.GetEnvironmentVariable("VSCOPILOTSWITCH_VS2026_AUTO_HTTPS"),
+            configuration["Vs2026:AutoHttps"]);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return true;
+        }
+
+        return !value.Equals("false", StringComparison.OrdinalIgnoreCase)
+               && !value.Equals("0", StringComparison.OrdinalIgnoreCase)
+               && !value.Equals("no", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ValidateServerUrl(string configuredUrl)
@@ -513,6 +584,7 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
         }
 
         return addresses.FirstOrDefault(IsHttpUrl)
+            ?? addresses.FirstOrDefault(IsHttpsUrl)
             ?? addresses.FirstOrDefault()
             ?? fallbackUrl;
     }
@@ -520,6 +592,24 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
     private static bool IsHttpUrl(string value)
         => Uri.TryCreate(value, UriKind.Absolute, out var uri)
            && string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsHttpsUrl(string value)
+        => Uri.TryCreate(value, UriKind.Absolute, out var uri)
+           && string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
+
+    private static string? FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+
+    private static string FormatCertificateThumbprint(string? thumbprint)
+    {
+        if (string.IsNullOrWhiteSpace(thumbprint))
+        {
+            return "未知";
+        }
+
+        var clean = thumbprint.Replace(" ", string.Empty, StringComparison.Ordinal);
+        return string.Join(':', clean.Chunk(2).Select(chars => new string(chars)));
+    }
 
     private static bool IsTcpPortAvailable(int targetPort)
     {
@@ -556,7 +646,7 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
                 await JsonSerializer.SerializeAsync(
                     httpContext.Response.Body,
                     chunk,
-                    MewUiApiJsonContext.Default.OllamaChatResponse,
+                    VSCopilotSwitchApiJsonContext.Default.OllamaChatResponse,
                     cancellationToken);
                 await httpContext.Response.WriteAsync("\n", cancellationToken);
                 await httpContext.Response.Body.FlushAsync(cancellationToken);
@@ -572,7 +662,7 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
             await JsonSerializer.SerializeAsync(
                 httpContext.Response.Body,
                 response,
-                MewUiApiJsonContext.Default.OllamaErrorResponse,
+                VSCopilotSwitchApiJsonContext.Default.OllamaErrorResponse,
                 cancellationToken);
             await httpContext.Response.WriteAsync("\n", cancellationToken);
             await httpContext.Response.Body.FlushAsync(cancellationToken);
@@ -595,7 +685,7 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
         await JsonSerializer.SerializeAsync(
             httpContext.Response.Body,
             response,
-            MewUiApiJsonContext.Default.OllamaErrorResponse,
+            VSCopilotSwitchApiJsonContext.Default.OllamaErrorResponse,
             cancellationToken);
     }
 
@@ -630,7 +720,7 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
             await JsonSerializer.SerializeAsync(
                 httpContext.Response.Body,
                 completion,
-                MewUiApiJsonContext.Default.OpenAiChatCompletionResponse,
+                VSCopilotSwitchApiJsonContext.Default.OpenAiChatCompletionResponse,
                 cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -900,7 +990,7 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
         await JsonSerializer.SerializeAsync(
             httpContext.Response.Body,
             chunk,
-            MewUiApiJsonContext.Default.OpenAiChatCompletionChunk,
+            VSCopilotSwitchApiJsonContext.Default.OpenAiChatCompletionChunk,
             cancellationToken);
         await httpContext.Response.WriteAsync("\n\n", cancellationToken);
         await httpContext.Response.Body.FlushAsync(cancellationToken);
@@ -915,7 +1005,7 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
         await JsonSerializer.SerializeAsync(
             httpContext.Response.Body,
             error,
-            MewUiApiJsonContext.Default.OpenAiErrorResponse,
+            VSCopilotSwitchApiJsonContext.Default.OpenAiErrorResponse,
             cancellationToken);
         await httpContext.Response.WriteAsync("\n\n", cancellationToken);
         await httpContext.Response.Body.FlushAsync(cancellationToken);
@@ -937,7 +1027,7 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
         await JsonSerializer.SerializeAsync(
             httpContext.Response.Body,
             response,
-            MewUiApiJsonContext.Default.OpenAiErrorResponse,
+            VSCopilotSwitchApiJsonContext.Default.OpenAiErrorResponse,
             cancellationToken);
     }
 
@@ -1060,7 +1150,7 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
             await JsonSerializer.SerializeAsync(
                 httpContext.Response.Body,
                 response,
-                MewUiApiJsonContext.Default.OllamaErrorResponse,
+                VSCopilotSwitchApiJsonContext.Default.OllamaErrorResponse,
                 httpContext.RequestAborted);
         }
     }
@@ -1074,8 +1164,9 @@ internal sealed class MewUiNativeHost : IAsyncDisposable
             await JsonSerializer.SerializeAsync(
                 httpContext.Response.Body,
                 response,
-                MewUiApiJsonContext.Default.OpenAiErrorResponse,
+                VSCopilotSwitchApiJsonContext.Default.OpenAiErrorResponse,
                 httpContext.RequestAborted);
         }
     }
 }
+

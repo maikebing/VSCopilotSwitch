@@ -288,34 +288,39 @@
 - ✅️ 完成 Windows `win-x64` AOT 单文件发布最小冒烟：唯一 exe 复制到干净目录后可启动本地服务并通过 `/health` 返回 Production/ok。
 - ✅️ 收紧 AOT 发布体积：显式启用 full trim、Native AOT size 优化和必要的运行时功能裁剪，当前单文件 exe 约 17.3 MB。
 
+当前状态：MewUI 已在阶段 7.5 接管默认入口；阶段 7 的 OmniHost + Vue 链路保留为历史实现记录，不再作为默认构建和发布主线。
+
 UI 方向：
 
 - 参考 `cc switch` 的快速切换体验，但所有关键写入动作必须有明确预览和确认。
-- 当前默认使用 Vue 3 组织 SPA 页面、状态管理和路由；MewUI 重写按阶段 7.5 并行推进。
+- 当前默认使用 MewUI 原生窗口；Vue 3 SPA 源码保留为历史界面参考，不再参与默认发布。
 - 强调当前生效模型、上游供应商、健康状态和 VS Code 配置状态。
 - 避免复杂设置淹没主流程，高级配置集中到展开区域。
 
 ## 阶段 7.5：MewUI 原生界面重写
 
-目标：使用 `aprillz/MewUI` 重写管理界面，降低前端发布链路复杂度，并保持 Native AOT、小体积和本地桌面体验；迁移期间保留现有 Vue/OmniHost 界面作为可运行基线。
+目标：使用 `aprillz/MewUI` 重写管理界面，降低前端发布链路复杂度，并保持 Native AOT、小体积和本地桌面体验；主入口已合并到 `src/VSCopilotSwitch`。
 
 - ✅️ 调研 MewUI 定位与版本边界：MewUI 是 code-first .NET GUI 框架，不是 Vue 组件库；当前 NuGet 可用版本为 `0.15.2`，项目仍标注 experimental prototype，迁移必须锁定版本并分阶段验证。
 - ✅️ 新增 MewUI 迁移说明文档 `docs/mewui-migration.md`，明确并行迁移、安全写入边界和后续接管条件。
-- ✅️ 新增 `src/VSCopilotSwitch.MewUi` 原生入口项目：使用 `Aprillz.MewUI.Windows` 构建原生窗口，读取 `/health`、`/internal/providers`、`/api/tags` 和 `/internal/vscode/user-directories` 展示代理、供应商、模型和 VS Code 目录状态。
+- ✅️ 新增并迁入 MewUI 原生入口：最初通过 `src/VSCopilotSwitch.MewUi` 验证 `Aprillz.MewUI.Windows`，现已迁入 `src/VSCopilotSwitch`，读取 `/health`、`/internal/providers`、`/api/tags` 和 `/internal/vscode/user-directories` 展示代理、供应商、模型和 VS Code 目录状态。
 - ✅️ 合并 MewUI 窗口和本地代理 API：MewUI 程序启动时在同一进程内监听 `http://127.0.0.1:5124/`，提供 Ollama / OpenAI-compatible / `/internal` API，不再需要先运行 `npm run proxy:dev` 或 Vue 调试服务。
+- ✅️ 合并应用入口：移除独立 `src/VSCopilotSwitch.MewUi` 可执行项目，将 MewUI 窗口、本地代理 API、VS2026 HTTPS 证书流程和 Win32 托盘统一并入 `src/VSCopilotSwitch`，最终只有一个主应用。
+- ✅️ 单体 AOT 发布：主项目切换为 MewUI 原生窗口默认入口，发布链路不再构建 Vue SPA 或引用 OmniHost，`win-x64` Native AOT 发布目录只生成 `VSCopilotSwitch.exe`。
+- ✅️ 单体托盘资源验证：托盘图标从主程序内嵌资源释放到本地缓存，资源查找不依赖固定清单名称，避免单文件 AOT 运行时丢失托盘图标。
 - ✅️ 当前 MewUI 窗口保持只读安全边界：不写供应商、不写 VS Code 配置、不导出密钥；写入类工作流继续按后续任务迁移。
 - 🔧 MewUI 供应商管理页：新增、编辑、测试连接、启用、删除和排序，必须复用现有 Provider 配置 API 和脱敏策略。
 - 🔧 MewUI VS Code 配置向导：目录选择、dry-run 差异、二次确认写入、备份列表和回滚，必须复用现有配置服务。
 - 🔧 MewUI 分析统计和 VS2026 面板：迁移请求日志、usage/费用统计、BYOM 填写信息复制与刷新状态。
-- 🔵 后做 MewUI 宿主接管：覆盖核心工作流并通过 AOT、托盘、配置写入和本地代理验收后，再评估将 MewUI 设为默认窗口入口。
-- 🔵 后做 清理 Vue 发布链路：MewUI 接管默认入口后，移除不再需要的 SPA Proxy、嵌入式 SPA 资源收集和前端 CI 步骤。
+- ✅️ MewUI 宿主接管：MewUI 已设为默认窗口入口，并通过构建、测试和 AOT 单文件发布验证；写入型页面仍按后续任务迁移。
+- ✅️ 清理 Vue 发布链路：默认解决方案、发布 CI 和 `release:win-x64` 不再执行 npm install、SPA build、嵌入式 SPA 资源收集或前端 CI 步骤。
 
 验收标准：
 
 - MewUI 界面展示的信息与现有 Vue 管理界面使用同一后端 API，状态不漂移。
 - 所有写入动作仍有 dry-run、备份、差异预览、二次确认和失败回滚路径。
 - MewUI 运行和发布包不依赖 npm、Node.js 或前端开发服务器。
-- MewUI 接管前，现有 Vue/OmniHost 管理界面始终可以作为回退入口运行。
+- 默认发布链路只生成一个 `VSCopilotSwitch.exe`，不依赖 npm、Node.js、Vue、OmniHost 或 WebView2。
 
 ## 阶段 8：安全与发布
 
@@ -325,8 +330,8 @@ UI 方向：
 - 🟡 可并行 日志脱敏和崩溃报告脱敏。
 - ✅️ 配置导出时默认不包含密钥。
 - ✅️ 自动更新策略：从 GitHub Release 检查更高版本，自动下载匹配 Windows 单文件发布资产到本地缓存，更新替换仍保留为用户可控步骤。
-- ✅️ 发布 CI：GitHub Actions 覆盖 npm install、SPA build、嵌入式资源生成检查、.NET 测试和 AOT 单体应用打包；分支/PR 只构建，`v*` 标签才发布 Release 资产。
-- ✅️ 发布流程包含 npm install、SPA build、嵌入式资源生成、AOT 单体应用打包。
+- ✅️ 发布 CI：GitHub Actions 覆盖 .NET 构建、三组测试和 AOT 单体应用打包；分支/PR 只构建，`v*` 标签才发布 Release 资产。
+- ✅️ 发布流程已收敛为 .NET Native AOT 单体应用打包，不再依赖 npm、SPA build 或嵌入式 SPA 资源生成。
 - ✅️ 修复发布 CI 版本解析：标签版本、预发布版本、build metadata 和非 SemVer 分支名均可稳定生成 .NET 包版本、程序集版本和 Release 标签。
 - ✅️ 移除发布 CI 中启动完整桌面 exe 的 `/health` 冒烟步骤；运行时冒烟保留为本地发布前人工验收，避免无交互 Windows runner 上的 WebView2、托盘和窗口会话差异阻塞打包。
 - 🔵 后做 安装包签名策略。

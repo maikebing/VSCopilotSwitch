@@ -23,7 +23,6 @@ env:
   DOTNET_NOLOGO: "true"
   DOTNET_CLI_TELEMETRY_OPTOUT: "true"
   PROJECT_PATH: src/VSCopilotSwitch/VSCopilotSwitch.csproj
-  UI_PATH: src/VSCopilotSwitch.Ui
   RUNTIME_ID: win-x64
   PUBLISH_DIR: artifacts/publish/win-x64
   PACKAGE_DIR: artifacts/package
@@ -78,36 +77,8 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: src/VSCopilotSwitch.Ui/package-lock.json
-
       - name: Restore .NET dependencies
         run: dotnet restore VSCopilotSwitch.slnx
-
-      - name: Install SPA dependencies
-        run: npm install --prefix $env:UI_PATH
-
-      - name: Build SPA
-        run: npm --prefix $env:UI_PATH run build
-
-      - name: Verify SPA dist for embedded resources
-        shell: pwsh
-        run: |
-          $dist = Join-Path $env:UI_PATH "dist"
-          if (-not (Test-Path (Join-Path $dist "index.html"))) {
-            throw "SPA dist/index.html was not generated."
-          }
-
-          $assetCount = (Get-ChildItem -Path $dist -Recurse -File | Measure-Object).Count
-          if ($assetCount -lt 2) {
-            throw "SPA dist does not contain enough files to embed."
-          }
-
-          "SPA files ready for embedding: $assetCount"
 
       - name: Build and test
         shell: pwsh

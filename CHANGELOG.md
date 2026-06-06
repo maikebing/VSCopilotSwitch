@@ -6,8 +6,11 @@
 
 ### Added
 
-- ✅️ 新增 MewUI 原生界面迁移原型：`src/VSCopilotSwitch.MewUi` 使用 `Aprillz.MewUI.Windows` 以只读方式展示代理状态、当前供应商、模型列表和 VS Code 配置目录，并通过 `docs/mewui-migration.md` 记录迁移边界、运行方式和后续接管条件。
-- ✅️ MewUI 原生入口合并本地代理 API：`src/VSCopilotSwitch.MewUi` 启动时会在同一进程内监听 `http://127.0.0.1:5124/`，提供 Ollama / OpenAI-compatible / `/internal` API，运行 MewUI 不再需要先启动 `npm run proxy:dev` 或 Vue 调试服务。
+- ✅️ 合并为单一主应用：`src/VSCopilotSwitch` 现在同时承载 MewUI 原生窗口、本地代理 API、VS2026 HTTPS 证书流程和 Win32 托盘，仓库不再保留独立 `src/VSCopilotSwitch.MewUi` 可执行项目。
+- ✅️ Native AOT 发布链路收敛为真正单体：`win-x64` Release 发布目录只生成 `VSCopilotSwitch.exe`，默认解决方案和发布 CI 不再依赖 npm、Node.js、Vue SPA build、OmniHost 或 WebView2。
+- ✅️ Win32 托盘图标改为从单体发布包内嵌资源按后缀解析，避免 MSBuild 资源名格式变化导致 AOT exe 运行时找不到图标。
+- ✅️ 新增 MewUI 原生界面迁移原型：`src/VSCopilotSwitch` 使用 `Aprillz.MewUI.Windows` 以只读方式展示代理状态、当前供应商、模型列表和 VS Code 配置目录，并通过 `docs/mewui-migration.md` 记录迁移边界、运行方式和后续接管条件。
+- ✅️ MewUI 原生入口合并本地代理 API：`src/VSCopilotSwitch` 启动时会在同一进程内监听 `http://127.0.0.1:5124/`，提供 Ollama / OpenAI-compatible / `/internal` API，运行 MewUI 不再需要先启动 `npm run proxy:dev` 或 Vue 调试服务。
 - ✅️ 新增 VSCopilotSwitch 使用指南，覆盖快速开始、供应商配置、VS Code Copilot Chat、VS2026 BYOM、OpenAI-compatible / Ollama 客户端接入、托盘、分析统计和常见问题。
 - ✅️ 新增 VS2026 用户配置与 AI Provider 配置位置探测记录，确认 VS2026 18.0 实例配置、Copilot BYOM 配置文件、MCP 配置和常规 Copilot 设置键的实际落点；二次探测已观察到 Foundry Local 与 Azure BYOM 摘要条目。
 - ✅️ 补充 VS2026 BYOM Provider 行为分析：Azure BYOM 是自定义 HTTPS URL Provider，可作为 VSCopilotSwitch 接入试验路线；Foundry Local 依赖系统 `foundry service start`，不适合通过手写 BYOM JSON 伪装。
@@ -98,7 +101,7 @@
 - ✅️ 实现主窗口生命周期：点击关闭按钮时隐藏到托盘并保持本地代理运行，托盘“打开”恢复聚焦，托盘“退出”才真正停止宿主进程。
 - ✅️ 自动更新策略收敛为 GitHub Release 单源：后台和设置页手动检查都会从 GitHub Release 读取最新版本，并下载匹配的 Windows 发布资产到本地缓存。
 - ✅️ 设置页新增“关于”页面，展示应用标题、当前版本、GitHub 地址和企业微信二维码。
-- ✅️ 新增发布 CI：GitHub Actions 会执行 npm install、Vue SPA build、嵌入式资源检查、.NET 测试、Windows `win-x64` AOT 单文件发布和打包；分支/PR 只构建，`v*` 标签才上传 Release 资产。
+- ✅️ 新增发布 CI：GitHub Actions 会执行 .NET 构建、三组测试、Windows `win-x64` AOT 单文件发布和打包；分支/PR 只构建，`v*` 标签才上传 Release 资产。
 - ✅️ 发布包收敛为真正单文件资产：Release zip 只包含 `VSCopilotSwitch.exe`，避免把调试符号或生成清单放进自动更新包。
 - ✅️ 新增 Windows 托盘菜单最小增强，支持打开或聚焦主界面、查看当前提供商和代理状态、退出并停止本地代理。
 - ✅️ Win32 原生托盘菜单接入当前启用供应商和模型状态，并支持对已保存密钥和模型名的真实供应商做快速切换。
@@ -135,7 +138,8 @@
 
 ### Changed
 
-- ✅️ 更新 MewUI 迁移文档和开发命令说明：`npm run mewui:dev` 只是工作区脚本包装，实际执行 `dotnet run --project src/VSCopilotSwitch.MewUi`；npm 仅属于旧 Vue SPA 开发和发布链路。
+- ✅️ 更新 MewUI 迁移文档和开发命令说明：`npm run mewui:dev` 只是兼容旧命令名的工作区脚本包装，实际执行 `dotnet run --project src/VSCopilotSwitch`；默认发布链路不再使用 npm。
+- ✅️ 清理默认解决方案和发布 CI：移除旧 MewUI 独立项目、OmniHost 空项目引用和 Vue `.esproj` 默认构建入口，`release:win-x64` 直接执行主项目 AOT 发布。
 - ✅️ 统一 `ROADMAP.md` 任务状态标记：使用 `✅️`、`🔧`、`⬜`、`🔴 现在做`、`🟡 可并行`、`🔵 后做` 六类状态，并明确当前主线。
 - ✅️ 校准路线图诚实状态：新增阶段 5.5 真实功能闭环，把 UI 保存供应商尚未接入 Ollama 代理路由标为当前主线，避免将骨架或占位能力误标为完成。
 - ✅️ 桌面宿主标题栏改为系统原生标题栏，默认跟随操作系统窗口风格和深浅色偏好；页面配色同步支持系统主题。

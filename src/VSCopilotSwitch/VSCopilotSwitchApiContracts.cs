@@ -9,9 +9,6 @@ using VSCopilotSwitch.VsCodeConfig.Models;
 [JsonSerializable(typeof(HealthResponse))]
 [JsonSerializable(typeof(AboutInfoResponse))]
 [JsonSerializable(typeof(ErrorMessageResponse))]
-[JsonSerializable(typeof(HostInfoResponse))]
-[JsonSerializable(typeof(OpenExternalUrlRequest))]
-[JsonSerializable(typeof(OpenExternalUrlResult))]
 [JsonSerializable(typeof(PortStatusResponse))]
 [JsonSerializable(typeof(OllamaVersionResponse))]
 [JsonSerializable(typeof(ApplyVsCodeOllamaConfigRequest))]
@@ -132,4 +129,141 @@ using VSCopilotSwitch.VsCodeConfig.Models;
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(Dictionary<string, object>))]
 [JsonSerializable(typeof(JsonElement))]
-internal sealed partial class VSCopilotSwitchJsonContext : JsonSerializerContext;
+internal sealed partial class VSCopilotSwitchApiJsonContext : JsonSerializerContext;
+
+public sealed record HealthResponse(string Name, string Status, string Mode);
+
+public sealed record AboutInfoResponse(
+    string Title,
+    string Version,
+    string GitHubUrl,
+    string EnterpriseWeChatQrPath);
+
+public sealed record ErrorMessageResponse(string Error);
+
+public sealed record PortStatusResponse(int Port, bool Available, string Message);
+
+public sealed record OllamaVersionResponse(
+    [property: JsonPropertyName("version")] string Version);
+
+public sealed record OpenAiModelListResponse(
+    [property: JsonPropertyName("object")] string Object,
+    [property: JsonPropertyName("data")] IReadOnlyList<OpenAiModelInfo> Data);
+
+public sealed record OpenAiModelInfo(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("object")] string Object,
+    [property: JsonPropertyName("created")] long Created,
+    [property: JsonPropertyName("owned_by")] string OwnedBy);
+
+public sealed record Vs2026ByomInfoResponse(
+    string? Endpoint,
+    string ModelId,
+    string ApiKeyPlaceholder,
+    bool HttpsEnabled,
+    string Message);
+
+public sealed record ApplyVsCodeOllamaConfigRequest(
+    string UserDirectory,
+    ManagedOllamaConfig? Config,
+    bool DryRun = true);
+
+public sealed record VsCodeUserDirectoryRequest(string UserDirectory);
+
+public sealed record RemoveVsCodeOllamaConfigRequest(string UserDirectory, bool DryRun = true);
+
+public sealed record ListVsCodeConfigBackupsRequest(string UserDirectory);
+
+public sealed record RestoreVsCodeConfigBackupRequest(string UserDirectory, string BackupPath);
+
+public sealed record OpenAiChatCompletionRequest(
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("messages")] IReadOnlyList<OpenAiChatRequestMessage>? Messages,
+    [property: JsonPropertyName("stream")] bool? Stream,
+    [property: JsonPropertyName("tools")] IReadOnlyList<OpenAiTool>? Tools = null,
+    [property: JsonPropertyName("tool_choice")] JsonElement? ToolChoice = null,
+    [property: JsonPropertyName("reasoning_effort")] string? ReasoningEffort = null,
+    [property: JsonPropertyName("thinking")] JsonElement? Thinking = null,
+    [property: JsonPropertyName("think")] JsonElement? Think = null);
+
+public sealed record OpenAiChatRequestMessage(
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("content")] JsonElement? Content,
+    [property: JsonPropertyName("tool_calls")] IReadOnlyList<OpenAiToolCall>? ToolCalls = null,
+    [property: JsonPropertyName("tool_call_id")] string? ToolCallId = null,
+    [property: JsonPropertyName("name")] string? Name = null,
+    [property: JsonPropertyName("reasoning_content")] string? ReasoningContent = null,
+    [property: JsonPropertyName("thinking")] string? Thinking = null);
+
+public sealed record OpenAiChatCompletionResponse(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("object")] string Object,
+    [property: JsonPropertyName("created")] long Created,
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("choices")] IReadOnlyList<OpenAiChatCompletionChoice> Choices,
+    [property: JsonPropertyName("usage")] OpenAiUsage? Usage = null);
+
+public sealed record OpenAiChatCompletionChoice(
+    [property: JsonPropertyName("index")] int Index,
+    [property: JsonPropertyName("message")] OpenAiChatCompletionMessage Message,
+    [property: JsonPropertyName("finish_reason")] string FinishReason);
+
+public sealed record OpenAiChatCompletionMessage(
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    [property: JsonPropertyName("content")] string? Content,
+    [property: JsonPropertyName("tool_calls")] IReadOnlyList<OpenAiToolCall>? ToolCalls = null,
+    [property: JsonPropertyName("reasoning_content")] string? ReasoningContent = null);
+
+public sealed record OpenAiChatCompletionChunk(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("object")] string Object,
+    [property: JsonPropertyName("created")] long Created,
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("choices")] IReadOnlyList<OpenAiChatCompletionChunkChoice> Choices,
+    [property: JsonPropertyName("usage")] OpenAiUsage? Usage = null);
+
+public sealed record OpenAiChatCompletionChunkChoice(
+    [property: JsonPropertyName("index")] int Index,
+    [property: JsonPropertyName("delta")] OpenAiChatCompletionDelta Delta,
+    [property: JsonPropertyName("finish_reason")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    string? FinishReason);
+
+public sealed record OpenAiChatCompletionDelta(
+    [property: JsonPropertyName("role")] string? Role,
+    [property: JsonPropertyName("content")] string? Content,
+    [property: JsonPropertyName("tool_calls")] IReadOnlyList<OpenAiToolCall>? ToolCalls = null,
+    [property: JsonPropertyName("reasoning_content")] string? ReasoningContent = null);
+
+public sealed record OpenAiTool(
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("function")] OpenAiToolFunction Function);
+
+public sealed record OpenAiToolFunction(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("parameters")] JsonElement? Parameters);
+
+public sealed record OpenAiToolCall(
+    [property: JsonPropertyName("id")] string? Id,
+    [property: JsonPropertyName("type")] string? Type,
+    [property: JsonPropertyName("function")] OpenAiFunctionCall? Function,
+    [property: JsonPropertyName("index")] int? Index = null);
+
+public sealed record OpenAiFunctionCall(
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("arguments")] string? Arguments);
+
+public sealed record OpenAiUsage(
+    [property: JsonPropertyName("prompt_tokens")] int? PromptTokens,
+    [property: JsonPropertyName("completion_tokens")] int? CompletionTokens,
+    [property: JsonPropertyName("total_tokens")] int? TotalTokens);
+
+public sealed record OpenAiErrorResponse(
+    [property: JsonPropertyName("error")] OpenAiErrorBody Error);
+
+public sealed record OpenAiErrorBody(
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("code")] string Code);
