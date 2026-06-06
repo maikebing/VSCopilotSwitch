@@ -14,6 +14,7 @@
 - ✅️ MewUI 原生入口合并本地代理 API：`src/VSCopilotSwitch` 启动时会在同一进程内监听 `http://127.0.0.1:5124/`，提供 Ollama / OpenAI-compatible / `/internal` API，运行 MewUI 不再需要先启动 `npm run proxy:dev` 或 Vue 调试服务。
 - ✅️ MewUI 原生工作台接管核心功能：新增概览、供应商、VS Code、分析和 VS2026 选项卡，支持供应商新增/编辑/测试/启用/删除/排序、VS Code dry-run 写入/撤销/备份回滚、分析日志与 Copilot 探针、VS2026 BYOM 信息复制。
 - ✅️ MewUI 写入安全门槛补齐：API Key 使用密码输入框且只发送给后端加密保存，VS Code 写入和撤销必须先生成 dry-run 预览，供应商删除和备份恢复需要再次点击确认。
+- ✅️ MewUI 原生界面按职责拆分：`Program.cs` 只保留应用启动和宿主生命周期，工作台、供应商页、VS Code 页、分析页、VS2026 页、内部 API 客户端、剪贴板和 JSON 上下文迁移到 `NativeUi` 独立文件。
 - ✅️ 新增 VSCopilotSwitch 使用指南，覆盖快速开始、供应商配置、VS Code Copilot Chat、VS2026 BYOM、OpenAI-compatible / Ollama 客户端接入、托盘、分析统计和常见问题。
 - ✅️ 新增 VS2026 用户配置与 AI Provider 配置位置探测记录，确认 VS2026 18.0 实例配置、Copilot BYOM 配置文件、MCP 配置和常规 Copilot 设置键的实际落点；二次探测已观察到 Foundry Local 与 Azure BYOM 摘要条目。
 - ✅️ 补充 VS2026 BYOM Provider 行为分析：Azure BYOM 是自定义 HTTPS URL Provider，可作为 VSCopilotSwitch 接入试验路线；Foundry Local 依赖系统 `foundry service start`，不适合通过手写 BYOM JSON 伪装。
@@ -141,6 +142,7 @@
 
 ### Changed
 
+- ✅️ VS2026 BYOM 信息复制改用 Win32 Clipboard API，不再通过 `cmd /c clip` 调用外部命令。
 - ✅️ 更新 MewUI 迁移文档和开发命令说明：`npm run mewui:dev` 只是兼容旧命令名的工作区脚本包装，实际执行 `dotnet run --project src/VSCopilotSwitch`；默认发布链路不再使用 npm。
 - ✅️ 清理默认解决方案和发布 CI：移除旧 MewUI 独立项目、OmniHost 空项目引用和 Vue `.esproj` 默认构建入口，`release:win-x64` 直接执行主项目 AOT 发布。
 - ✅️ 统一 `ROADMAP.md` 任务状态标记：使用 `✅️`、`🔧`、`⬜`、`🔴 现在做`、`🟡 可并行`、`🔵 后做` 六类状态，并明确当前主线。

@@ -314,6 +314,7 @@ UI 方向：
 - ✅️ MewUI 供应商管理页：支持新增、编辑、测试连接、启用、删除和排序，API Key 使用密码输入框提交给后端加密保存，列表只展示脱敏预览，删除需要再次点击确认。
 - ✅️ MewUI VS Code 配置向导：支持目录选择、dry-run 写入/撤销差异、确认写入/撤销、备份列表和二次确认回滚，全部复用现有配置服务。
 - ✅️ MewUI 分析统计和 VS2026 面板：迁移请求日志、usage/费用统计、日志清空、Copilot 探针、BYOM 填写信息复制与刷新状态。
+- ✅️ MewUI 原生代码拆分：`Program.cs` 回到启动入口职责，`NativeUi` 按工作台、供应商、VS Code、分析、VS2026、内部 API 客户端、剪贴板和 JSON 上下文拆分，VS2026 复制改用 Win32 Clipboard API。
 - ✅️ MewUI 宿主接管：MewUI 已设为默认窗口入口，并通过构建、测试和 AOT 单文件发布验证；写入型工作流已迁移到原生选项卡。
 - ✅️ 清理 Vue 发布链路：默认解决方案、发布 CI 和 `release:win-x64` 不再执行 npm install、SPA build、嵌入式 SPA 资源收集或前端 CI 步骤。
 
