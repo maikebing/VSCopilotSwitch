@@ -18,9 +18,12 @@ internal sealed partial class NativeWorkbench : IDisposable
     private Label _providerText = null!;
     private Label _modelText = null!;
     private TabControl _tabs = null!;
+    private StackPanel _overviewRoute = null!;
     private StackPanel _overviewProviders = null!;
     private StackPanel _overviewModels = null!;
     private StackPanel _overviewDirectories = null!;
+    private StackPanel _overviewRecentRequest = null!;
+    private StackPanel _overviewCopilotHint = null!;
     private StackPanel _providerRows = null!;
     private StackPanel _providerEditor = null!;
     private StackPanel _vscodeDirectories = null!;
@@ -120,9 +123,12 @@ internal sealed partial class NativeWorkbench : IDisposable
         _healthText = ValueLabel("未知");
         _providerText = ValueLabel("未知");
         _modelText = ValueLabel("未知");
+        _overviewRoute = new StackPanel().Spacing(10);
         _overviewProviders = new StackPanel().Spacing(10);
         _overviewModels = new StackPanel().Spacing(10);
         _overviewDirectories = new StackPanel().Spacing(10);
+        _overviewRecentRequest = new StackPanel().Spacing(10);
+        _overviewCopilotHint = new StackPanel().Spacing(10);
         _providerRows = new StackPanel().Spacing(10);
         _providerEditor = new StackPanel().Spacing(10);
         _vscodeDirectories = new StackPanel().Spacing(10);
@@ -177,20 +183,6 @@ internal sealed partial class NativeWorkbench : IDisposable
                         new Button().Content("打开本地 API").Padding(18, 8).OnClick(OpenCurrentWebUi),
                         _statusText));
 
-    private Element OverviewTab()
-        => new StackPanel()
-            .Spacing(14)
-            .Children(
-                Panel("供应商", _overviewProviders),
-                Panel("模型", _overviewModels),
-                Panel("VS Code 配置目录", _overviewDirectories),
-                Panel("闭环说明",
-                    new StackPanel()
-                        .Spacing(6)
-                        .Children(
-                            BodyLabel("供应商、VS Code 写入、分析统计和 VS2026 信息均通过本进程 /internal API 完成。"),
-                            BodyLabel("VS Code 写入仍然需要先生成 dry-run 差异，再点击确认写入；恢复备份前会先为当前文件创建安全备份。"))));
-
     private Element ProvidersTab()
         => new Grid()
             .Columns("2*,*")
@@ -234,7 +226,7 @@ internal sealed partial class NativeWorkbench : IDisposable
             var vs2026 = await vs2026Task;
             Application.Current.Dispatcher?.BeginInvoke(() =>
             {
-                ApplyDashboard(dashboard);
+                ApplyDashboard(dashboard, analytics);
                 ApplyAnalytics(analytics);
                 ApplyVs2026(vs2026);
             });
@@ -268,7 +260,7 @@ internal sealed partial class NativeWorkbench : IDisposable
             await directoriesTask);
     }
 
-    private void ApplyDashboard(DashboardSnapshot dashboard)
+    private void ApplyDashboard(DashboardSnapshot dashboard, RequestAnalyticsSnapshot? analytics = null)
     {
         _dashboard = dashboard;
         _directories = dashboard.Directories;
@@ -284,9 +276,7 @@ internal sealed partial class NativeWorkbench : IDisposable
         _providerText.Text = activeProvider?.Name ?? "未启用";
         _modelText.Text = model?.Name ?? activeProvider?.Model ?? "未发现";
 
-        ReplaceChildren(_overviewProviders, BuildProviderRows(dashboard.Providers, includeActions: false));
-        ReplaceChildren(_overviewModels, BuildModelRows(dashboard.Tags.Models));
-        ReplaceChildren(_overviewDirectories, BuildDirectoryRows(dashboard.Directories, selectable: false));
+        ApplyOverview(dashboard, analytics);
         ReplaceChildren(_providerRows, BuildProviderRows(dashboard.Providers, includeActions: true));
         RenderProviderEditor();
         RenderVsCodeDirectories();

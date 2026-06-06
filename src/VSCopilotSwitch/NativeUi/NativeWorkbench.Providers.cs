@@ -264,13 +264,16 @@ internal sealed partial class NativeWorkbench
     {
         try
         {
-            SetStatus("切换供应商...");
+            SetStatus($"正在切换到 {provider.Name}，并刷新模型、健康和 VS Code 状态...");
             await _api.PostJsonAsync<object, IReadOnlyList<DashboardProviderConfigView>>(
                 $"/internal/providers/{Uri.EscapeDataString(provider.Id)}/activate",
                 new { },
                 MewUiJsonContext.Default.IReadOnlyListDashboardProviderConfigView);
             await RefreshAsync();
-            SetStatus($"已启用 {provider.Name}");
+
+            var publicModel = _dashboard?.Tags.Models.FirstOrDefault()?.Name ?? AddVsCodeSuffix(provider.Model);
+            var modelStatus = string.IsNullOrWhiteSpace(publicModel) ? "模型列表未返回，请先测试连接" : $"公开模型 {publicModel} 已刷新";
+            SetStatus($"已切换到 {provider.Name}，{modelStatus}；请在 Copilot 模型选择器重新选择 @vscs 模型");
         }
         catch (Exception ex)
         {

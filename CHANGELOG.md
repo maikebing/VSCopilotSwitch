@@ -6,6 +6,9 @@
 
 ### Added
 
+- ✅️ MewUI 概览页升级为当前生效链路控制台：第一屏展示当前供应商、协议、上游模型、`@vscs` 公开模型名、代理健康、VS Code 配置目录状态、最近请求结果和 Copilot 重新发现提示。
+- ✅️ 概览页新增供应商快速切换入口，切换后会刷新模型、健康、VS Code 目录和分析状态，并提示用户在 Copilot 模型选择器重新选择 `@vscs` 模型。
+- ✅️ 新增 `docs/codex-execution-prompts.md`，把阶段 5.7 后续原型拆成适合 Codex 小会话执行和监督的提示词。
 - ✅️ 新增 `docs/cc-switch-gap-analysis.md`，对照 cc switch 和本项目需求重新整理当前实现、产品差距、下一阶段优先级和不应照搬的范围；README 文档入口同步增加该分析文档。
 - ✅️ 合并为单一主应用：`src/VSCopilotSwitch` 现在同时承载 MewUI 原生窗口、本地代理 API、VS2026 HTTPS 证书流程和 Win32 托盘，仓库不再保留独立 `src/VSCopilotSwitch.MewUi` 可执行项目。
 - ✅️ Native AOT 发布链路收敛为真正单体：`win-x64` Release 发布目录只生成 `VSCopilotSwitch.exe`，默认解决方案和发布 CI 不再依赖 npm、Node.js、Vue SPA build、OmniHost 或 WebView2。
