@@ -22,7 +22,29 @@
 - ⬜ 表示尚未开始编码，不能在变更日志或验收说明中描述成已完成。
 - UI 骨架、静态假数据、仅 appsettings 配置可用、仅单元层通过，都不能等同于产品闭环完成。
 
-当前主线：✅️ 阶段 5.5 真实功能闭环和阶段 5.6 Copilot Ollama Provider 真实协议补强已完成。继续采用“伪装为 Ollama Provider”的接入方式；发现阶段维护 `/api/version`、`/api/tags`、`/api/show`、OpenAI-compatible `/v1/models` 和 `/v1/models/{modelId}`，聊天阶段以 Copilot 当前真实调用的 `/v1/chat/completions` 为主，同时补齐 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 兼容面。VS2026 已进入 Azure BYOM A1 接入试验：发布版可自动启用本机回环 HTTPS、生成并信任当前用户本地证书，再把 `/v1` 暴露给 Azure CustomURL；Foundry Local 依赖系统 `foundry` CLI 不适合伪装；不采用 TLS 中间人、域名劫持或 Token 复用路线。下一步进入阶段 6 稳定性与路由。
+当前主线：🔧 阶段 5.7 产品校准与快速切换体验正在进行。阶段 5.5 真实功能闭环和阶段 5.6 Copilot Ollama Provider 真实协议补强已完成；继续采用“伪装为 Ollama Provider”的接入方式，发现阶段维护 `/api/version`、`/api/tags`、`/api/show`、OpenAI-compatible `/v1/models` 和 `/v1/models/{modelId}`，聊天阶段以 Copilot 当前真实调用的 `/v1/chat/completions` 为主，同时补齐 Ollama 官方 `/api/chat` 的 `tools` / `think` / `message.thinking` 兼容面。VS2026 已进入 Azure BYOM A1 接入试验：发布版可自动启用本机回环 HTTPS、生成并信任当前用户本地证书，再把 `/v1` 暴露给 Azure CustomURL；Foundry Local 依赖系统 `foundry` CLI 不适合伪装；不采用 TLS 中间人、域名劫持或 Token 复用路线。下一步先把 MewUI 首页从“管理后台”校准为 cc switch 风格的快速切换控制台，再推进阶段 6 稳定性与路由。
+
+## 阶段 5.7：产品校准与快速切换体验
+
+目标：对照 cc switch 和本项目需求，把已经接通的代理、Provider、VS Code 配置和托盘能力重新组织成真正面向日常使用的快速切换工作台，而不是停留在“功能都在，但像维护后台”的状态。
+
+阶段状态：🔧 已完成差距分析文档，下一步进入首页与路由体验重构。
+
+- ✅️ 新增 `docs/cc-switch-gap-analysis.md`，整理当前实现、cc switch 参照点、核心差距、优先级和明确不照搬的多 CLI / MCP / Skills 范围。
+- 🔴 现在做 重做 MewUI 首页为“当前生效链路控制台”：当前供应商、当前模型、公开模型名、代理健康、VS Code 配置状态、最近请求结果和关键操作在第一屏可见。
+- 🔴 现在做 将供应商启用动作升级为可解释的路由切换：切换后自动刷新模型、健康检查、VS Code 状态，并提示用户 Copilot 侧是否需要重新发现模型。
+- 🔴 现在做 衔接阶段 6 的稳定性主线：健康检查、重试、熔断、备用供应商/备用模型和 UI 状态解释必须先进入真实路由链路。
+- 🟡 可并行 增加供应商预设和导入能力：常见 OpenAI-compatible、中转站、官方 Provider 的 Base URL、协议类型、模型推荐和能力声明模板。
+- 🟡 可并行 增加模型测试比较：延迟、首 token、流式结束、工具调用探针、上下文声明和费用估算结果应能保存并用于选择模型。
+- 🟡 可并行 加固 VS Code 配置写入：真正原子写入、JSON with comments 兼容策略、备份保留策略和 Windows/macOS/Linux/WSL 路径测试。
+- 🔵 后做 MCP、Prompts、Skills、多 CLI 管理、Deep Link 和云同步；这些是 cc switch 的强项，但不阻塞当前 VS Code / Copilot Ollama Provider 目标。
+
+验收标准：
+
+- 用户不进入供应商编辑表单，也能在首页完成一次供应商/模型切换并确认代理状态。
+- 首页明确显示 VS Code 配置是否缺失、已配置、URL 不一致、代理不可达或模型列表失败。
+- 托盘和首页对当前供应商、模型和路由健康状态的显示一致。
+- 任意新增写入动作仍满足 dry-run、备份、差异预览、二次确认和回滚，不泄露敏感信息。
 
 ## 阶段 0：项目基线
 

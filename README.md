@@ -260,6 +260,7 @@ dotnet run --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.Vs
 ## 文档
 
 - [使用指南](docs/user-guide.md)
+- [cc switch 对照差距分析](docs/cc-switch-gap-analysis.md)
 - [路线图](ROADMAP.md)
 - [智能体协作要求](AGENTS.md)
 - [变更日志](CHANGELOG.md)

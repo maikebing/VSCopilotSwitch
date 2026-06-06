@@ -6,6 +6,7 @@
 
 ### Added
 
+- ✅️ 新增 `docs/cc-switch-gap-analysis.md`，对照 cc switch 和本项目需求重新整理当前实现、产品差距、下一阶段优先级和不应照搬的范围；README 文档入口同步增加该分析文档。
 - ✅️ 合并为单一主应用：`src/VSCopilotSwitch` 现在同时承载 MewUI 原生窗口、本地代理 API、VS2026 HTTPS 证书流程和 Win32 托盘，仓库不再保留独立 `src/VSCopilotSwitch.MewUi` 可执行项目。
 - ✅️ Native AOT 发布链路收敛为真正单体：`win-x64` Release 发布目录只生成 `VSCopilotSwitch.exe`，默认解决方案和发布 CI 不再依赖 npm、Node.js、Vue SPA build、OmniHost 或 WebView2。
 - ✅️ 清理过期项目和目录：删除旧 Vue SPA 项目 `src/VSCopilotSwitch.Ui`、OmniHost submodule 目录 `external/OmniHost`、旧 `wwwroot` 占位目录、`.gitmodules` 和根 `package.json`，并将应用/托盘图标迁入主项目 `src/VSCopilotSwitch/Assets`。
