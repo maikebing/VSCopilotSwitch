@@ -13,6 +13,7 @@ internal sealed partial class NativeWorkbench
         new("DeepSeek", "deepseek", "https://api.deepseek.com", "deepseek-chat", "https://platform.deepseek.com", "文本、推理模型可选", "DeepSeek 官方 API，reasoner 模型需按实际能力测试后启用。"),
         new("NVIDIA NIM", "nvidia-nim", "https://integrate.api.nvidia.com/v1", "meta/llama-3.1-405b-instruct", "https://build.nvidia.com", "文本、部分模型工具/视觉", "NVIDIA build.nvidia.com / NIM OpenAI-compatible API。"),
         new("MoArk", "moark", "https://api.moark.ai/v1", "gpt-5.5", "https://moark.ai", "文本、工具、长上下文", "MoArk 中转协议模板，保存前请按账号实际模型名调整。"),
+        new("Sonnet VIP", "openai-compatible", "https://sonnet.vip/v1", "gpt-5.5", "https://sonnet.vip", "文本、工具、长上下文、按上游模型声明支持视觉", "Sonnet VIP OpenAI-compatible 真实供应商模板；API Key 需用户手动填写，不会随预设写入。"),
         new("sub2api", "sub2api", "https://api.example.com/v1", "gpt-5.5", "https://github.com/maikebing/sub2api", "文本、工具、长上下文", "sub2api 中转站模板，请替换为自己的 Base URL。"),
         new("OpenAI-compatible 中转站", "openai-compatible", "https://api.example.com/v1", "gpt-5.5", "https://example.com", "文本、工具、视觉按上游声明", "通用 OpenAI-compatible 模板，适合 sonnet.vip 等中转站。")
     ];

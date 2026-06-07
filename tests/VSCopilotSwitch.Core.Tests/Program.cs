@@ -9,6 +9,7 @@ using VSCopilotSwitch.Core.Providers.DeepSeek;
 using VSCopilotSwitch.Core.Providers.Moark;
 using VSCopilotSwitch.Core.Providers.Nvidia;
 using VSCopilotSwitch.Core.Providers.OpenAI;
+using VSCopilotSwitch.Core.Providers.OpenAiCompatible;
 using VSCopilotSwitch.Core.Providers.Sub2Api;
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -41,6 +42,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("OpenAI ChatStreamAsync parses SSE chunks", OpenAI_ChatStreamAsync_ParsesSseChunks),
     ("OpenAI ChatStreamAsync parses tool call deltas", OpenAI_ChatStreamAsync_ParsesToolCallDeltas),
     ("OpenAI maps HTTP errors and redacts API key", OpenAI_MapsHttpErrorsAndRedactsApiKey),
+    ("Live Sonnet VIP OpenAI-compatible smoke test", OpenAiCompatible_LiveSonnetVipSmokeTest),
     ("DeepSeek ListModelsAsync uses official endpoint", DeepSeek_ListModelsAsync_UsesOfficialEndpoint),
     ("DeepSeek ChatAsync sends upstream model", DeepSeek_ChatAsync_SendsUpstreamModel),
     ("DeepSeek ChatAsync strips reasoning content outside thinking path", DeepSeek_ChatAsync_StripsReasoningContentOutsideThinkingPath),
@@ -1529,6 +1531,37 @@ static ClaudeModelProvider CreateClaudeProvider(RecordingHttpMessageHandler hand
         });
 }
 
+static async Task OpenAiCompatible_LiveSonnetVipSmokeTest()
+{
+    var apiKey = Environment.GetEnvironmentVariable("VSCS_LIVE_SONNET_API_KEY");
+    if (string.IsNullOrWhiteSpace(apiKey))
+    {
+        return;
+    }
+
+    var provider = new OpenAiCompatibleModelProvider(new HttpClient(), new OpenAiCompatibleProviderOptions
+    {
+        ProviderName = "sonnet-vip-live",
+        PublicProviderName = "Sonnet VIP",
+        BaseUrl = "https://sonnet.vip/v1",
+        ApiKey = apiKey,
+        Timeout = TimeSpan.FromSeconds(30)
+    });
+
+    var models = await provider.ListModelsAsync();
+    Assert.True(models.Count > 0, "Sonnet VIP /v1/models 应返回至少一个模型。");
+
+    var response = await provider.ChatAsync(new ChatRequest(
+        "gpt-5.5",
+        [new ChatMessage("user", "只回答 OK")],
+        Stream: false,
+        Provider: "sonnet-vip-live",
+        UpstreamModel: "gpt-5.5"));
+
+    Assert.Contains("OK", response.Content, "Sonnet VIP 最小聊天应返回 OK。");
+    Assert.True(response.Usage?.PromptTokens is > 0, "Sonnet VIP 响应应包含 prompt token usage。");
+}
+
 internal sealed class RecordingProvider : IModelProvider
 {
     private readonly IReadOnlyList<ProviderModel> _models;
@@ -1646,7 +1679,6 @@ internal sealed class ConnectionProbeProvider : IModelProvider
         yield return new ChatStreamChunk(request.Model, string.Empty, Done: true, "stop");
     }
 }
-
 internal sealed class RecordingHttpMessageHandler : HttpMessageHandler
 {
     private readonly Queue<Func<RecordedHttpRequest, HttpResponseMessage>> _responses = new();
