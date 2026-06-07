@@ -16,6 +16,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("DeleteAsync auto-selects available provider", DeleteAsync_AutoSelectsAvailableProvider),
     ("Copilot compatibility probe covers core workflow", CopilotCompatibilityProbe_CoversCoreWorkflow),
     ("ActiveProvider ListModelsAsync falls back to configured model", ActiveProviderModelProvider_ListModelsAsync_FallsBackToConfiguredModel),
+    ("ActiveProvider circuit breaker opens and recovers", ActiveProviderModelProvider_CircuitBreaker_OpensAndRecovers),
     ("Request analytics extracts usage and configured cost", RequestAnalytics_ExtractsUsageAndConfiguredCost),
     ("Request analytics extracts streamed usage", RequestAnalytics_ExtractsStreamedUsage),
     ("Model comparison measures latency stream tool context and cost", ModelComparison_MeasuresLatencyStreamToolContextAndCost),
@@ -172,6 +173,49 @@ static async Task ActiveProviderModelProvider_ListModelsAsync_FallsBackToConfigu
     Assert.Equal(1, models.Count, "模型列表失败时应降级为当前已保存模型。");
     Assert.Equal("broken/gpt-4.1", models[0].Name, "降级模型名应保留 Provider 前缀。");
     Assert.Equal("gpt-4.1", models[0].UpstreamModel, "降级模型应使用已保存的上游模型名。");
+}
+
+static async Task ActiveProviderModelProvider_CircuitBreaker_OpensAndRecovers()
+{
+    var now = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+    var configService = new StubProviderConfigService([
+        new ProviderConfigView(
+            "flaky",
+            "Flaky",
+            string.Empty,
+            "https://example.com/flaky",
+            "https://api.example.com",
+            "gpt-4.1",
+            "openai-compatible",
+            "F",
+            true,
+            true,
+            "sk-...test",
+            0)
+    ]);
+    var upstream = new FlakyModelProvider();
+    var activeProvider = new ActiveProviderModelProvider(configService, _ => upstream, () => now);
+    var request = new ChatRequest("gpt-4.1", [new ChatMessage("user", "ping")], stream: false);
+
+    for (var attempt = 0; attempt < 3; attempt++)
+    {
+        await Assert.ThrowsAsync<ProviderException>(() => activeProvider.ChatAsync(request), "熔断打开前应透传上游失败。");
+    }
+
+    var openException = await Assert.ThrowsAsync<ProviderException>(() => activeProvider.ChatAsync(request), "达到阈值后应直接拒绝请求。");
+    Assert.Equal(3, upstream.ChatAttempts, "熔断打开后不应继续调用上游。");
+    Assert.Equal(ProviderErrorKind.Unavailable, openException.Kind, "熔断拒绝应映射为提供商不可用。");
+
+    upstream.Fail = false;
+    now = now.AddMinutes(2);
+    var response = await activeProvider.ChatAsync(request);
+
+    Assert.Equal("pong", response.Content, "半开探测成功后应返回上游响应。");
+    Assert.Equal(4, upstream.ChatAttempts, "半开恢复应只放行一次探测请求。");
+
+    response = await activeProvider.ChatAsync(request);
+    Assert.Equal("pong", response.Content, "探测成功后熔断器应自动恢复闭合。");
+    Assert.Equal(5, upstream.ChatAttempts, "闭合后应正常调用上游。");
 }
 
 static async Task RequestAnalytics_ExtractsUsageAndConfiguredCost()
@@ -902,6 +946,44 @@ internal sealed class ProbeModelProvider : IModelProvider
 }
 
 
+internal sealed class FlakyModelProvider : IModelProvider
+{
+    public bool Fail { get; set; } = true;
+
+    public int ChatAttempts { get; private set; }
+
+    public string Name => "flaky";
+
+    public Task<IReadOnlyList<ProviderModel>> ListModelsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<ProviderModel>>([
+            new ProviderModel("flaky/gpt-4.1", "flaky", "gpt-4.1", "GPT 4.1", ["gpt-4.1"])
+        ]);
+
+    public Task<ChatResponse> ChatAsync(ChatRequest request, CancellationToken cancellationToken = default)
+    {
+        ChatAttempts++;
+        if (Fail)
+        {
+            throw new ProviderException(ProviderErrorKind.Unavailable, "flaky unavailable");
+        }
+
+        return Task.FromResult(new ChatResponse(request.Model, "pong"));
+    }
+
+    public async IAsyncEnumerable<ChatStreamChunk> ChatStreamAsync(
+        ChatRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await Task.Yield();
+        if (Fail)
+        {
+            throw new ProviderException(ProviderErrorKind.Unavailable, "flaky unavailable");
+        }
+
+        yield return new ChatStreamChunk(request.Model, "pong", Done: true, "stop");
+    }
+}
+
 internal sealed class ProbeComparisonModelProvider : IModelProvider
 {
     public string Name => "probe";
@@ -979,6 +1061,29 @@ internal static class Assert
     }
 
     public static void Equal(decimal expected, decimal actual, string message)
+    {
+        if (expected != actual)
+        {
+            throw new InvalidOperationException($"{message} 预期：{expected}，实际：{actual}");
+        }
+    }
+
+    public static async Task<TException> ThrowsAsync<TException>(Func<Task> action, string message)
+        where TException : Exception
+    {
+        try
+        {
+            await action();
+        }
+        catch (TException ex)
+        {
+            return ex;
+        }
+
+        throw new InvalidOperationException(message);
+    }
+
+    public static void Equal(ProviderErrorKind expected, ProviderErrorKind actual, string message)
     {
         if (expected != actual)
         {
