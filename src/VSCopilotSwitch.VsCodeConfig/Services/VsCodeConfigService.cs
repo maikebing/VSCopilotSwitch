@@ -36,9 +36,17 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
     public const string ManagedProviderName = "vscs";
     public const string OllamaVendor = "ollama";
 
+    private const int MaxBackupsPerTargetFile = 10;
+
     private static readonly JsonWriterOptions WriteOptions = new()
     {
         Indented = true
+    };
+
+    private static readonly JsonDocumentOptions ReadOptions = new()
+    {
+        CommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true
     };
 
     public async Task<VsCodeConfigApplyResult> ApplyOllamaConfigAsync(
@@ -55,17 +63,7 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
 
         if (!dryRun)
         {
-            Directory.CreateDirectory(fullUserDirectory);
-            foreach (var change in changes.Where(change => change.Changed))
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(change.FilePath)!);
-                if (change.ExistedBefore)
-                {
-                    File.Copy(change.FilePath, change.BackupPath!, overwrite: false);
-                }
-
-                await File.WriteAllTextAsync(change.FilePath, change.AfterContent, cancellationToken);
-            }
+            await CommitChangesAsync(fullUserDirectory, changes, cancellationToken);
         }
 
         return new VsCodeConfigApplyResult(fullUserDirectory, dryRun, changes);
@@ -105,17 +103,7 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
 
         if (!dryRun)
         {
-            Directory.CreateDirectory(fullUserDirectory);
-            foreach (var change in changes.Where(change => change.Changed))
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(change.FilePath)!);
-                if (change.ExistedBefore)
-                {
-                    File.Copy(change.FilePath, change.BackupPath!, overwrite: false);
-                }
-
-                await File.WriteAllTextAsync(change.FilePath, change.AfterContent, cancellationToken);
-            }
+            await CommitChangesAsync(fullUserDirectory, changes, cancellationToken);
         }
 
         return new VsCodeConfigApplyResult(fullUserDirectory, dryRun, changes);
@@ -134,7 +122,7 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
             .Where(backup => backup is not null)
             .Cast<VsCodeConfigBackup>()
             .OrderByDescending(backup => backup.CreatedAt)
-            .Take(20)
+            .Take(MaxBackupsPerTargetFile)
             .ToArray();
     }
 
@@ -159,6 +147,73 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
         await source.CopyToAsync(destination, cancellationToken);
 
         return new VsCodeConfigRestoreResult(fullUserDirectory, targetPath, fullBackupPath, safetyBackupPath, Restored: true);
+    }
+
+
+    private static async Task CommitChangesAsync(
+        string userDirectory,
+        IEnumerable<VsCodeConfigFileChange> changes,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(userDirectory);
+        foreach (var change in changes.Where(change => change.Changed))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(change.FilePath)!);
+            if (change.ExistedBefore)
+            {
+                File.Copy(change.FilePath, change.BackupPath!, overwrite: false);
+            }
+
+            await WriteFileAtomicallyAsync(change.FilePath, change.AfterContent, cancellationToken);
+            PruneBackups(change.FilePath);
+        }
+    }
+
+    private static async Task WriteFileAtomicallyAsync(string filePath, string content, CancellationToken cancellationToken)
+    {
+        var tempPath = filePath + ".vscopilotswitch.tmp";
+        if (Directory.Exists(tempPath))
+        {
+            throw new IOException($"无法创建原子写入临时文件：{tempPath}");
+        }
+
+        try
+        {
+            await File.WriteAllTextAsync(tempPath, content, Encoding.UTF8, cancellationToken);
+            if (File.Exists(filePath))
+            {
+                File.Replace(tempPath, filePath, null, ignoreMetadataErrors: true);
+            }
+            else
+            {
+                File.Move(tempPath, filePath);
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+        }
+    }
+
+    private static void PruneBackups(string filePath)
+    {
+        var directory = Path.GetDirectoryName(filePath);
+        if (directory is null || !Directory.Exists(directory))
+        {
+            return;
+        }
+
+        foreach (var backup in Directory.EnumerateFiles(directory, $"{Path.GetFileName(filePath)}.vscopilotswitch.*.bak")
+                     .Where(path => !path.Contains(".restore-safety.", StringComparison.OrdinalIgnoreCase))
+                     .Select(path => new FileInfo(path))
+                     .OrderByDescending(file => file.CreationTimeUtc)
+                     .Skip(MaxBackupsPerTargetFile))
+        {
+            backup.Delete();
+        }
     }
 
     private static async Task<VsCodeConfigFileChange> BuildChatLanguageModelsChangeAsync(
@@ -322,7 +377,7 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
                 return new JsonArray();
             }
 
-            var node = JsonNode.Parse(content);
+            var node = JsonNode.Parse(content, documentOptions: ReadOptions);
             if (node is JsonArray array)
             {
                 return array;
@@ -358,8 +413,8 @@ public sealed class VsCodeConfigService : IVsCodeConfigService
     {
         try
         {
-            var leftNode = JsonNode.Parse(string.IsNullOrWhiteSpace(left) ? "[]" : left);
-            var rightNode = JsonNode.Parse(string.IsNullOrWhiteSpace(right) ? "[]" : right);
+            var leftNode = JsonNode.Parse(string.IsNullOrWhiteSpace(left) ? "[]" : left, documentOptions: ReadOptions);
+            var rightNode = JsonNode.Parse(string.IsNullOrWhiteSpace(right) ? "[]" : right, documentOptions: ReadOptions);
             return WriteJsonNode(leftNode) == WriteJsonNode(rightNode);
         }
         catch

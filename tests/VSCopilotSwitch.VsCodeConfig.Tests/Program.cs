@@ -9,6 +9,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("ApplyOllamaConfigAsync removes duplicate managed providers", ApplyOllamaConfigAsync_RemovesDuplicateManagedProviders),
     ("ApplyOllamaConfigAsync normalizes VS Code product root to User directory", ApplyOllamaConfigAsync_NormalizesProductRootToUserDirectory),
     ("ApplyOllamaConfigAsync reports invalid chatLanguageModels JSON", ApplyOllamaConfigAsync_ReportsInvalidChatLanguageModelsJson),
+    ("ApplyOllamaConfigAsync accepts JSONC chatLanguageModels", ApplyOllamaConfigAsync_AcceptsJsoncChatLanguageModels),
+    ("ApplyOllamaConfigAsync retains original file after atomic write failure", ApplyOllamaConfigAsync_RetainsOriginalFileAfterAtomicWriteFailure),
+    ("ListBackups retains newest backup per target file", ListBackups_RetainsNewestBackupPerTargetFile),
     ("ListBackups returns recent backups", ListBackups_ReturnsRecentBackups),
     ("RestoreBackupAsync creates safety backup", RestoreBackupAsync_CreatesSafetyBackup)
 };
@@ -143,6 +146,64 @@ static async Task ApplyOllamaConfigAsync_ReportsInvalidChatLanguageModelsJson()
     await Assert.ThrowsAsync<InvalidOperationException>(
         () => service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: true),
         "VS Code chatLanguageModels.json 无法解析。");
+}
+
+
+static async Task ApplyOllamaConfigAsync_AcceptsJsoncChatLanguageModels()
+{
+    using var workspace = TestWorkspace.Create();
+    var service = new VsCodeConfigService();
+    var chatLanguageModelsPath = Path.Combine(workspace.UserDirectory, "chatLanguageModels.json");
+
+    File.WriteAllText(chatLanguageModelsPath, """
+[
+  // 用户手工添加的 OpenAI provider 应保留
+  { "name": "OpenAI", "vendor": "openai", },
+]
+""");
+
+    await service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: false);
+    var content = File.ReadAllText(chatLanguageModelsPath);
+
+    Assert.Contains("\"name\": \"OpenAI\"", content, "JSONC 解析后应保留用户已有 Provider。");
+    Assert.Contains("\"name\": \"vscs\"", content, "JSONC 文件应能写入托管 Provider。");
+}
+
+static async Task ApplyOllamaConfigAsync_RetainsOriginalFileAfterAtomicWriteFailure()
+{
+    using var workspace = TestWorkspace.Create();
+    var service = new VsCodeConfigService();
+    var chatLanguageModelsPath = Path.Combine(workspace.UserDirectory, "chatLanguageModels.json");
+    var tempConflictPath = chatLanguageModelsPath + ".vscopilotswitch.tmp";
+    const string original = "[{\"name\":\"OpenAI\",\"vendor\":\"openai\"}]";
+
+    File.WriteAllText(chatLanguageModelsPath, original);
+    Directory.CreateDirectory(tempConflictPath);
+
+    await Assert.ThrowsAsync<IOException>(
+        () => service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default, dryRun: false),
+        "vscopilotswitch.tmp");
+
+    Assert.Equal(original, File.ReadAllText(chatLanguageModelsPath), "原子写入失败时原文件内容必须保持不变。");
+}
+
+static async Task ListBackups_RetainsNewestBackupPerTargetFile()
+{
+    using var workspace = TestWorkspace.Create();
+    var service = new VsCodeConfigService();
+    var chatLanguageModelsPath = Path.Combine(workspace.UserDirectory, "chatLanguageModels.json");
+
+    File.WriteAllText(chatLanguageModelsPath, "[{\"name\":\"OpenAI\",\"vendor\":\"openai\"}]");
+    for (var i = 0; i < 25; i++)
+    {
+        await service.ApplyOllamaConfigAsync(workspace.UserDirectory, ManagedOllamaConfig.Default with { BaseUrl = $"http://127.0.0.1:{5000 + i}" }, dryRun: false);
+        await Task.Delay(2);
+    }
+
+    var backups = service.ListBackups(workspace.UserDirectory);
+
+    Assert.Equal(10, backups.Count, "备份保留策略应只保留最新 10 份。");
+    Assert.Equal(10, Directory.EnumerateFiles(workspace.UserDirectory, "chatLanguageModels.json.vscopilotswitch.*.bak").Count(), "磁盘上也应清理旧备份。");
 }
 
 static async Task RestoreBackupAsync_CreatesSafetyBackup()

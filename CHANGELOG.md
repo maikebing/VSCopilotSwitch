@@ -6,6 +6,7 @@
 
 ### Added
 
+- ✅️ VS Code 配置写入加固：`chatLanguageModels.json` 支持 JSONC/尾逗号解析，写入改为临时文件 + 原子替换，失败时保留原文件，并将每个目标文件备份裁剪为最新 10 份。
 - ✅️ MewUI 供应商预设新增 Sonnet VIP 真实 OpenAI-compatible 模板，默认 Base URL 为 `https://sonnet.vip/v1`，推荐模型为 `gpt-5.5`，API Key 仍需用户手动填写且不会写入预设。
 - ✅️ MewUI 供应商页新增模型测试比较：当前启用供应商可对选定模型执行普通响应延迟、首 token、流式结束、工具调用探针、上下文声明和费用估算检查，并在本次运行内保留最近比较结果。
 - ✅️ MewUI 供应商页新增预设模板和安全导入预览：内置 OpenAI Official、Claude Official、DeepSeek、NVIDIA NIM、MoArk、sub2api 与 OpenAI-compatible 中转站模板；导入 JSON 只预览名称、协议、Base URL、模型和密钥存在状态，应用后只填表且不会导入密钥原文。
