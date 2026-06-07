@@ -1,8 +1,8 @@
 # Roadmap
 
-本文档描述 VSCopilotSwitch 的阶段性路线图。路线图会随着协议验证、OmniHost 集成和 VS Code 配置行为变化持续调整。
+本文档描述 VSCopilotSwitch 的阶段性路线图。路线图会随着协议验证、本地宿主实现和 VS Code 配置行为变化持续调整。
 
-本阶段路线图先收敛到 Windows 桌面端：优先完成 Windows 下的路径、权限、窗口、托盘和后台进程闭环；macOS、Linux、WSL 暂不实现，只保留设计约束和后续扩展入口。随后再让 UI 的关键写入动作可理解、可预览、可回滚，降低误操作风险。
+本阶段路线图先收敛到 Windows 配置写入和本地代理闭环：优先完成 Windows 下的路径、权限、HTTP 宿主、SPA 管理页和后台进程闭环；macOS、Linux、WSL 暂不实现自动写入，只保留设计约束和后续扩展入口。随后再让 UI 的关键写入动作可理解、可预览、可回滚，降低误操作风险。
 
 ## 状态标记
 
@@ -37,7 +37,7 @@
 - ✅️ 初始化 Vue 3 SPA 工程文件和项目内 npm 脚本。
 - ✅️ 按 Visual Studio SPA 模式加入前端 `.esproj`，并让后端通过 `SpaProxy` 关联 Vue 调试服务。
 - ✅️ 将前端工程切换为 VueApp2 同款 Vue 3 + TypeScript 技术栈。
-- ✅️ 确认 OmniHost 正式集成方式：当前阶段通过 `external/OmniHost` 源码项目引用接入，便于同步修改 Win32/WebView2 宿主能力。
+- ✅️ 确认当前宿主方式：采用 ASP.NET Core 本地 Web 宿主承载 API 和嵌入式 Vue SPA，不再接入外部桌面宿主源码。
 - ✅️ 明确当前阶段安全边界：本地代理默认只监听 `127.0.0.1`，配置写入必须 dry-run、备份、幂等且不得记录敏感密钥；许可证和外部贡献流程顺延到公开发布前补齐。
 
 验收标准：
@@ -48,16 +48,16 @@
 
 ## 阶段 1：Windows 运行基线
 
-目标：阶段 1 只实现 Windows 下的可运行闭环，先把宿主窗口、本地代理、VS Code User 配置目录和开发启动路径稳定下来；macOS、Linux、WSL 后期再实现，当前不得为了四端兼容阻塞 Windows MVP 收尾。
+目标：阶段 1 只实现 Windows 下的可运行闭环，先把本地代理、VS Code User 配置目录、管理页和开发启动路径稳定下来；macOS、Linux、WSL 后期再实现，当前不得为了四端兼容阻塞 Windows MVP 收尾。
 
-- ✅️ 定义当前阶段平台范围：只实现 Windows 桌面端，macOS、Linux、WSL 明确移入后续跨平台阶段。
+- ✅️ 定义当前阶段平台范围：只实现 Windows 配置写入和本地代理闭环，macOS、Linux、WSL 明确移入后续跨平台阶段。
 - ✅️ 明确 Windows 配置路径基线：优先发现 `%APPDATA%\Code\User`，路径解析不得假设固定用户名。
 - ✅️ 明确非 Windows 行为：暂不自动写入 macOS、Linux、WSL 配置，后续实现前必须补齐选择策略和测试样例。
 - ✅️ 实现本地代理监听基线：管理界面服务使用 `127.0.0.1` 随机可用端口启动，Ollama 调试端口可显式指定。
 - ✅️ 默认只监听 `127.0.0.1`，不默认暴露到局域网。
-- ✅️ 明确后台代理生命周期基线：当前由 ASP.NET Core 宿主进程管理启动和退出，托盘退出清理在后续宿主层补齐。
-- ✅️ 明确托盘能力边界：阶段 1 先落地窗口承载，系统托盘、聚焦窗口和快速切换菜单移入后续 Windows 桌面增强。
-- ✅️ 确认 OmniHost 窗口 API 的落地方式：Windows 端采用 `Win32Runtime` + `NativeWebView2AdapterFactory`，托盘 API 后续单独抽象。
+- ✅️ 明确后台代理生命周期基线：当前由 ASP.NET Core 宿主进程管理启动和退出。
+- ✅️ 明确托盘能力边界：当前不内置系统托盘，日常切换通过本地管理页完成；如未来恢复托盘，需要独立设计和测试。
+- ✅️ 移除外部桌面宿主依赖：主项目不再引用外部桌面宿主源码，解决方案和子模块配置也不再要求拉取该外部工程。
 - ✅️ 修复开发启动依赖注入基线：Ollama 代理服务显式接收全部 Provider 注册，避免多构造函数导致宿主启动失败。
 
 验收标准：
@@ -65,7 +65,7 @@
 - Windows 路径选择逻辑有明确基线，优先使用 `%APPDATA%\Code\User`，不硬编码用户名。
 - 非 Windows 和 WSL 当前不自动写入用户配置，避免静默修改未选择的配置文件。
 - 本地服务默认只绑定 `127.0.0.1`。
-- Windows 原生窗口可通过 OmniHost Win32 + WebView2 承载管理界面。
+- 管理界面可通过本地 HTTP 地址打开，并默认只绑定 `127.0.0.1`。
 
 ## 阶段 2：低误操作 UI 与配置向导
 
@@ -142,7 +142,7 @@
 - VS Code 可通过 Ollama 相关配置发现并调用代理模型。
 - 代理服务能返回稳定的 Ollama 兼容响应结构。
 - 上游错误不会直接泄露敏感字段。
-- 当前阶段的基础模型切换链路已接入 UI 启用供应商；测试连接、VS Code 写入当前可用模型、Provider 类型选择和托盘快速切换已落地。
+- 当前阶段的基础模型切换链路已接入 UI 启用供应商；测试连接、VS Code 写入当前可用模型和 Provider 类型选择已落地。
 
 ## 阶段 5：首批 Provider Adapter
 
@@ -170,7 +170,7 @@
 
 目标：把已经存在的 UI、配置服务、Provider Adapter 和 Ollama 代理串成真实可用链路，避免停留在骨架或假数据。
 
-阶段状态：✅️ 已完成。UI、受保护供应商配置、Provider Adapter、Ollama 代理、VS Code 配置写入、托盘快速切换和端到端验收清单已形成真实闭环。
+阶段状态：✅️ 已完成。UI、受保护供应商配置、Provider Adapter、Ollama 代理、VS Code 配置写入和端到端验收清单已形成真实闭环。
 
 - ✅️ 供应商配置持久化 API：读取、保存、新增、编辑、删除、启用、排序。
 - ✅️ 供应商 API Key 使用当前 Windows 用户保护数据加密落盘，前端只显示脱敏预览。
@@ -193,7 +193,7 @@
 - ✅️ 移除主项目 WinForms 依赖，Native AOT 发布不再需要通过 `_SuppressWinFormsTrimError` 绕过 SDK 检查。
 - ✅️ 发布运行时从内嵌 SPA 静态资源加载管理界面，不再依赖发布目录中的外部 `wwwroot`。
 - ✅️ 顶部 VS Code Ollama 开关打开时，在检测缺失后提供一键跳转和明确的写入流程，不静默修改配置。
-- ✅️ 使用 Win32 原生托盘实现显示当前启用供应商和模型，并支持快速切换真实供应商。
+- ✅️ 移除托盘快速切换作为当前闭环要求，供应商切换统一通过本地管理页完成。
 - ✅️ 增加供应商配置 API 的最小测试：保存不回传密钥、启用唯一供应商、排序幂等、删除后自动选择可用供应商。
 - ✅️ 增加并执行端到端人工验收清单：新增供应商、启用、刷新模型、VS Code 写入、VS Code 调用、本地撤销；仓库内可自动验证部分已通过构建和三组测试，真实 VS Code/Copilot 界面步骤已固化为发布前人工复核项。
 
@@ -254,36 +254,27 @@
 验收标准：
 
 - 单个供应商故障不会拖垮整个本地代理。
-- 熔断状态在 UI 和托盘菜单中可见。
+- 熔断状态在 UI 中可见。
 - 敏感信息不会出现在日志中。
 
-## 阶段 7：OmniHost + Vue 3 单体应用
+## 阶段 7：本地 Web 宿主 + Vue 3 单体应用
 
-目标：提供 Windows、macOS、Linux、WSL 可运行的桌面体验，并用 Vue 3 SPA 承载主要 UI。
+目标：提供可发布的本地 Web 宿主体验，并用 Vue 3 SPA 承载主要 UI；桌面壳、托盘和跨平台原生窗口不再作为当前阶段默认目标。
 
-- ✅️ 集成 OmniHost 工程结构，宿主项目直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.NativeWebView2` 三个源码项目。
-- ✅️ 新增 `OmniApplication` 组合宿主生成器：外层 API 对齐 ASP.NET Core 的 `CreateBuilder` / `CreateSlimBuilder` / `CreateEmptyBuilder`，内部组合本地 Web 服务和桌面窗口生命周期，避免应用入口手动维护两套启动/退出流程。
-- ✅️ 新增 Native WebView2 适配器：基于 `WebView2Aot` 生成式 COM binding 创建环境和 HWND controller，提供导航、尺寸同步和 JS bridge，并嵌入 WebView2 Loader 以支持 AOT 单文件发布。
-- ✅️ 收敛 Native AOT JSON 警告：主程序、Provider 配置、OpenAI-compatible / Claude Provider、VS Code 配置写入和 OmniHost 窗口事件均改为源生成或显式 `JsonNode.WriteTo`，AOT 单文件发布不再出现 IL2026 / IL3050。
-- ✅️ 修复 Native WebView2 JS bridge 初始化闪退：不再释放 `AddScriptToExecuteOnDocumentCreated` 完成回调返回的脚本 ID，发布版窗口可持续运行。
+- ✅️ 移除外部桌面宿主工程结构：解决方案不再包含外部宿主项目，主程序不再引用外部桌面宿主、Windows runtime 或 WebView 适配器。
+- ✅️ 主入口回归 `WebApplication.CreateSlimBuilder`，本地代理和管理页由 ASP.NET Core 单宿主生命周期统一管理。
+- ✅️ 移除桌面桥接和托盘菜单服务，供应商切换统一通过 Vue 管理页和后端 Provider 配置 API 完成。
+- ✅️ 收敛 Native AOT JSON 警告：主程序、Provider 配置、OpenAI-compatible / Claude Provider 和 VS Code 配置写入均改为源生成或显式 `JsonNode.WriteTo`，AOT 单文件发布不再出现业务层 IL2026 / IL3050。
 - ✅️ 修复嵌入式 SPA 静态资源路由：发布版 `/assets/*.js`、`/assets/*.css`、favicon 均由内嵌资源返回，避免窗口白屏。
-- ✅️ 优化 Win32 + Native WebView2 首屏显示：启动时先完成 WebView2 初始化和首次导航，再显示主窗口，减少空白窗口闪现。
 - ✅️ 优化 VS Code 配置预览失败诊断：后端返回明确的 JSON、权限和文件占用错误，前端直接展示具体原因，并补充无效 JSON 测试。
-- ✅️ 接入 Win32 原生托盘和窗口图标：标题栏/任务栏、发布版 exe 和系统托盘使用 VSCopilotSwitch 图标，托盘菜单支持打开主界面和退出程序。
-- ✅️ 用 `src/assets/logo.svg` 重新生成 `public/favicon.ico`，统一浏览器 favicon、程序 ICO、窗口和托盘图标来源。
-- ✅️ 实现主窗口生命周期：关闭按钮隐藏到托盘，托盘打开恢复聚焦，托盘退出才停止本地代理。
-- ✅️ 实现 Windows 托盘图标最小增强：打开或聚焦主界面。
-- ✅️ 实现 Windows 托盘菜单增强：右键菜单支持打开主界面、显示当前供应商和模型、快速切换真实供应商、退出程序。
-- ✅️ 实现托盘菜单：快速切换当前提供商。
-- ✅️ 实现 Windows 托盘菜单最小增强：退出程序并触发宿主关闭流程，随后停止本地代理。
+- ✅️ 用 `src/assets/logo.svg` 重新生成 `public/favicon.ico`，统一浏览器 favicon 和程序 ICO 来源。
 - ✅️ 配置 SPA 构建产物输出目录，供宿主发布流程收集。
 - ✅️ 将 Vue 3 SPA 构建产物作为嵌入式资源打包到单体应用。
 - ✅️ 开发模式下可通过 HTTP Visual Studio SPA Proxy 连接 npm 调试服务。
 - ✅️ 前端 JSON 配置文件使用无 BOM UTF-8，避免 Vite/PostCSS 解析失败。
-- ✅️ 接入 VS Code Workbench 风格主题层，预留 OmniHost 宿主主题变量注入接口。
-- ✅️ 宿主标题栏切换为系统原生样式，页面配色默认跟随操作系统深浅色偏好。
+- ✅️ 接入 VS Code Workbench 风格主题层，页面配色默认跟随操作系统深浅色偏好。
 - ✅️ 运行时优先从嵌入式资源加载 SPA。
-- ✅️ 支持 AOT 发布：当前已能生成 Native AOT 单文件主程序，并切换到 Native WebView2；业务层 JSON/JsonNode 的 AOT 警告已收敛。
+- ✅️ 支持 AOT 发布：当前已能生成 Native AOT 单文件主程序；业务层 JSON/JsonNode 的 AOT 警告已收敛。
 - ✅️ 修复 OpenAI-compatible `tool_choice` 字符串序列化的 Native AOT 分析警告，改用源生成 `JsonTypeInfo` 路径。
 - ✅️ 完成 Windows `win-x64` AOT 单文件发布最小冒烟：唯一 exe 复制到干净目录后可启动本地服务并通过 `/health` 返回 Production/ok。
 - ✅️ 收紧 AOT 发布体积：显式启用 full trim、Native AOT size 优化和必要的运行时功能裁剪，当前单文件 exe 约 17.3 MB。
@@ -306,7 +297,7 @@ UI 方向：
 - ✅️ 发布 CI：GitHub Actions 覆盖 npm install、SPA build、嵌入式资源生成检查、.NET 测试和 AOT 单体应用打包；分支/PR 只构建，`v*` 标签才发布 Release 资产。
 - ✅️ 发布流程包含 npm install、SPA build、嵌入式资源生成、AOT 单体应用打包。
 - ✅️ 修复发布 CI 版本解析：标签版本、预发布版本、build metadata 和非 SemVer 分支名均可稳定生成 .NET 包版本、程序集版本和 Release 标签。
-- ✅️ 移除发布 CI 中启动完整桌面 exe 的 `/health` 冒烟步骤；运行时冒烟保留为本地发布前人工验收，避免无交互 Windows runner 上的 WebView2、托盘和窗口会话差异阻塞打包。
+- ✅️ 移除发布 CI 中启动发布 exe 的 `/health` 冒烟步骤；运行时冒烟保留为本地发布前人工验收，避免无交互 Windows runner 上的运行时差异阻塞打包。
 - 🔵 后做 安装包签名策略。
 - 🔵 后做 用户迁移说明。
 - ✅️ 示例配置和故障排查文档：新增 `docs/user-guide.md`，覆盖快速开始、供应商配置、VS Code / VS2026 / OpenAI-compatible / Ollama 客户端接入和常见问题。

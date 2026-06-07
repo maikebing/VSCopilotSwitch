@@ -7,9 +7,6 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
     <ProjectReference Include="..\VSCopilotSwitch.Core\VSCopilotSwitch.Core.csproj" />
     <ProjectReference Include="..\VSCopilotSwitch.VsCodeConfig\VSCopilotSwitch.VsCodeConfig.csproj" />
-    <ProjectReference Include="..\..\external\OmniHost\src\OmniHost\OmniHost.csproj" />
-    <ProjectReference Include="..\..\external\OmniHost\src\OmniHost.Windows\OmniHost.Windows.csproj" />
-    <ProjectReference Include="..\..\external\OmniHost\src\OmniHost.NativeWebView2\OmniHost.NativeWebView2.csproj" />
   </ItemGroup>
 
   <ItemGroup>

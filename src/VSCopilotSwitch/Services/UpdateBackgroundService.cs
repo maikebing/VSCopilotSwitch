@@ -54,7 +54,7 @@ public sealed class UpdateBackgroundService : BackgroundService
         }
         catch (Exception ex)
         {
-            // 自动更新失败只影响缓存下载，不能影响本地代理和主窗口生命周期。
+            // 自动更新失败只影响缓存下载，不能影响本地代理生命周期。
             _logger.LogWarning(ex, "VSCopilotSwitch automatic update download failed.");
         }
     }

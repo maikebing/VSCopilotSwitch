@@ -430,3 +430,6 @@ src/VSCopilotSwitch.Ui/dist/
 /.build-out
 /.dotnet-home
 /.npm-cache
+
+# 旧外部源码依赖已移除；保留本地目录时不再纳入仓库跟踪。
+/external/

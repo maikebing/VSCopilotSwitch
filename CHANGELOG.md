@@ -6,7 +6,7 @@
 
 ### Added
 
-- ✅️ 新增 VSCopilotSwitch 使用指南，覆盖快速开始、供应商配置、VS Code Copilot Chat、VS2026 BYOM、OpenAI-compatible / Ollama 客户端接入、托盘、分析统计和常见问题。
+- ✅️ 新增 VSCopilotSwitch 使用指南，覆盖快速开始、供应商配置、VS Code Copilot Chat、VS2026 BYOM、OpenAI-compatible / Ollama 客户端接入、分析统计和常见问题。
 - ✅️ 新增 VS2026 用户配置与 AI Provider 配置位置探测记录，确认 VS2026 18.0 实例配置、Copilot BYOM 配置文件、MCP 配置和常规 Copilot 设置键的实际落点；二次探测已观察到 Foundry Local 与 Azure BYOM 摘要条目。
 - ✅️ 补充 VS2026 BYOM Provider 行为分析：Azure BYOM 是自定义 HTTPS URL Provider，可作为 VSCopilotSwitch 接入试验路线；Foundry Local 依赖系统 `foundry service start`，不适合通过手写 BYOM JSON 伪装。
 - ✅️ 启动 VS2026 Azure BYOM A1 接入试验：支持通过 `VSCOPILOTSWITCH_HTTPS_URL` / `Vs2026:HttpsUrl` 额外开启 HTTPS 监听，补齐 `GET /v1/models/{modelId}` 单模型校验接口，并新增 `/internal/vs2026/byom` 返回 VS2026 Manage Models 建议填写值。
@@ -47,7 +47,7 @@
 - ✅️ 新增 Claude Official Provider Adapter，支持 Anthropic `/v1/models`、`/v1/messages`、SSE 流式事件、`x-api-key` 鉴权、`anthropic-version` 请求头、system 消息提升和错误脱敏。
 - ✅️ 宿主支持通过 `Providers:NvidiaNim`、`Providers:Moark`、`Providers:Claude` 配置启用对应 Provider，并可与已实现 Provider 同时注册。
 - ✅️ 新增 NVIDIA NIM、MoArk、Claude Official 最小集成测试，覆盖端点路径、鉴权头、请求转换、流式分块解析和 API Key 脱敏。
-- ✅️ 收尾阶段 0 和阶段 1：明确当前阶段只实现 Windows 桌面端，macOS、Linux、WSL 顺延到后续跨平台阶段。
+- ✅️ 收尾阶段 0 和阶段 1：明确当前阶段只实现 Windows 配置写入和本地代理闭环，macOS、Linux、WSL 顺延到后续跨平台阶段。
 - ✅️ 新增 VS Code Ollama 配置写入向导骨架，要求先选择目录并生成 dry-run 差异预览，再允许确认写入和查看备份结果。
 - ✅️ 配置预览结果新增字段级差异，展示 `settings.json` 和 `chatLanguageModels.json` 中本项目托管字段的原值与新值。
 - ✅️ 新增 VS Code 配置回滚入口，可列出最近 VSCopilotSwitch 备份并恢复指定备份；恢复前会为当前文件再创建安全备份。
@@ -75,17 +75,16 @@
 - ✅️ 补充 VS Code 语言模型配置实测记录：确认真实入口为 `%APPDATA%\Code\User\chatLanguageModels.json` 的 Provider 数组，Ollama 条目使用 `name` / `vendor` / `url`，为后续重写配置写入逻辑提供依据。
 - ✅️ 重写 VS Code 配置写入逻辑：废弃旧版 `settings.json` 自定义字段和静态 `vscopilotswitch.models` 清单，只幂等维护 `chatLanguageModels.json` 数组中的 `vscs` Ollama Provider 条目。
 - ✅️ VS Code Provider URL 改用 VSCopilotSwitch 专用端口 `http://127.0.0.1:5124`，取消写入 Ollama 默认 `11434` 的兼容路径，避免与原生 Ollama 服务冲突。
-- ✅️ 移除主项目 WinForms 依赖和临时 `NotifyIcon` 托盘实现，避免 `UseWindowsForms` 阻塞 Native AOT 单文件发布；托盘能力后续改由 Win32 原生路径补齐。
+- ✅️ 移除主项目 WinForms 依赖和临时 `NotifyIcon` 托盘实现，避免 `UseWindowsForms` 阻塞 Native AOT 单文件发布。
 - ✅️ 显式引用 `System.Security.Cryptography.ProtectedData`，让 API Key 的 Windows 当前用户保护数据加密不再依赖 WinForms 间接引用。
 - ✅️ 宿主发布运行时改为从程序集内嵌 `Spa\...` 资源加载 Vue 静态产物，AOT 单文件包不再依赖外部 `wwwroot` 目录。
-- ✅️ 新增 `OmniApplication` 组合宿主入口，提供 `CreateBuilder`、`CreateSlimBuilder`、`CreateEmptyBuilder` / `CreateEmpty`，让本地 ASP.NET Core 服务和 OmniHost 桌面壳由同一个应用生命周期统一启动和停止。
-- ✅️ 新增 `OmniHost.NativeWebView2` 项目，基于 `WebView2Aot` 对接原生 WebView2 COM binding，并将 `WebView2Loader.dll` 嵌入资源；VSCopilotSwitch 启动界面已切换到 `NativeWebView2AdapterFactory`，避免 Native AOT 下 classic WebView2 wrapper 的 COM marshalling 问题。
-- ✅️ 将主程序、Provider 配置、上游 Provider、VS Code 配置写入和 OmniHost 生命周期事件的 JSON 读写改为 Native AOT 友好的源生成或显式 `JsonNode.WriteTo` 路径，消除 AOT 发布中的 IL2026 / IL3050 警告。
-- ✅️ 修复 Native WebView2 启动闪退：JS bridge 注入脚本完成回调返回的脚本 ID 由 WebView2 管理，不再手动释放，避免 WebView2Aot 路径触发原生崩溃。
+- ✅️ 移除外部桌面宿主引用：主程序回归 `WebApplication.CreateSlimBuilder`，解决方案、项目引用、子模块配置和前端桥接代码均不再依赖外部桌面宿主工程。
+- ✅️ 移除系统托盘服务实现，供应商快速切换统一通过 Vue 管理页和后端 Provider 配置 API 完成。
+- ✅️ 将主程序、Provider 配置、上游 Provider 和 VS Code 配置写入的 JSON 读写改为 Native AOT 友好的源生成或显式 `JsonNode.WriteTo` 路径，消除业务层 AOT 发布中的 IL2026 / IL3050 警告。
 - ✅️ 修复 AOT 单文件发布版管理界面白屏：嵌入式 SPA 资源改用 GET catch-all 路由提供，确保 `/assets/*.js`、`/assets/*.css` 和 favicon 不再被默认 fallback 的 nonfile 规则漏掉。
-- ✅️ 优化主窗口首屏显示：Win32 宿主等待 Native WebView2 首次导航完成后再显示窗口，避免程序启动时先露出空窗口、内容随后才补上的观感。
+- ✅️ 管理界面继续由嵌入式 SPA 静态资源提供，用户可通过本地 HTTP 地址访问。
 - ✅️ 优化 VS Code 配置预览错误提示：配置接口会把 JSON 格式、目录权限、文件占用等可恢复错误作为 400 返回，前端显示后端具体原因，不再统一误报为目录权限或 JSON 格式问题。
-- ✅️ 新增 AOT 友好的 Win32 原生窗口图标和托盘图标：发布版 exe、标题栏/任务栏和系统托盘使用同一 VSCopilotSwitch 图标，托盘右键菜单支持打开主界面和退出程序。
+- ✅️ 新增 AOT 友好的程序图标资源，发布版 exe 和浏览器 favicon 使用同一 VSCopilotSwitch 标识。
 - ✅️ 新增失败修复建议面板，针对权限不足、JSON 无效、文件占用和端口冲突给出可执行处理步骤。
 - ✅️ 新增默认折叠的高级选项面板，集中放置代理地址、熔断阈值、重试次数和备用路由。
 - ✅️ 新增 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份。
@@ -93,17 +92,15 @@
 - ✅️ 修复供应商排序 API 仍按旧 SortOrder 回排的问题，拖拽排序现在会按请求顺序稳定归一化。
 - ✅️ 新增供应商配置导出 API 和首页导出入口，默认导出不包含 API Key 原文、脱敏预览或加密密文，只保留密钥存在状态。
 - ✅️ 新增本地端口占用检测 API 与高级选项中的端口检测提示。
-- ✅️ 实现主窗口生命周期：点击关闭按钮时隐藏到托盘并保持本地代理运行，托盘“打开”恢复聚焦，托盘“退出”才真正停止宿主进程。
+- ✅️ 本地代理生命周期由 ASP.NET Core 宿主进程统一管理，停止宿主进程即可停止本地代理。
 - ✅️ 自动更新策略收敛为 GitHub Release 单源：后台和设置页手动检查都会从 GitHub Release 读取最新版本，并下载匹配的 Windows 发布资产到本地缓存。
 - ✅️ 设置页新增“关于”页面，展示应用标题、当前版本、GitHub 地址和企业微信二维码。
 - ✅️ 新增发布 CI：GitHub Actions 会执行 npm install、Vue SPA build、嵌入式资源检查、.NET 测试、Windows `win-x64` AOT 单文件发布和打包；分支/PR 只构建，`v*` 标签才上传 Release 资产。
 - ✅️ 发布包收敛为真正单文件资产：Release zip 只包含 `VSCopilotSwitch.exe`，避免把调试符号或生成清单放进自动更新包。
-- ✅️ 新增 Windows 托盘菜单最小增强，支持打开或聚焦主界面、查看当前提供商和代理状态、退出并停止本地代理。
-- ✅️ Win32 原生托盘菜单接入当前启用供应商和模型状态，并支持对已保存密钥和模型名的真实供应商做快速切换。
+- ✅️ 供应商切换入口收敛到管理页，当前启用供应商和模型状态由首页展示。
 - ✅️ 重新设计 VSCopilotSwitch 专属 SVG logo，并替换首页左上角 `CC Switch` 品牌展示。
 - ✅️ 首页右上角快速入口从 `Claude` / `Codex` 调整为 `VS2026` / `VSCode`，并替换为对应 IDE 风格图标。
-- ✅️ 接入 OmniHost Windows 原生宿主：`src/VSCopilotSwitch` 直接引用 `OmniHost`、`OmniHost.Windows`、`OmniHost.NativeWebView2`，启动本地 ASP.NET Core 服务后由 Win32 + Native WebView2 窗口承载 Vue 管理界面。
-- ✅️ 将 OmniHost 直接依赖和传递依赖加入 `VSCopilotSwitch.slnx`，修复 Visual Studio 生成主项目时未先生成 `OmniHost.Abstractions` / `OmniHost.Core` 等外部项目导致的 `CS0006`。
+- ✅️ 从 `VSCopilotSwitch.slnx` 中移除外部桌面宿主项目，Visual Studio 生成主项目时不再依赖外部工程构建顺序。
 - ✅️ 设置页移除供应商和高级熔断占位页面，仅保留 VS Code 配置写入与备份回滚入口，减少未完成能力对用户的干扰。
 - ✅️ 使用 `src/assets/logo.svg` 重新生成 `public/favicon.ico`，让浏览器 favicon、程序 ICO、窗口和托盘图标统一使用 VSCopilotSwitch 标识。
 - ✅️ 顶部 VS Code Ollama 开关打开时只做状态检测；缺失配置时跳转到写入向导并显示明确预览/确认流程，不静默修改 VS Code 配置。
@@ -113,7 +110,7 @@
 - ✅️ Ollama 代理新增基础错误映射，未知模型、重复别名、Provider 鉴权、限流、超时和上游错误会返回脱敏后的 `{ error, code }`。
 - ✅️ 新增 Ollama 代理核心测试项目，覆盖别名路由、流式分块、未知模型、重复别名和 Provider 错误映射。
 
-- 初始化 .NET 解决方案和 OmniHost-ready 宿主骨架。
+- 初始化 .NET 解决方案和本地 Web 宿主骨架。
 - 新增 VSCopilotSwitch.Core，包含 Ollama 协议模型、Provider 抽象和内置占位 Provider。
 - 新增 VSCopilotSwitch.VsCodeConfig，支持 VS Code User 目录发现、settings.json / chatLanguageModels.json 干运行预览、安全写入和备份。
 - 新增 `src/VSCopilotSwitch` 宿主项目，最终可执行文件名为 `VSCopilotSwitch`，提供 `/health`、`/api/tags`、`/api/chat` 和内部 VS Code 配置 API。
@@ -124,35 +121,35 @@
 - ✅️ 按 `cc switch` 截图重设计 Vue 管理界面，新增浅色供应商卡片列表、顶部快速切换区、添加/编辑供应商表单和 VS Code 配置预览入口。
 
 - 建立项目 README，明确 VSCopilotSwitch 的目标和核心能力。
-- 新增路线图，覆盖项目基线、VS Code 配置管理、Ollama 兼容代理、Provider Adapter、稳定性、OmniHost 四端界面和发布安全。
+- 新增路线图，覆盖项目基线、VS Code 配置管理、Ollama 兼容代理、Provider Adapter、稳定性、本地 Web 宿主和发布安全。
 - 新增智能体协作要求，定义安全、架构、Provider、VS Code 配置、UI、测试和文档维护规则。
 - 明确首批计划支持的模型供应商：sub2api、OpenAI Official、Claude Official、DeepSeek、NVIDIA NIM / build.nvidia.com、Moark。
 - 补充 Vue 3 SPA 作为界面技术方向，并要求通过项目内 npm 脚本调试和构建。
 - 补充 AOT 单体应用发布目标，要求将 SPA 构建产物作为嵌入式资源打包。
-- 补充系统托盘能力规划：打开主界面、显示和选择当前提供商、显示代理状态、退出程序。
+- 补充本地管理页能力规划：打开管理界面、显示和选择当前提供商、显示代理状态。
 
 ### Changed
 
 - ✅️ 统一 `ROADMAP.md` 任务状态标记：使用 `✅️`、`🔧`、`⬜`、`🔴 现在做`、`🟡 可并行`、`🔵 后做` 六类状态，并明确当前主线。
 - ✅️ 校准路线图诚实状态：新增阶段 5.5 真实功能闭环，把 UI 保存供应商尚未接入 Ollama 代理路由标为当前主线，避免将骨架或占位能力误标为完成。
-- ✅️ 桌面宿主标题栏改为系统原生标题栏，默认跟随操作系统窗口风格和深浅色偏好；页面配色同步支持系统主题。
-- ✅️ 开发启动配置关闭自动浏览器打开，避免 OmniHost 原生窗口和系统浏览器重复打开同一个管理界面。
+- ✅️ 页面配色同步支持系统主题。
+- ✅️ 开发启动配置关闭自动浏览器打开，由用户按需访问本地管理页。
 - ✅️ 将 VS Code 配置向导从供应商编辑页迁移到独立设置页面，写入向导放入“常规”选项卡，配置回滚放入“备份”选项卡。
 
 - 将宿主项目从 src/VSCopilotSwitch.Host 改名为 src/VSCopilotSwitch，只调整项目名称和输出文件名，命名空间与代码职责保持不变。
-- 完善 Vue 3 SPA 管理界面，加入供应商切换、代理状态、模型列表、VS Code 配置 dry-run 和托盘菜单规划。
+- 完善 Vue 3 SPA 管理界面，加入供应商切换、代理状态、模型列表和 VS Code 配置 dry-run。
 - ✅️ 将首页从 VS Code Workbench 深色布局调整为更接近 `cc switch` 的轻量卡片式布局，降低供应商启用、编辑和查询状态的识别成本。
 - 将宿主项目切换为 Web SDK，增加 `SpaRoot`、`SpaProxyLaunchCommand`、`SpaProxyServerUrl` 和前端项目引用，支持后端启动时联动 Vue 调试服务。
 - ✅️ 修复开发模式根路径 404：在 launch profile 和 Development 配置中启用 `Microsoft.AspNetCore.SpaProxy` Hosting Startup，并补充宿主 `wwwroot` 约定目录。
 - ✅️ 将开发模式 SpaProxy 和 Vite 调试服务统一切换为 HTTP，不再生成或使用本地 HTTPS 开发证书。
 - ✅️ 清理前端 JSON 配置文件的 UTF-8 BOM，修复 Vite 加载 PostCSS 配置时报 `Unexpected token` 的问题。
-- ✅️ 接入 VS Code Workbench 风格主题层，使用 `--vscode-*` 语义变量组织标题栏、活动栏、侧边栏、编辑器区域、状态栏和表单控件，便于后续对接 OmniHost 注入主题。
+- ✅️ 接入 VS Code Workbench 风格主题层，使用 `--vscode-*` 语义变量组织标题栏、活动栏、侧边栏、编辑器区域、状态栏和表单控件。
 - 按 AGENTS 工作原则中的跨平台差异和 UI 防误操作要求重新整理路线图。
 - 将原始 README 中的项目方向整理为 UTF-8 中文文档，并补充跨平台和安全要求。
 
 ### Fixed
 
-- ✅️ 移除发布 CI 中的 `Smoke test published executable` 步骤；该检查会启动完整桌面程序并依赖 WebView2、托盘和无交互 Windows 会话，容易在 GitHub Actions 上误失败，发布 CI 现在只负责构建、测试、AOT 发布和打包。
+- ✅️ 移除发布 CI 中的 `Smoke test published executable` 步骤；该检查会启动发布程序并依赖无交互 Windows 会话，容易在 GitHub Actions 上误失败，发布 CI 现在只负责构建、测试、AOT 发布和打包。
 - ✅️ 修复 OpenAI-compatible 出口把 Provider 网络不可用返回为 503 的问题；现在 `provider_unavailable` 使用 502 / `api_error`，避免 Copilot 把 sub2api 网络失败误显示成“Rate limit exceeded”，真实限流仍保留 429 / `rate_limit_error`。
 - ✅️ 修复 OpenAI-compatible SSE 转发跳过纯 `reasoning_content` 分块的问题，避免推理模型只输出 reasoning delta 时被 Copilot 误判为无响应。
 - ✅️ 修复发布 CI 版本解析脚本：改用正则拆分预发布和 build metadata，避免 PowerShell 将 `+` 误绑定为 `Split` 的 count 参数导致 `v1.0.1` 标签构建失败；非 SemVer 分支名会回退为 CI 版本，避免进入 .NET `Version` 和产物名。
@@ -160,7 +157,7 @@
 - ✅️ 修复 OpenAI-compatible `tool_choice` 字符串序列化在 Native AOT 发布时触发 IL2026 / IL3050 分析警告的问题。
 - ✅️ 修复 VS Code 配置目录发现误返回 `...\Code` 产品根目录的问题；现在会返回 `...\Code\User`，并兼容旧界面传入根目录时自动规范化到 User 子目录，避免生成差异预览误读上一级残留 `chatLanguageModels.json`。
 - ✅️ 修复右上角新增供应商入口：新增模式会清空标题和表单内容，编辑已有供应商时才带入原数据。
-- ✅️ 修复首页供应商链接打开方式：桌面壳内通过系统默认浏览器打开外部链接，避免在 WebView 内跳走。
+- ✅️ 修复首页供应商链接打开方式：通过浏览器新标签打开外部链接，避免替换当前管理页。
 - ✅️ 新增首页供应商卡片上下拖拽排序，拖动卡片可调整供应商列表顺序。
 - ✅️ 首页供应商列表和添加/编辑供应商表单改为对接宿主供应商配置 API，不再只使用前端内置假数据。
 - ✅️ 修复供应商编辑页在窗口高度不足时无法向下滚动的问题，底部配置向导、回滚和保存操作现在可完整访问。

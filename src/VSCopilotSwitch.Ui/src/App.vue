@@ -236,10 +236,6 @@ type UpdateDownloadResult = {
   Release: UpdateReleaseInfo | null;
 };
 
-type OmniBridge = {
-  invoke: (handler: string, data?: unknown) => Promise<unknown>;
-};
-
 const health = ref<HealthStatus | null>(null);
 const models = ref<ModelInfo[]>([]);
 const directories = ref<VsCodeUserDirectory[]>([]);
@@ -1446,17 +1442,6 @@ async function activateProvider(providerId: string) {
 }
 
 async function openExternalUrl(url: string) {
-  try {
-    const omni = (globalThis as { omni?: OmniBridge }).omni;
-    if (omni) {
-      await omni.invoke('host.openExternal', { Url: url });
-      return;
-    }
-  } catch (error) {
-    setError(messageFromError(error, '打开供应商链接失败。'));
-    return;
-  }
-
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 

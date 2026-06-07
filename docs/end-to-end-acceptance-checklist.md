@@ -22,7 +22,7 @@
 | 状态 | 步骤 | 操作 | 通过标准 | 自动化覆盖 |
 | --- | --- | --- | --- | --- |
 | ✅️ | 新增供应商 | 在 UI 新增供应商，填写名称、协议类型、API 地址、模型和 API Key 后保存。 | 列表出现新供应商；API Key 只显示脱敏预览；配置文件不保存明文密钥。 | `SaveAsync_DoesNotReturnApiKey`、`ExportAsync_ExcludesApiKeysByDefault` |
-| ✅️ | 启用供应商 | 点击目标供应商“启用”。 | 任意时刻只有一个供应商处于启用状态；托盘菜单显示当前供应商和模型。 | `ActivateAsync_KeepsOneActiveProvider`、`DeleteAsync_AutoSelectsAvailableProvider` |
+| ✅️ | 启用供应商 | 点击目标供应商“启用”。 | 任意时刻只有一个供应商处于启用状态；首页显示当前供应商和模型。 | `ActivateAsync_KeepsOneActiveProvider`、`DeleteAsync_AutoSelectsAvailableProvider` |
 | ✅️ | 测试连接 | 对当前供应商执行“测试连接”。 | Base URL、API Key、模型列表和最小聊天探测逐项显示结果；错误消息脱敏；模型名为空时可自动回填优先模型。 | `ProviderConnectionTester_ProbesModelListAndChat`、`ProviderConnectionTester_AutoSelectsPreferredModel`、`ProviderConnectionTester_RedactsProviderErrors` |
 | ✅️ | 刷新模型 | 在首页刷新模型列表，或让 VS Code 访问 `/api/tags`。 | 返回模型名带 `@vscs` 后缀；使用当前启用供应商；上游模型列表失败时降级为已保存模型而不是 503。 | `ListTagsAsync_ExposesVsCodeSuffixedUpstreamModelNames`、`ActiveProviderModelProvider_ListModelsAsync_FallsBackToConfiguredModel` |
 | ✅️ | 写入 VS Code 配置 | 进入 VS Code 配置向导，选择 User 目录，先生成 dry-run 差异，再确认写入。 | `chatLanguageModels.json` 中存在唯一 `vscs` Provider；URL 指向当前本地代理；写入前有备份；重复写入不漂移。 | `ApplyOllamaConfigAsync_WritesProviderArrayEntryIdempotently`、`ApplyOllamaConfigAsync_RemovesDuplicateManagedProviders` |

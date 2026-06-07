@@ -8,10 +8,9 @@ VSCopilotSwitch 是一个面向 VS Code / GitHub Copilot Chat 体验的本地模
 - 将上游模型统一暴露为 Ollama 兼容协议，降低 VS Code 与本地工具链的接入成本。
 - 自动修改 VS Code 用户目录中的 Ollama Provider 配置，当前只维护 `chatLanguageModels.json` 中的 `vscs` 条目。
 - 提供熔断、重试、健康检查、限流、故障降级等稳定性能力。
-- 基于 [OmniHost](https://github.com/maikebing/OmniHost) 优先实现 Windows 桌面端；macOS、Linux、WSL 暂不实现，后续跨平台阶段再补齐。
+- 通过 ASP.NET Core 本地宿主提供管理页和代理 API，当前优先支持 Windows 配置写入；macOS、Linux、WSL 暂不自动写入，后续跨平台阶段再补齐。
 - 界面使用 Vue 3 + TypeScript，以 Visual Studio SPA 模式在项目内调试、构建和发布。
-- 最终发布支持 AOT，并将 SPA 构建产物和 WebView2 Loader 作为嵌入式资源打包进单体应用。
-- 系统托盘使用 Win32 原生实现，避免主项目依赖 WinForms 并影响 AOT 发布。
+- 最终发布支持 AOT，并将 SPA 构建产物作为嵌入式资源打包进单体应用。
 - UI 参考 `cc switch` 的快速切换体验，采用浅色卡片式供应商列表和添加/编辑表单，强调当前供应商、模型、密钥、代理和 VS Code 配置的一站式管理。
 
 ## 核心能力
@@ -77,24 +76,23 @@ Copilot Chat 当前真实聊天入口使用 OpenAI-compatible `/v1/chat/completi
 
 ## 技术方向
 
-项目界面和宿主能力基于 OmniHost，前端界面使用 Vue 3 SPA。开发阶段通过项目内 npm 脚本启动 SPA 调试服务；发布阶段先构建 SPA 静态产物，再作为嵌入式资源打包进 AOT 单体应用，由宿主在运行时加载内置 SPA 资源。实现上建议分层：
+项目当前采用 ASP.NET Core 本地 Web 宿主和 Vue 3 SPA。开发阶段通过项目内 npm 脚本启动 SPA 调试服务；发布阶段先构建 SPA 静态产物，再作为嵌入式资源打包进 AOT 单体应用，由宿主在运行时加载内置 SPA 资源。实现上建议分层：
 
-- `host`：OmniHost 桌面宿主、系统托盘、窗口生命周期、SPA 资源加载；当前优先 Windows，跨平台能力后续补齐。
+- `host`：ASP.NET Core 本地宿主、HTTP API、后台生命周期和 SPA 嵌入式资源加载。
 - `core`：协议转换、路由、熔断、配置模型、加密存储。
 - `providers`：各供应商 Adapter。
 - `vscode-config`：VS Code 配置发现、备份、写入、回滚。
 - `ui`：Vue 3 SPA，负责供应商配置、模型切换、状态面板、日志和向导；当前主界面采用 `cc switch` 风格的浅色卡片布局，关键写入能力仍通过预览入口承接。
 
 
-### 托盘能力
+### 日常切换
 
-桌面端需要提供系统托盘图标，降低日常切换成本：
+当前通过浏览器访问本地管理页完成日常切换：
 
-- 点击托盘图标可打开或聚焦主界面。
-- 托盘菜单可显示当前提供商和当前模型。
-- 托盘菜单可快速切换已保存密钥和模型名的真实提供商。
-- 托盘菜单可查看代理服务运行状态。
-- 托盘菜单提供退出程序入口，并在退出前安全停止本地代理。
+- 访问 `http://127.0.0.1:5124/` 打开管理界面。
+- 首页可查看当前提供商、当前模型和代理状态。
+- 供应商列表支持快速启用已保存密钥和模型名的真实提供商。
+- 停止宿主进程会停止本地代理。
 
 
 ## 工程结构
@@ -248,13 +246,13 @@ Claude Adapter 会把 Ollama 侧 `system` 消息提升为 Anthropic Messages API
 
 代理地址、熔断失败阈值、重试次数和备用路由等高级选项默认折叠，日常切换供应商时不会干扰主流程。
 
-高级选项中的本地代理地址支持端口占用检测，可填写 `5124`、`127.0.0.1:5124` 或完整 URL，并提示 `127.0.0.1` 上的目标端口是否已被其他代理占用。VSCopilotSwitch 不再把 VS Code Provider URL 指向 Ollama 默认的 `11434`，避免与用户本机原生 Ollama 服务冲突。主窗口当前由 OmniHost Win32 + Native WebView2 承载；发布包运行时从单体程序内嵌的 SPA 静态资源加载界面，不依赖外部 `wwwroot` 目录。托盘菜单由 Win32 原生方式实现，可查看当前供应商和模型，并快速切换真实供应商；点击主窗口关闭按钮只会隐藏到托盘并保持本地代理运行，只有托盘“退出”会停止宿主进程，避免引入 WinForms 依赖。
+高级选项中的本地代理地址支持端口占用检测，可填写 `5124`、`127.0.0.1:5124` 或完整 URL，并提示 `127.0.0.1` 上的目标端口是否已被其他代理占用。VSCopilotSwitch 不再把 VS Code Provider URL 指向 Ollama 默认的 `11434`，避免与用户本机原生 Ollama 服务冲突。发布包运行时从单体程序内嵌的 SPA 静态资源加载界面，不依赖外部 `wwwroot` 目录。
 
 发布版默认会在 `https://127.0.0.1:5443` 为 VS2026 Azure BYOM 准备本机 HTTPS 入口。程序启动时会生成只覆盖 `localhost`、`127.0.0.1` 和 `::1` 的自签服务器证书，把带私钥证书放入当前用户 `My` 证书库，把公钥证书放入当前用户 `Root` 信任根，并直接交给 Kestrel 使用；AOT 单文件不依赖用户机器安装 .NET SDK、Node.js 或手动执行 `dotnet dev-certs`。该入口会显式启用 Kestrel HTTPS 配置服务，避免精简宿主在绑定 `https://` 地址时启动失败。开发环境默认不自动启用该 HTTPS 口，可用 `VSCOPILOTSWITCH_HTTPS_URL=https://127.0.0.1:5443` 显式开启，也可用 `VSCOPILOTSWITCH_VS2026_AUTO_HTTPS=false` 关闭发布版自动 HTTPS。
 
 自动更新策略默认启用发布版后台下载：宿主会定时读取 GitHub Release 信息，比较当前程序集版本和远端 `tag_name`，选择匹配 `VSCopilotSwitch` / `win-x64` / `aot` 的 `.exe`、`.zip` 或 `.msi` 资产并下载到 `%LOCALAPPDATA%\VSCopilotSwitch\Updates`。设置页“更新”选项卡也提供手动检查和下载入口。当前阶段只下载发布包，不会静默替换正在运行的单文件程序；开发环境通过 `appsettings.Development.json` 关闭后台自动下载。
 
-发布 CI 位于 `.github/workflows/release.yml`，在 Windows runner 上执行完整链路：`npm install --prefix src/VSCopilotSwitch.Ui`、`npm run ui:build`、检查 `dist/index.html` 和静态资源数量、运行 .NET build/tests、发布 `win-x64` Native AOT 单文件，并打包 `VSCopilotSwitch-<version>-win-x64-aot.zip` 与 `.sha256`。分支 push 和 PR 只构建、测试并上传 workflow artifact；只有推送 `v*` 标签时才会把这两个文件上传到 GitHub Release。CI 不再启动完整桌面发布产物做 `/health` 冒烟，避免 WebView2、托盘和无交互 Windows 会话造成不稳定失败；发布前运行验证仍保留在本地人工验收流程中。Release zip 只包含 `VSCopilotSwitch.exe`，自动更新下载到的也是这个单文件包；本地可用 `npm run release:win-x64` 复用 npm install、SPA build 和 AOT 发布顺序。Release 发布配置显式启用 full trim 和 Native AOT size 优化，关闭发布包不需要的调试器、EventSource 与 HTTP activity propagation 支持，以控制单文件体积。
+发布 CI 位于 `.github/workflows/release.yml`，在 Windows runner 上执行完整链路：`npm install --prefix src/VSCopilotSwitch.Ui`、`npm run ui:build`、检查 `dist/index.html` 和静态资源数量、运行 .NET build/tests、发布 `win-x64` Native AOT 单文件，并打包 `VSCopilotSwitch-<version>-win-x64-aot.zip` 与 `.sha256`。分支 push 和 PR 只构建、测试并上传 workflow artifact；只有推送 `v*` 标签时才会把这两个文件上传到 GitHub Release。CI 不再启动发布产物做 `/health` 冒烟，避免无交互 Windows runner 上的运行时差异阻塞打包；发布前运行验证仍保留在本地人工验收流程中。Release zip 只包含 `VSCopilotSwitch.exe`，自动更新下载到的也是这个单文件包；本地可用 `npm run release:win-x64` 复用 npm install、SPA build 和 AOT 发布顺序。Release 发布配置显式启用 full trim 和 Native AOT size 优化，关闭发布包不需要的调试器、EventSource 与 HTTP activity propagation 支持，以控制单文件体积。
 
 仓库包含一个无外部测试框架依赖的 VS Code 配置最小测试项目，覆盖配置写入幂等、备份列表和恢复前安全备份：
 
@@ -272,7 +270,7 @@ dotnet run --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.Vs
 
 ## 当前状态
 
-阶段 5 首批 Provider Adapter 首版已完成，阶段 5.5 已把 UI、受保护供应商配置、Provider Adapter 和 Ollama 代理串成真实闭环：当前已支持 UI 启用供应商驱动 `/api/tags` 与 `/api/chat`，并在首页展示真实模型刷新状态、上游模型名和失败原因；供应商测试连接、协议类型选择、VS Code 写入当前代理模型、托盘快速切换和端到端验收清单也已接入。
+阶段 5 首批 Provider Adapter 首版已完成，阶段 5.5 已把 UI、受保护供应商配置、Provider Adapter 和 Ollama 代理串成真实闭环：当前已支持 UI 启用供应商驱动 `/api/tags` 与 `/api/chat`，并在首页展示真实模型刷新状态、上游模型名和失败原因；供应商测试连接、协议类型选择、VS Code 写入当前代理模型和端到端验收清单也已接入。
 
 右上角工具栏提供“分析统计”入口，可查看当前本地进程内存中的请求日志、监听端口状态、Token、费用、耗时和 User-Agent。分析服务会优先解析上游返回的真实 `usage`；若响应缺少 usage，才退回按正文长度估算，并在每条日志中标记来源。费用按本地 `UsagePricing` 单价表计算，不硬编码会过期的供应商官方价格；未配置单价时请求会标记为“未计价”。每条日志可展开查看脱敏后的请求头、请求体、响应头和响应体；Authorization、Cookie、API Key、Token 等敏感字段会被替换，正文采样也会限制长度。
 
@@ -303,10 +301,8 @@ dotnet run --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.Vs
 
 返回给 VS Code / Copilot 的模型名会追加 `@vscs` 后缀，`/api/tags` 会直接暴露 `gpt-5.5@vscs` 这类模型名，用于避免和 VS Code Copilot 内置模型名冲突。本地代理收到带后缀的模型请求后只用于路由识别，转发到上游 Provider 前会恢复为原始模型名，例如 `gpt-5.5`。
 
-## 当前 OmniHost 接入状态
+## 当前宿主状态
 
-Windows 端已进入源码集成阶段：宿主项目直接引用 `external/OmniHost/src/OmniHost`、`external/OmniHost/src/OmniHost.Windows` 和 `external/OmniHost/src/OmniHost.NativeWebView2`。运行时会先启动 ASP.NET Core API / SPA 服务；开发模式优先使用 `launchSettings.json` / `ASPNETCORE_URLS` 中的固定地址，方便 Vite 代理对齐，未显式配置时再回退到 `127.0.0.1` 随机可用端口。随后使用 OmniHost 的 `Win32Runtime` 与 `NativeWebView2AdapterFactory` 打开原生窗口承载管理界面。
+宿主项目已回归纯 ASP.NET Core 本地 Web 服务，不再引用外部桌面宿主源码。运行时会启动 API / SPA 服务；开发模式优先使用 `launchSettings.json` / `ASPNETCORE_URLS` 中的固定地址，方便 Vite 代理对齐，未显式配置时默认使用 `http://127.0.0.1:5124`。
 
-`OmniHost.NativeWebView2` 基于 `WebView2Aot` generated COM binding 实现，不再依赖 classic `Microsoft.Web.WebView2.Core` 托管 wrapper；发布时会把对应架构的 `WebView2Loader.dll` 作为嵌入式资源加载，便于 Native AOT 单文件分发。
-
-当前阶段仍保留本地 HTTP 服务边界，便于 VS Code 配置 API、Ollama 兼容代理和 Vue SPA 继续复用现有开发链路；托盘菜单、窗口聚焦、关闭隐藏到托盘、快速切换供应商、退出代理和 GitHub Release 更新包缓存下载已在 OmniHost Windows 宿主层接入，后续会继续补齐跨平台宿主策略。
+当前阶段保留本地 HTTP 服务边界，便于 VS Code 配置 API、Ollama 兼容代理和 Vue SPA 继续复用现有开发链路；系统托盘、原生窗口和跨平台桌面壳不再作为当前项目默认能力。

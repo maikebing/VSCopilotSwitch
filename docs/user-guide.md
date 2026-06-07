@@ -6,7 +6,7 @@ VSCopilotSwitch 的基本思路是：先在本工具里保存并启用一个真�
 
 ## 使用前准备
 
-- 当前优先支持 Windows 桌面端。
+- 当前优先支持 Windows 配置写入和本地代理。
 - 准备一个可用的供应商 API Key，例如 sub2api 中转站、OpenAI-compatible 网关、OpenAI Official、DeepSeek、Claude、NVIDIA NIM 或 MoArk。
 - 如需接入 VS Code Copilot Chat，确保 VS Code 用户配置目录可写。
 - 如需源码运行，需要本机安装 .NET SDK 和 Node.js；发布版单文件运行不需要用户安装 Node.js。
@@ -166,15 +166,14 @@ http://127.0.0.1:5124
 
 `/api/chat` 支持非流式和流式响应，也支持 Ollama 官方 `tools`、`think` 和 `message.thinking` 的最小兼容面。
 
-## 托盘与日常切换
+## 日常切换
 
-VSCopilotSwitch 运行后会出现在 Windows 系统托盘。
+VSCopilotSwitch 运行后会提供本地管理页：
 
-- 关闭主窗口只会隐藏到托盘，本地代理继续运行。
-- 托盘菜单可以打开或聚焦主界面。
-- 托盘菜单会显示当前供应商和模型。
-- 已保存 API Key 和模型名的真实供应商可在托盘里快速切换。
-- 只有托盘“退出”会停止宿主进程和本地代理。
+- 默认地址是 `http://127.0.0.1:5124/`。
+- 首页会显示当前供应商、模型和代理状态。
+- 已保存 API Key 和模型名的真实供应商可在供应商列表里快速启用。
+- 停止宿主进程会停止本地代理。
 
 ## 分析统计和费用估算
 
@@ -242,4 +241,3 @@ DeepSeek thinking 专用链路只在请求携带 `reasoning_effort`、`thinking`
 - 上游 API Key 只应保存在 VSCopilotSwitch 的供应商配置中。
 - 导出配置默认不包含密钥原文、脱敏预览或加密密文。
 - 修改 VS Code 配置前必须看 dry-run 差异，并确认备份路径。
-
