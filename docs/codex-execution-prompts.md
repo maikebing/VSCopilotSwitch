@@ -84,7 +84,41 @@
 
 目标：增加常见 OpenAI-compatible / 官方 Provider 预设模板和安全导入预览，不直接导入密钥。
 
-提示词待原型 1 验证后再展开。
+提示词：
+
+```text
+你在仓库 /opt/data/VSCopilotSwitch，当前分支必须是 feature/mewui-native-shell。请只实现原型 3：供应商预设与导入。
+
+必须遵守 AGENTS.md：保护用户配置，不绕过 /internal API，不泄露密钥，注释用中文且只在必要处写；完成后更新 ROADMAP.md 和 CHANGELOG.md。
+
+背景：原型 1/2 已完成 MewUI 当前生效链路控制台和健康状态解释入口。ROADMAP.md 阶段 5.7 当前“现在做”是供应商预设与导入：常见 OpenAI-compatible、中转站、官方 Provider 的 Base URL、协议类型、模型推荐和能力声明模板。
+
+实现范围：
+- 主要修改 src/VSCopilotSwitch/NativeUi/NativeWorkbench.Providers.cs、NativeWorkbenchModels.cs，必要时新增 NativeUi partial 文件。
+- 在供应商页新增“预设与导入”区块：
+  - 提供常见预设：OpenAI Official、Claude Official、DeepSeek、NVIDIA NIM、MoArk、sub2api、OpenAI-compatible 中转站模板。
+  - 每个预设展示名称、协议类型、Base URL、推荐模型、能力声明摘要（文本、工具、视觉、长上下文等口径即可，不要求后端能力矩阵新增字段）。
+  - 点击预设只填充供应商编辑表单和显示预览，不自动保存、不自动启用、不写入 VS Code 配置。
+- 增加安全导入预览：
+  - 支持用户在 UI 输入/粘贴 JSON 文本，解析 provider 配置导出结构或简单数组/对象。
+  - 只预览可导入项：名称、协议类型、Base URL、模型、是否声明存在密钥；不得显示、保存或自动导入密钥原文。
+  - “应用导入项”只把选中/第一项填入编辑表单，API Key 字段保持空，并在状态中提示需要用户手动填写密钥后再保存。
+  - JSON 无效或字段缺失时给出明确错误，不崩溃。
+- 不新增后端 API，除非现有 API 无法满足；优先保持 UI 内存态和已有保存供应商接口。
+- 不改变运行时路由、不改变 VS Code 配置写入、不实现批量保存；这次只做预设选择、导入预览、填表。
+- 保持 Native AOT 友好：如果新增 JSON 反序列化类型，必须加入 MewUiJsonContext 源生成上下文，避免反射序列化。
+
+验证：
+- 使用 /opt/data/home/.dotnet10/dotnet build src/VSCopilotSwitch/VSCopilotSwitch.csproj -m:1 /p:RestoreUseStaticGraphEvaluation=false
+- 运行：
+  /opt/data/home/.dotnet10/dotnet run --project tests/VSCopilotSwitch.Core.Tests/VSCopilotSwitch.Core.Tests.csproj --no-restore
+  /opt/data/home/.dotnet10/dotnet run --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.VsCodeConfig.Tests.csproj --no-restore
+- 可尝试 Services 测试，但 Linux 下 Windows ProtectedData 相关用例可能因平台不支持失败；如失败需如实说明。
+
+交付：
+- 提交前不要 git commit。
+- 最后输出：改了哪些文件、预设和导入覆盖了哪些场景、验证命令和真实结果、后续原型 4 未做。
+```
 
 ## 原型 4：模型测试比较
 

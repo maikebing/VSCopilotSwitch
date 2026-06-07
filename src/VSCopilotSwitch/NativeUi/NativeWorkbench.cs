@@ -27,6 +27,9 @@ internal sealed partial class NativeWorkbench : IDisposable
     private StackPanel _overviewCopilotHint = null!;
     private StackPanel _providerRows = null!;
     private StackPanel _providerEditor = null!;
+    private StackPanel _providerPresets = null!;
+    private StackPanel _providerImportPreview = null!;
+    private TextBox _providerImportText = null!;
     private StackPanel _vscodeDirectories = null!;
     private StackPanel _vscodePreview = null!;
     private StackPanel _vscodeBackups = null!;
@@ -134,6 +137,9 @@ internal sealed partial class NativeWorkbench : IDisposable
         _overviewCopilotHint = new StackPanel().Spacing(10);
         _providerRows = new StackPanel().Spacing(10);
         _providerEditor = new StackPanel().Spacing(10);
+        _providerPresets = new StackPanel().Spacing(10);
+        _providerImportPreview = new StackPanel().Spacing(10);
+        _providerImportText = new TextBox().Text(string.Empty);
         _vscodeDirectories = new StackPanel().Spacing(10);
         _vscodePreview = new StackPanel().Spacing(10);
         _vscodeBackups = new StackPanel().Spacing(10);
@@ -192,7 +198,24 @@ internal sealed partial class NativeWorkbench : IDisposable
             .Spacing(14)
             .Children(
                 Panel("供应商列表", _providerRows).Column(0),
-                Panel("新增或编辑", _providerEditor).Column(1));
+                new StackPanel()
+                    .Spacing(14)
+                    .Children(
+                        Panel("预设模板", _providerPresets),
+                        Panel("安全导入预览", new StackPanel()
+                            .Spacing(10)
+                            .Children(
+                                BodyLabel("粘贴供应商导出 JSON 或简单对象/数组。导入预览不会保存密钥，应用后 API Key 字段保持为空。"),
+                                _providerImportText,
+                                new StackPanel()
+                                    .Horizontal()
+                                    .Spacing(8)
+                                    .Children(
+                                        new Button().Content("解析预览").Padding(14, 7).OnClick(ParseProviderImportPreview),
+                                        new Button().Content("清空导入").Padding(14, 7).OnClick(ClearProviderImportPreview)),
+                                _providerImportPreview)),
+                        Panel("新增或编辑", _providerEditor))
+                    .Column(1));
 
     private Element VsCodeTab()
         => new StackPanel()
@@ -282,6 +305,8 @@ internal sealed partial class NativeWorkbench : IDisposable
 
         ApplyOverview(dashboard, analytics);
         ReplaceChildren(_providerRows, BuildProviderRows(dashboard.Providers, includeActions: true));
+        RenderProviderPresets();
+        RenderProviderImportPreview(Array.Empty<ProviderImportPreview>(), "尚未解析导入 JSON。");
         RenderProviderEditor();
         RenderVsCodeDirectories();
         RenderVsCodePreview(null);

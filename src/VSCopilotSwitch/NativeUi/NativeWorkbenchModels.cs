@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using VSCopilotSwitch.Services;
 
@@ -91,6 +92,58 @@ internal sealed record ProviderEditorState(
             Vendor,
             string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey);
 }
+
+internal sealed record ProviderPreset(
+    string Name,
+    string Vendor,
+    string ApiUrl,
+    string Model,
+    string Url,
+    string CapabilitySummary,
+    string Remark);
+
+internal sealed record ProviderImportPreview(
+    string Name,
+    string Vendor,
+    string ApiUrl,
+    string Model,
+    string Url,
+    string Remark,
+    bool HasApiKey)
+{
+    public ProviderEditorState ToEditorState()
+        => new(
+            null,
+            Name,
+            Remark,
+            Url,
+            ApiUrl,
+            Model,
+            Vendor,
+            ApiKey: string.Empty,
+            Active: true,
+            IsNew: true);
+}
+
+internal sealed record ProviderImportDocument(
+    int? Version,
+    IReadOnlyList<ProviderImportItem>? Providers);
+
+internal sealed record ProviderImportItem(
+    string? Id,
+    string? Name,
+    string? Remark,
+    string? Url,
+    string? ApiUrl,
+    string? Model,
+    string? Vendor,
+    string? Avatar,
+    bool? Active,
+    int? SortOrder,
+    bool? HasApiKey,
+    string? ApiKey,
+    string? ApiKeyPreview,
+    JsonElement? EncryptedApiKey);
 
 internal enum VsCodePreviewKind
 {
