@@ -29,6 +29,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("OpenAI compatibility paths include /openai/v1 aliases", OpenAiCompatibilityPaths_IncludeOpenAiPrefixAliases),
     ("OpenAI error mapper separates unavailable from rate limit", OpenAiErrorMapper_SeparatesUnavailableFromRateLimit),
     ("Local HTTPS certificate host resolver accepts loopback only", LocalHttpsCertificateHostResolver_AcceptsLoopbackOnly),
+    ("Tray menu groups quick switching commands", TrayMenu_GroupsQuickSwitchingCommands),
+    ("Tray menu command activates provider and reports result", TrayMenuCommand_ActivatesProviderAndReportsResult),
     ("UpdateService reads latest release from GitHub", UpdateService_ReadsLatestReleaseFromGitHub),
     ("UpdateService downloads selected asset to cache", UpdateService_DownloadsSelectedAssetToCache)
 };
@@ -507,6 +509,45 @@ static Task LocalHttpsCertificateHostResolver_AcceptsLoopbackOnly()
     return Task.CompletedTask;
 }
 
+
+static async Task TrayMenu_GroupsQuickSwitchingCommands()
+{
+    await Task.CompletedTask;
+    var configService = new StubProviderConfigService([
+        CreateProviderView("alpha", "Alpha", "gpt-5.5", active: true),
+        CreateProviderView("beta", "Beta", "claude-sonnet-4", active: false),
+        CreateProviderView("draft", "Draft", string.Empty, active: false)
+    ]);
+    var tray = new TrayMenuService(configService);
+
+    var menu = tray.GetMenuItems();
+
+    Assert.True(menu.Any(item => item.Text == "快速切换" && !item.Enabled), "托盘菜单应包含快速切换分组标题。");
+    Assert.True(menu.Any(item => item.CommandId == "activate-provider:alpha" && item.Checked && !item.Enabled), "当前供应商应勾选且不可重复启用。");
+    Assert.True(menu.Any(item => item.CommandId == "activate-provider:beta" && item.Enabled && !item.Checked), "可用供应商应提供启用命令。");
+    Assert.True(menu.Any(item => item.CommandId == "activate-provider:draft" && !item.Enabled && item.Text.Contains("缺少模型")), "配置不完整的供应商应保留但禁用并说明原因。");
+    Assert.True(menu.Any(item => item.CommandId == "refresh-dashboard" && item.Enabled), "托盘菜单应提供刷新主界面命令。");
+    Assert.True(menu.Any(item => item.CommandId == "open-providers" && item.Enabled), "托盘菜单应提供打开供应商页命令。");
+}
+
+static async Task TrayMenuCommand_ActivatesProviderAndReportsResult()
+{
+    var configService = new StubProviderConfigService([
+        CreateProviderView("alpha", "Alpha", "gpt-5.5", active: true),
+        CreateProviderView("beta", "Beta", "gpt-5.5", active: false)
+    ]);
+    var tray = new TrayMenuService(configService);
+
+    var result = await tray.HandleCommandAsync("activate-provider:beta", CancellationToken.None);
+
+    var providers = await configService.ListAsync();
+    Assert.True(result.Handled, "启用供应商命令应返回已处理。");
+    Assert.Equal("beta", result.ActiveProviderId ?? string.Empty, "命令结果应返回启用后的供应商 ID。");
+    Assert.True(result.Message.Contains("Beta"), "命令结果应返回面向托盘状态的提示。");
+    Assert.True(providers.Single(provider => provider.Id == "beta").Active, "托盘命令应切换活动供应商。");
+    Assert.True(!providers.Single(provider => provider.Id == "alpha").Active, "切换后原供应商应关闭。");
+}
+
 static async Task UpdateService_ReadsLatestReleaseFromGitHub()
 {
     using var workspace = TestWorkspace.Create();
@@ -615,6 +656,22 @@ static async Task ModelComparisonHistory_KeepsRecentSavedResults()
     Assert.Equal(first.Id, history[1].Id, "旧结果应保留在后。");
 }
 
+
+static ProviderConfigView CreateProviderView(string id, string name, string model, bool active)
+    => new(
+        id,
+        name,
+        string.Empty,
+        $"https://example.com/{id}",
+        $"https://api.example.com/{id}",
+        model,
+        "openai-compatible",
+        name[..1],
+        active,
+        true,
+        "sk-...0000",
+        id == "alpha" ? 0 : id == "beta" ? 1 : 2);
+
 static SaveProviderConfigRequest CreateSaveRequest(
     string id,
     string name,
@@ -722,6 +779,49 @@ internal sealed class TestWorkspace : IDisposable
             Directory.Delete(Root, recursive: true);
         }
     }
+}
+
+
+internal sealed class StubProviderConfigService : IProviderConfigService
+{
+    private List<ProviderConfigView> _providers;
+
+    public StubProviderConfigService(IEnumerable<ProviderConfigView> providers)
+    {
+        _providers = providers.ToList();
+    }
+
+    public Task<IReadOnlyList<ProviderConfigView>> ListAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<ProviderConfigView>>(_providers);
+
+    public Task<ProviderRuntimeConfig?> GetActiveRuntimeConfigAsync(CancellationToken cancellationToken = default)
+    {
+        var active = _providers.FirstOrDefault(provider => provider.Active);
+        return Task.FromResult(active is null ? null : new ProviderRuntimeConfig(active.Id, active.Name, active.ApiUrl, active.Model, active.Vendor, "sk-test"));
+    }
+
+    public Task<ProviderAdapterConfig> BuildConnectionTestConfigAsync(TestProviderConnectionRequest request, CancellationToken cancellationToken = default)
+        => Task.FromResult(new ProviderAdapterConfig(request.Id ?? "test", request.Name ?? "Test", request.ApiUrl ?? "https://api.example.com", request.Model ?? "gpt-5.5", request.Vendor ?? "openai-compatible", request.ApiKey ?? "sk-test"));
+
+    public Task<IReadOnlyList<ProviderConfigView>> SaveAsync(SaveProviderConfigRequest request, CancellationToken cancellationToken = default)
+        => ListAsync(cancellationToken);
+
+    public Task<IReadOnlyList<ProviderConfigView>> DeleteAsync(string providerId, CancellationToken cancellationToken = default)
+        => ListAsync(cancellationToken);
+
+    public Task<IReadOnlyList<ProviderConfigView>> ActivateAsync(string providerId, CancellationToken cancellationToken = default)
+    {
+        _providers = _providers
+            .Select(provider => provider with { Active = string.Equals(provider.Id, providerId, StringComparison.OrdinalIgnoreCase) })
+            .ToList();
+        return ListAsync(cancellationToken);
+    }
+
+    public Task<IReadOnlyList<ProviderConfigView>> ReorderAsync(ReorderProvidersRequest request, CancellationToken cancellationToken = default)
+        => ListAsync(cancellationToken);
+
+    public Task<ProviderConfigExportDocument> ExportAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(new ProviderConfigExportDocument(1, DateTimeOffset.UtcNow, false, []));
 }
 
 internal sealed class StubHttpMessageHandler : HttpMessageHandler

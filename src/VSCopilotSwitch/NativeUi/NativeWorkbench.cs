@@ -108,12 +108,42 @@ internal sealed partial class NativeWorkbench : IDisposable
             _trayIcon = new Win32TrayIcon(
                 window,
                 _nativeHost.Services.GetRequiredService<ITrayMenuService>(),
-                RequestExit);
+                RequestExit,
+                HandleTrayCommandResult);
             _trayIcon.Initialize();
         }
         catch (Exception ex)
         {
             StartupDiagnostics.WriteCrashLog(ex, "Initialize tray icon failed.");
+        }
+    }
+
+
+    private void HandleTrayCommandResult(TrayCommandResult result)
+    {
+        if (!result.Handled)
+        {
+            if (!string.IsNullOrWhiteSpace(result.Message))
+            {
+                SetStatus(result.Message);
+            }
+
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.Message))
+        {
+            SetStatus(result.Message);
+        }
+
+        if (result.OpenProviders)
+        {
+            _tabs.SelectedIndex = 1;
+        }
+
+        if (result.RefreshDashboard)
+        {
+            _ = RefreshAsync();
         }
     }
 

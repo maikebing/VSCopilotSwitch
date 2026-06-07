@@ -32,17 +32,23 @@ internal sealed class Win32TrayIcon : IDisposable
     private readonly Window _window;
     private readonly ITrayMenuService _trayMenu;
     private readonly Func<bool> _requestExit;
+    private readonly Action<TrayCommandResult>? _commandCompleted;
     private readonly WndProc _wndProc;
     private readonly Dictionary<uint, string> _customCommands = new();
     private IntPtr _messageWindow;
     private IntPtr _icon;
     private bool _created;
 
-    public Win32TrayIcon(Window window, ITrayMenuService trayMenu, Func<bool> requestExit)
+    public Win32TrayIcon(
+        Window window,
+        ITrayMenuService trayMenu,
+        Func<bool> requestExit,
+        Action<TrayCommandResult>? commandCompleted = null)
     {
         _window = window;
         _trayMenu = trayMenu;
         _requestExit = requestExit;
+        _commandCompleted = commandCompleted;
         _wndProc = WindowProc;
     }
 
@@ -156,8 +162,12 @@ internal sealed class Win32TrayIcon : IDisposable
 
         _ = Task.Run(async () =>
         {
-            await _trayMenu.HandleCommandAsync(commandId, CancellationToken.None);
-            Application.Current.Dispatcher?.BeginInvoke(UpdateToolTip);
+            var result = await _trayMenu.HandleCommandAsync(commandId, CancellationToken.None);
+            Application.Current.Dispatcher?.BeginInvoke(() =>
+            {
+                UpdateToolTip();
+                _commandCompleted?.Invoke(result);
+            });
         });
     }
 
