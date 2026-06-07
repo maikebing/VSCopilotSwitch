@@ -23,6 +23,7 @@ internal sealed partial class NativeWorkbench : IDisposable
     private StackPanel _overviewModels = null!;
     private StackPanel _overviewDirectories = null!;
     private StackPanel _overviewRecentRequest = null!;
+    private StackPanel _overviewHealth = null!;
     private StackPanel _overviewCopilotHint = null!;
     private StackPanel _providerRows = null!;
     private StackPanel _providerEditor = null!;
@@ -41,6 +42,7 @@ internal sealed partial class NativeWorkbench : IDisposable
     private ProviderEditorState _providerEditorState = ProviderEditorState.CreateNew();
     private string? _pendingDeleteProviderId;
     private string? _pendingRestoreBackupPath;
+    private CopilotCompatibilityProbeResult? _lastCopilotProbe;
 
     public NativeWorkbench(VSCopilotSwitchNativeHost nativeHost)
     {
@@ -128,6 +130,7 @@ internal sealed partial class NativeWorkbench : IDisposable
         _overviewModels = new StackPanel().Spacing(10);
         _overviewDirectories = new StackPanel().Spacing(10);
         _overviewRecentRequest = new StackPanel().Spacing(10);
+        _overviewHealth = new StackPanel().Spacing(10);
         _overviewCopilotHint = new StackPanel().Spacing(10);
         _providerRows = new StackPanel().Spacing(10);
         _providerEditor = new StackPanel().Spacing(10);
@@ -240,6 +243,7 @@ internal sealed partial class NativeWorkbench : IDisposable
                 ReplaceChildren(_overviewProviders, ErrorLabel($"读取本地 API 失败：{ex.Message}"));
                 ReplaceChildren(_overviewModels, BodyLabel("内置本地代理启动失败或端口被占用，请检查 127.0.0.1:5124。"));
                 ReplaceChildren(_overviewDirectories, BodyLabel(_api.BaseAddress?.AbsoluteUri ?? "未配置服务地址"));
+                ReplaceChildren(_overviewHealth, ErrorLabel($"/health 不可达：{ex.Message}"));
             });
         }
     }

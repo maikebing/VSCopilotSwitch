@@ -46,7 +46,39 @@
 
 目标：在不完整实现熔断/备用路由前，先把健康检查、失败解释和 UI 状态口径打通，为阶段 6 主线铺路。
 
-提示词待原型 1 验证后再展开。
+提示词：
+
+```text
+你在仓库 /opt/data/VSCopilotSwitch，当前分支必须是 feature/mewui-native-shell。请只实现原型 2：阶段 6 健康状态解释入口。
+
+必须遵守 AGENTS.md：保护用户配置，不绕过 /internal API，不泄露密钥，注释用中文且只在必要处写；完成后更新 ROADMAP.md 和 CHANGELOG.md。
+
+背景：原型 1 已把 MewUI 概览页升级为“当前生效链路控制台”。ROADMAP.md 阶段 5.7 当前剩余主线是衔接阶段 6：健康检查、重试、熔断、备用供应商/备用模型和 UI 状态解释必须进入真实路由链路。当前原型不要实现完整熔断/备用路由，只先做可用的健康状态解释入口。
+
+实现范围：
+- 主要修改 src/VSCopilotSwitch/NativeUi/NativeWorkbench.Overview.cs、NativeWorkbench.cs，必要时新增 NativeUi partial 文件。
+- 在概览页新增或改造“路由健康解释”区块，基于已有真实数据解释当前链路状态：
+  - /health 是否可达、运行模式、监听地址。
+  - 当前供应商是否真实可路由：是否启用、是否有 API Key、是否有模型名。
+  - /api/tags 模型列表是否为空；为空时解释可能原因和下一步（测试连接、检查 API Key、刷新模型）。
+  - 最近请求是否成功；失败时按 HTTP 状态给出用户可执行建议：401/403 密钥或权限，404 模型/路径，429 限流，5xx/502/503/504 上游或网络，其他状态提示查看分析页。
+  - Copilot 探针最近一次运行结果可在概览页显示摘要；没有运行时显示“尚未运行”。
+- 增加“运行健康探针”按钮，复用现有 /internal/copilot/probe，不新增新后端 API；运行后刷新概览显示探针步骤摘要。
+- 不新增直接修改用户 VS Code 配置的写入路径；不实现完整熔断、重试配置或备用路由切换，只做解释和入口。
+- 保持 Native AOT 友好，不引入反射型 JSON 或新 npm/前端依赖。
+- 如果要保存 UI 内存状态，可在 NativeWorkbench 字段中保存最近一次 CopilotCompatibilityProbeResult，不落盘。
+
+验证：
+- 使用 /opt/data/home/.dotnet10/dotnet build src/VSCopilotSwitch/VSCopilotSwitch.csproj -m:1 /p:RestoreUseStaticGraphEvaluation=false
+- 运行：
+  /opt/data/home/.dotnet10/dotnet run --project tests/VSCopilotSwitch.Core.Tests/VSCopilotSwitch.Core.Tests.csproj --no-restore
+  /opt/data/home/.dotnet10/dotnet run --project tests/VSCopilotSwitch.VsCodeConfig.Tests/VSCopilotSwitch.VsCodeConfig.Tests.csproj --no-restore
+- 可尝试 Services 测试，但 Linux 下 Windows ProtectedData 相关用例可能因平台不支持失败；如失败需如实说明。
+
+交付：
+- 提交前不要 git commit。
+- 最后输出：改了哪些文件、健康解释覆盖了哪些状态、验证命令和真实结果、后续原型 3/4 未做。
+```
 
 ## 原型 3：供应商预设与导入
 

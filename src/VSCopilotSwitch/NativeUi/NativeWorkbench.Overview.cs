@@ -23,6 +23,7 @@ internal sealed partial class NativeWorkbench
                     .Children(
                         Panel("VS Code / Copilot 可见模型", _overviewModels).Column(0),
                         Panel("最近请求结果", _overviewRecentRequest).Column(1)),
+                Panel("路由健康解释", _overviewHealth),
                 Panel("Copilot 重新发现提示", _overviewCopilotHint));
 
     private void ApplyOverview(DashboardSnapshot dashboard, RequestAnalyticsSnapshot? analytics)
@@ -48,7 +49,7 @@ internal sealed partial class NativeWorkbench
                 .Spacing(8)
                 .Children(
                     new Button().Content("刷新链路状态").Padding(16, 8).OnClick(() => _ = RefreshAsync()),
-                    new Button().Content("运行 Copilot 探针").Padding(16, 8).OnClick(() => _ = RunCopilotProbeAsync()),
+                    new Button().Content("运行健康探针").Padding(16, 8).OnClick(() => _ = RunCopilotProbeAsync()),
                     new Button().Content("打开 VS Code 写入向导").Padding(16, 8).OnClick(SelectVsCodeTab)));
 
         ReplaceChildren(_overviewProviders, BuildOverviewProviderRows(dashboard.Providers));
@@ -64,6 +65,7 @@ internal sealed partial class NativeWorkbench
                     new Button().Content("进入 VS Code 页").Padding(16, 8).OnClick(SelectVsCodeTab),
                     new Button().Content("刷新目录").Padding(16, 8).OnClick(() => _ = RefreshAsync())));
         ReplaceChildren(_overviewRecentRequest, BuildRecentRequestRows(analytics));
+        ReplaceChildren(_overviewHealth, BuildRouteHealthRows(dashboard, analytics, _lastCopilotProbe));
         ReplaceChildren(
             _overviewCopilotHint,
             BodyLabel("切换供应商或公开模型名变化后，VS Code Copilot 可能沿用旧模型缓存。请在 Copilot 模型选择器中刷新 Ollama Provider，或重新选择带 @vscs 后缀的模型。"),
@@ -145,6 +147,114 @@ internal sealed partial class NativeWorkbench
         ];
     }
 
+    private Element[] BuildRouteHealthRows(DashboardSnapshot dashboard, RequestAnalyticsSnapshot? analytics, CopilotCompatibilityProbeResult? probe)
+    {
+        var activeProvider = dashboard.Providers.FirstOrDefault(provider => provider.Active);
+        var recentRequest = analytics?.Requests.FirstOrDefault();
+        var providerReady = IsUsableProvider(activeProvider);
+        var modelCount = dashboard.Tags.Models.Count;
+        var probeSummary = probe is null
+            ? "尚未运行；点击运行健康探针可验证模型选择器、/api/show、聊天、工具字段和流式结束。"
+            : $"{(probe.Success ? "通过" : "失败")} / {probe.Steps.Count} 步 / {ProbeStepSummary(probe)}";
+
+        return
+        [
+            RouteSummaryRow("本地代理", $"{dashboard.Health.Status} / {dashboard.Health.Mode}", "本地 API 可达；监听地址见顶部“打开本地 API”入口。"),
+            RouteSummaryRow("当前供应商", ProviderRouteStatus(activeProvider), ProviderRouteAdvice(activeProvider, providerReady)),
+            RouteSummaryRow("模型列表", modelCount > 0 ? $"/api/tags 返回 {modelCount} 个模型" : "/api/tags 模型列表为空", ModelListAdvice(modelCount, providerReady)),
+            RouteSummaryRow("最近请求", RecentRequestStatus(recentRequest), RecentRequestAdvice(recentRequest)),
+            RouteSummaryRow("Copilot 健康探针", probeSummary, "探针结果只保存在当前 UI 会话内，不写入配置或日志。"),
+            new StackPanel()
+                .Horizontal()
+                .Spacing(8)
+                .Children(
+                    new Button().Content("运行健康探针").Padding(16, 8).OnClick(() => _ = RunCopilotProbeAsync()),
+                    new Button().Content("打开分析页").Padding(16, 8).OnClick(SelectAnalyticsTab))
+        ];
+    }
+
+    private static string ProviderRouteStatus(DashboardProviderConfigView? provider)
+    {
+        if (provider is null)
+        {
+            return "未启用供应商";
+        }
+
+        var keyStatus = provider.HasApiKey ? "密钥已保存" : "缺少密钥";
+        var modelStatus = string.IsNullOrWhiteSpace(provider.Model) ? "缺少模型" : $"模型 {provider.Model}";
+        return $"{provider.Name} / {keyStatus} / {modelStatus}";
+    }
+
+    private static string ProviderRouteAdvice(DashboardProviderConfigView? provider, bool providerReady)
+    {
+        if (provider is null)
+        {
+            return "请先到供应商页新增并启用一个真实供应商。";
+        }
+
+        if (providerReady)
+        {
+            return "当前供应商已具备真实路由条件；若请求失败，请运行连接测试或查看分析页。";
+        }
+
+        return provider.HasApiKey
+            ? "供应商已保存密钥但缺少模型名；请测试连接并回填可用模型。"
+            : "供应商缺少 API Key；请到供应商页保存密钥后再测试连接。";
+    }
+
+    private static string ModelListAdvice(int modelCount, bool providerReady)
+    {
+        if (modelCount > 0)
+        {
+            return "VS Code Copilot 应能发现带 @vscs 后缀的公开模型。";
+        }
+
+        return providerReady
+            ? "模型列表为空，建议先测试连接、检查 Base URL/API Key 权限，再刷新模型。"
+            : "供应商尚未满足真实路由条件，模型列表会保持为空或回退占位。";
+    }
+
+    private static string RecentRequestStatus(RequestLogEntry? request)
+    {
+        if (request is null)
+        {
+            return "尚无请求";
+        }
+
+        var result = request.StatusCode is >= 200 and < 300 ? "成功" : "失败";
+        return $"{result} / HTTP {request.StatusCode} / {Empty(request.Model, "未识别模型")}";
+    }
+
+    private static string RecentRequestAdvice(RequestLogEntry? request)
+    {
+        if (request is null)
+        {
+            return "还没有客户端请求；可从 VS Code Copilot 或 OpenAI-compatible 客户端发起一次调用。";
+        }
+
+        return request.StatusCode switch
+        {
+            >= 200 and < 300 => $"最近请求已完成，耗时 {request.DurationMilliseconds}ms。",
+            401 or 403 => "鉴权或权限失败：检查 API Key、组织/项目权限、供应商账号额度和模型访问权限。",
+            404 => "模型或路径不存在：检查模型名、Base URL 是否重复带 /v1 或 /api。",
+            429 => "供应商限流：稍后重试，或切换到备用供应商/模型。",
+            500 or 502 or 503 or 504 => "上游或网络异常：检查供应商状态、代理网络和 Base URL 可达性。",
+            _ => "请打开分析页查看脱敏后的请求/响应摘要，定位具体失败原因。"
+        };
+    }
+
+    private static string ProbeStepSummary(CopilotCompatibilityProbeResult probe)
+    {
+        var failed = probe.Steps.FirstOrDefault(step => string.Equals(step.Status, "failed", StringComparison.OrdinalIgnoreCase));
+        if (failed is not null)
+        {
+            return $"失败项：{failed.Label} - {ShortValue(failed.Message)}";
+        }
+
+        var skipped = probe.Steps.Count(step => string.Equals(step.Status, "skipped", StringComparison.OrdinalIgnoreCase));
+        return skipped > 0 ? $"含 {skipped} 个跳过项" : "全部步骤通过";
+    }
+
     private static Element RouteSummaryRow(string title, string value, string detail)
         => new DockPanel()
             .Padding(8, 6)
@@ -160,6 +270,12 @@ internal sealed partial class NativeWorkbench
     {
         _tabs.SelectedIndex = 2;
         SetStatus("请先生成 dry-run 差异预览，再确认写入 VS Code 配置");
+    }
+
+    private void SelectAnalyticsTab()
+    {
+        _tabs.SelectedIndex = 3;
+        SetStatus("请查看最近请求的脱敏分析详情");
     }
 
     private static bool IsUsableProvider(DashboardProviderConfigView? provider)

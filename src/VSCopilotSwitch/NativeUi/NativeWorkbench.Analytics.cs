@@ -86,6 +86,13 @@ internal sealed partial class NativeWorkbench
                 "/internal/copilot/probe",
                 new { },
                 MewUiJsonContext.Default.CopilotCompatibilityProbeResult);
+            _lastCopilotProbe = result;
+            if (_dashboard is not null)
+            {
+                var analytics = await _api.GetJsonAsync<RequestAnalyticsSnapshot>("/internal/analytics", MewUiJsonContext.Default.RequestAnalyticsSnapshot);
+                ApplyOverview(_dashboard, analytics);
+            }
+
             var detail = string.Join(
                 Environment.NewLine,
                 result.Steps.Select(step => $"{step.Status} {step.Label}: {step.Message}"));
