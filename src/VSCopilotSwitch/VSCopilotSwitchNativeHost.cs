@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Text.Json;
@@ -104,6 +104,21 @@ internal sealed class VSCopilotSwitchNativeHost : IAsyncDisposable
         services.AddSingleton<IProviderConfigService, ProviderConfigService>();
         services.AddSingleton<IModelProvider, ActiveProviderModelProvider>();
         services.AddSingleton<ProviderConnectionTester>();
+        services.AddSingleton<ModelComparisonService>(provider => new ModelComparisonService(
+            async (request, cancellationToken) =>
+            {
+                var configService = provider.GetRequiredService<IProviderConfigService>();
+                var activeProvider = await configService.GetActiveRuntimeConfigAsync(cancellationToken)
+                    ?? throw new InvalidOperationException("请先启用一个供应商后再进行模型比较。");
+                return ProviderAdapterFactory.Create(new ProviderAdapterConfig(
+                    activeProvider.Id,
+                    activeProvider.Name,
+                    activeProvider.ApiUrl,
+                    request.Model,
+                    activeProvider.Vendor,
+                    activeProvider.ApiKey ?? string.Empty), TimeSpan.FromSeconds(30));
+            },
+            provider.GetRequiredService<IUsageCostEstimator>()));
         services.Configure<UsagePricingOptions>(configuration.GetSection("UsagePricing"));
         services.AddSingleton<IUsageCostEstimator, UsageCostEstimator>();
         services.AddSingleton<IRequestAnalyticsService, RequestAnalyticsService>();
@@ -392,6 +407,24 @@ internal sealed class VSCopilotSwitchNativeHost : IAsyncDisposable
             var result = await connectionTester.TestAsync(config, cancellationToken);
             return Results.Ok(result);
         });
+
+        webApp.MapPost("/internal/models/compare", async (
+            ModelComparisonRequest request,
+            ModelComparisonService comparisonService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await comparisonService.CompareAsync(request, cancellationToken));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new ErrorMessageResponse(ex.Message));
+            }
+        });
+
+        webApp.MapGet("/internal/models/compare/history", (ModelComparisonService comparisonService) =>
+            Results.Ok(comparisonService.GetHistory()));
 
         webApp.MapPost("/internal/providers/reorder", async (
             ReorderProvidersRequest request,

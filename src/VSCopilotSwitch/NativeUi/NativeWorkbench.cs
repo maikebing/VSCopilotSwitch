@@ -30,6 +30,7 @@ internal sealed partial class NativeWorkbench : IDisposable
     private StackPanel _providerPresets = null!;
     private StackPanel _providerImportPreview = null!;
     private TextBox _providerImportText = null!;
+    private StackPanel _modelComparison = null!;
     private StackPanel _vscodeDirectories = null!;
     private StackPanel _vscodePreview = null!;
     private StackPanel _vscodeBackups = null!;
@@ -140,6 +141,7 @@ internal sealed partial class NativeWorkbench : IDisposable
         _providerPresets = new StackPanel().Spacing(10);
         _providerImportPreview = new StackPanel().Spacing(10);
         _providerImportText = new TextBox().Text(string.Empty);
+        _modelComparison = new StackPanel().Spacing(10);
         _vscodeDirectories = new StackPanel().Spacing(10);
         _vscodePreview = new StackPanel().Spacing(10);
         _vscodeBackups = new StackPanel().Spacing(10);
@@ -214,6 +216,7 @@ internal sealed partial class NativeWorkbench : IDisposable
                                         new Button().Content("解析预览").Padding(14, 7).OnClick(ParseProviderImportPreview),
                                         new Button().Content("清空导入").Padding(14, 7).OnClick(ClearProviderImportPreview)),
                                 _providerImportPreview)),
+                        Panel("模型测试比较", _modelComparison),
                         Panel("新增或编辑", _providerEditor))
                     .Column(1));
 
@@ -307,6 +310,7 @@ internal sealed partial class NativeWorkbench : IDisposable
         ReplaceChildren(_providerRows, BuildProviderRows(dashboard.Providers, includeActions: true));
         RenderProviderPresets();
         RenderProviderImportPreview(Array.Empty<ProviderImportPreview>(), "尚未解析导入 JSON。");
+        RenderModelComparison(Array.Empty<ModelComparisonResult>());
         RenderProviderEditor();
         RenderVsCodeDirectories();
         RenderVsCodePreview(null);

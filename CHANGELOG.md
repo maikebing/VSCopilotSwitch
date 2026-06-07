@@ -6,6 +6,7 @@
 
 ### Added
 
+- ✅️ MewUI 供应商页新增模型测试比较：当前启用供应商可对选定模型执行普通响应延迟、首 token、流式结束、工具调用探针、上下文声明和费用估算检查，并在本次运行内保留最近比较结果。
 - ✅️ MewUI 供应商页新增预设模板和安全导入预览：内置 OpenAI Official、Claude Official、DeepSeek、NVIDIA NIM、MoArk、sub2api 与 OpenAI-compatible 中转站模板；导入 JSON 只预览名称、协议、Base URL、模型和密钥存在状态，应用后只填表且不会导入密钥原文。
 - ✅️ MewUI 概览页新增路由健康解释入口，基于 `/health`、当前供应商、`/api/tags`、最近请求和 Copilot 健康探针结果解释链路状态，并按 401/403、404、429、5xx 等失败类型给出下一步建议。
 - ✅️ MewUI 概览页升级为当前生效链路控制台：第一屏展示当前供应商、协议、上游模型、`@vscs` 公开模型名、代理健康、VS Code 配置目录状态、最近请求结果和 Copilot 重新发现提示。

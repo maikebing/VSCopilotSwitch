@@ -18,6 +18,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("ActiveProvider ListModelsAsync falls back to configured model", ActiveProviderModelProvider_ListModelsAsync_FallsBackToConfiguredModel),
     ("Request analytics extracts usage and configured cost", RequestAnalytics_ExtractsUsageAndConfiguredCost),
     ("Request analytics extracts streamed usage", RequestAnalytics_ExtractsStreamedUsage),
+    ("Model comparison measures latency stream tool context and cost", ModelComparison_MeasuresLatencyStreamToolContextAndCost),
+    ("Model comparison history keeps recent saved results", ModelComparisonHistory_KeepsRecentSavedResults),
     ("OpenAI response mapper emits tool calls", OpenAiResponseMapper_EmitsToolCalls),
     ("OpenAI response mapper emits reasoning content", OpenAiResponseMapper_EmitsReasoningContent),
     ("OpenAI response mapper emits tool call stream deltas", OpenAiResponseMapper_EmitsToolCallStreamDeltas),
@@ -564,6 +566,55 @@ static async Task UpdateService_DownloadsSelectedAssetToCache()
     Assert.Equal(payload, File.ReadAllText(result.FilePath!), "下载文件内容应来自 Release 资产。");
 }
 
+
+static async Task ModelComparison_MeasuresLatencyStreamToolContextAndCost()
+{
+    var service = new ModelComparisonService(new ProbeComparisonModelProvider(), new UsageCostEstimator(Options.Create(new UsagePricingOptions
+    {
+        Currency = "USD",
+        Models =
+        [
+            new UsagePriceRule
+            {
+                ModelPattern = "gpt-4.1",
+                Label = "gpt-4.1-test",
+                InputPerMillionTokens = 1m,
+                OutputPerMillionTokens = 3m
+            }
+        ]
+    })));
+
+    var result = await service.CompareAsync(new ModelComparisonRequest("probe", "gpt-4.1", RunToolProbe: true));
+
+    Assert.Equal("probe", result.ProviderName, "比较结果应保留供应商名。");
+    Assert.Equal("gpt-4.1", result.Model, "比较结果应保留模型名。");
+    Assert.True(result.Success, "探针全部通过时比较应成功。");
+    Assert.True(result.LatencyMs >= 0, "应记录普通响应延迟。");
+    Assert.True(result.FirstTokenMs >= 0, "应记录首 token 延迟。");
+    Assert.True(result.StreamFinished, "应记录流式结束是否完成。");
+    Assert.True(result.ToolProbePassed == true, "支持工具调用时工具探针应通过。");
+    Assert.Equal(128000, result.ContextLength ?? 0, "应读取模型上下文声明。");
+    Assert.Equal("USD", result.Currency, "费用估算应保留币种。");
+    Assert.Equal("configured", result.CostSource, "命中价格规则时应标记 configured。");
+    Assert.Equal("gpt-4.1-test", result.PricingRule ?? string.Empty, "应返回命中的价格规则。");
+    Assert.True(result.EstimatedCost > 0m, "应按 usage 估算费用。");
+    Assert.True(result.Steps.Count >= 4, "应保留分步探针结果。");
+}
+
+static async Task ModelComparisonHistory_KeepsRecentSavedResults()
+{
+    var service = new ModelComparisonService(new ProbeComparisonModelProvider(), new UsageCostEstimator(Options.Create(new UsagePricingOptions())));
+
+    var first = await service.CompareAsync(new ModelComparisonRequest("probe", "gpt-4.1", SaveResult: true));
+    var second = await service.CompareAsync(new ModelComparisonRequest("probe", "gpt-4.1-mini", SaveResult: true));
+
+    var history = service.GetHistory();
+
+    Assert.Equal(2, history.Count, "保存结果后历史应包含两条记录。");
+    Assert.Equal(second.Id, history[0].Id, "最新结果应排在最前。");
+    Assert.Equal(first.Id, history[1].Id, "旧结果应保留在后。");
+}
+
 static SaveProviderConfigRequest CreateSaveRequest(
     string id,
     string name,
@@ -732,6 +783,52 @@ internal sealed class ProbeModelProvider : IModelProvider
         await Task.Yield();
         yield return new ChatStreamChunk(request.Model, "pong", Done: false);
         yield return new ChatStreamChunk(request.Model, string.Empty, Done: true, "stop");
+    }
+}
+
+
+internal sealed class ProbeComparisonModelProvider : IModelProvider
+{
+    public string Name => "probe";
+
+    public Task<IReadOnlyList<ProviderModel>> ListModelsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<ProviderModel>>([
+            new ProviderModel(
+                "probe/gpt-4.1",
+                "probe",
+                "gpt-4.1",
+                "GPT 4.1",
+                Capabilities: new ProviderModelCapabilities(SupportsTools: true, SupportsVision: true, ContextLength: 128000)),
+            new ProviderModel(
+                "probe/gpt-4.1-mini",
+                "probe",
+                "gpt-4.1-mini",
+                "GPT 4.1 Mini",
+                Capabilities: new ProviderModelCapabilities(SupportsTools: true, ContextLength: 64000))
+        ]);
+
+    public Task<ChatResponse> ChatAsync(ChatRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request.Tools is { Count: > 0 })
+        {
+            var toolCall = new ChatToolCall(
+                "call_compare_lookup",
+                "function",
+                new ChatFunctionCall("lookup", "{}"));
+            return Task.FromResult(new ChatResponse(request.Model, string.Empty, "tool_calls", [toolCall], new ChatUsage(1000, 100, 1100)));
+        }
+
+        return Task.FromResult(new ChatResponse(request.Model, "pong", Usage: new ChatUsage(1000, 250, 1250)));
+    }
+
+    public async IAsyncEnumerable<ChatStreamChunk> ChatStreamAsync(
+        ChatRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await Task.Yield();
+        yield return new ChatStreamChunk(request.Model, "p", Done: false);
+        yield return new ChatStreamChunk(request.Model, "ong", Done: false);
+        yield return new ChatStreamChunk(request.Model, string.Empty, Done: true, "stop", Usage: new ChatUsage(900, 120, 1020));
     }
 }
 
