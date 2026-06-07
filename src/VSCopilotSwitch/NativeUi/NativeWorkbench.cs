@@ -141,6 +141,16 @@ internal sealed partial class NativeWorkbench : IDisposable
             _tabs.SelectedIndex = 1;
         }
 
+        if (result.ShowWindow)
+        {
+            _tabs.SelectedIndex = 0;
+        }
+
+        if (result.ExitApplication)
+        {
+            RequestExit();
+        }
+
         if (result.RefreshDashboard)
         {
             _ = RefreshAsync();

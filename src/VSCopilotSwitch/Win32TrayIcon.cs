@@ -11,8 +11,6 @@ internal sealed class Win32TrayIcon : IDisposable
 {
     private const int CallbackMessage = 0x0400 + 424;
     private const uint IconId = 1;
-    private const uint CommandOpen = 1001;
-    private const uint CommandExit = 1002;
     private const uint CommandCustomStart = 2000;
     private const uint WmCommand = 0x0111;
     private const uint WmDestroy = 0x0002;
@@ -139,22 +137,6 @@ internal sealed class Win32TrayIcon : IDisposable
 
     private void HandleCommand(uint command)
     {
-        if (command == CommandOpen)
-        {
-            ShowMainWindow();
-            return;
-        }
-
-        if (command == CommandExit)
-        {
-            if (_requestExit())
-            {
-                _window.Close();
-            }
-
-            return;
-        }
-
         if (!_customCommands.TryGetValue(command, out var commandId))
         {
             return;
@@ -165,6 +147,16 @@ internal sealed class Win32TrayIcon : IDisposable
             var result = await _trayMenu.HandleCommandAsync(commandId, CancellationToken.None);
             Application.Current.Dispatcher?.BeginInvoke(() =>
             {
+                if (result.ShowWindow)
+                {
+                    ShowMainWindow();
+                }
+
+                if (result.ExitApplication && _requestExit())
+                {
+                    _window.Close();
+                }
+
                 UpdateToolTip();
                 _commandCompleted?.Invoke(result);
             });
@@ -187,11 +179,7 @@ internal sealed class Win32TrayIcon : IDisposable
             return;
         }
 
-        AppendMenuW(menu.DangerousGetHandle(), MfString, CommandOpen, "打开 VSCopilotSwitch");
-        AppendMenuW(menu.DangerousGetHandle(), MfSeparator, 0, null);
         AppendCustomItems(menu.DangerousGetHandle());
-        AppendMenuW(menu.DangerousGetHandle(), MfSeparator, 0, null);
-        AppendMenuW(menu.DangerousGetHandle(), MfString, CommandExit, "退出 VSCopilotSwitch");
 
         GetCursorPos(out var point);
         SetForegroundWindow(_messageWindow);

@@ -30,6 +30,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("OpenAI error mapper separates unavailable from rate limit", OpenAiErrorMapper_SeparatesUnavailableFromRateLimit),
     ("Local HTTPS certificate host resolver accepts loopback only", LocalHttpsCertificateHostResolver_AcceptsLoopbackOnly),
     ("Tray menu groups quick switching commands", TrayMenu_GroupsQuickSwitchingCommands),
+    ("Tray menu includes window and exit commands", TrayMenu_IncludesWindowAndExitCommands),
     ("Tray menu command activates provider and reports result", TrayMenuCommand_ActivatesProviderAndReportsResult),
     ("UpdateService reads latest release from GitHub", UpdateService_ReadsLatestReleaseFromGitHub),
     ("UpdateService downloads selected asset to cache", UpdateService_DownloadsSelectedAssetToCache)
@@ -528,6 +529,20 @@ static async Task TrayMenu_GroupsQuickSwitchingCommands()
     Assert.True(menu.Any(item => item.CommandId == "activate-provider:draft" && !item.Enabled && item.Text.Contains("缺少模型")), "配置不完整的供应商应保留但禁用并说明原因。");
     Assert.True(menu.Any(item => item.CommandId == "refresh-dashboard" && item.Enabled), "托盘菜单应提供刷新主界面命令。");
     Assert.True(menu.Any(item => item.CommandId == "open-providers" && item.Enabled), "托盘菜单应提供打开供应商页命令。");
+}
+
+static async Task TrayMenu_IncludesWindowAndExitCommands()
+{
+    await Task.CompletedTask;
+    var configService = new StubProviderConfigService([
+        CreateProviderView("alpha", "Alpha", "gpt-5.5", active: true)
+    ]);
+    var tray = new TrayMenuService(configService);
+
+    var menu = tray.GetMenuItems();
+
+    Assert.True(menu.Any(item => item.CommandId == TrayMenuService.ShowWindowCommand && item.Enabled), "托盘菜单应支持打开或聚焦主窗口。");
+    Assert.True(menu.Any(item => item.CommandId == TrayMenuService.ExitCommand && item.Enabled), "托盘菜单应支持退出程序。");
 }
 
 static async Task TrayMenuCommand_ActivatesProviderAndReportsResult()

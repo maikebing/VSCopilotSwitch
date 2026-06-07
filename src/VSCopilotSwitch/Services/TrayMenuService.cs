@@ -25,13 +25,17 @@ public sealed record TrayCommandResult(
     string Message,
     string? ActiveProviderId = null,
     bool RefreshDashboard = false,
-    bool OpenProviders = false)
+    bool OpenProviders = false,
+    bool ShowWindow = false,
+    bool ExitApplication = false)
 {
     public static TrayCommandResult Ignored { get; } = new(false, string.Empty);
 }
 
 public sealed class TrayMenuService : ITrayMenuService
 {
+    public const string ShowWindowCommand = "show-window";
+    public const string ExitCommand = "exit-application";
     public const string RefreshDashboardCommand = "refresh-dashboard";
     public const string OpenProvidersCommand = "open-providers";
     private const string ActivateProviderPrefix = "activate-provider:";
@@ -59,6 +63,8 @@ public sealed class TrayMenuService : ITrayMenuService
         var active = providers.FirstOrDefault(provider => provider.Active);
         var items = new List<TrayMenuItem>
         {
+            new(ShowWindowCommand, "打开 VSCopilotSwitch"),
+            TrayMenuItem.CreateSeparator(),
             new(string.Empty, $"当前供应商：{DisplayProvider(active)}", Enabled: false),
             new(string.Empty, $"当前模型：{DisplayModel(active)}", Enabled: false),
             new(string.Empty, "代理服务：运行中", Enabled: false),
@@ -92,6 +98,9 @@ public sealed class TrayMenuService : ITrayMenuService
             items.Add(new TrayMenuItem(string.Empty, "没有可切换的真实供应商", Enabled: false));
         }
 
+        items.Add(TrayMenuItem.CreateSeparator());
+        items.Add(new TrayMenuItem(ExitCommand, "退出 VSCopilotSwitch"));
+
         return items;
     }
 
@@ -100,6 +109,16 @@ public sealed class TrayMenuService : ITrayMenuService
         if (string.Equals(commandId, RefreshDashboardCommand, StringComparison.Ordinal))
         {
             return new TrayCommandResult(true, "已刷新状态", RefreshDashboard: true);
+        }
+
+        if (string.Equals(commandId, ShowWindowCommand, StringComparison.Ordinal))
+        {
+            return new TrayCommandResult(true, "已打开主窗口", ShowWindow: true);
+        }
+
+        if (string.Equals(commandId, ExitCommand, StringComparison.Ordinal))
+        {
+            return new TrayCommandResult(true, "正在退出 VSCopilotSwitch", ExitApplication: true);
         }
 
         if (string.Equals(commandId, OpenProvidersCommand, StringComparison.Ordinal))
