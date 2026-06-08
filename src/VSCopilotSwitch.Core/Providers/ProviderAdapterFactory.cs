@@ -14,14 +14,48 @@ public sealed record ProviderAdapterConfig(
     string BaseUrl,
     string Model,
     string Vendor,
-    string ApiKey);
+    string ApiKey,
+    ProviderTimeoutPolicy? TimeoutPolicy = null);
+
+public sealed record ProviderTimeoutPolicy(
+    TimeSpan? ConnectionTimeout,
+    TimeSpan? FirstTokenTimeout,
+    TimeSpan? TotalRequestTimeout)
+{
+    public static ProviderTimeoutPolicy Default { get; } = new(
+        TimeSpan.FromSeconds(30),
+        TimeSpan.FromSeconds(45),
+        TimeSpan.FromSeconds(120));
+
+    public TimeSpan EffectiveConnectionTimeout => Normalize(ConnectionTimeout, Default.ConnectionTimeout!.Value);
+
+    public TimeSpan EffectiveFirstTokenTimeout => Normalize(FirstTokenTimeout, Default.FirstTokenTimeout!.Value);
+
+    public TimeSpan EffectiveTotalRequestTimeout => Normalize(TotalRequestTimeout, Default.TotalRequestTimeout!.Value);
+
+    public TimeSpan HttpClientTimeout => Max(EffectiveConnectionTimeout, EffectiveFirstTokenTimeout, EffectiveTotalRequestTimeout);
+
+    public static ProviderTimeoutPolicy FromTotalTimeout(TimeSpan totalTimeout)
+        => Default with { TotalRequestTimeout = totalTimeout };
+
+    private static TimeSpan Normalize(TimeSpan? value, TimeSpan fallback)
+        => value is { } timeout && timeout > TimeSpan.Zero ? timeout : fallback;
+
+    private static TimeSpan Max(params TimeSpan[] values)
+        => values.Aggregate(TimeSpan.Zero, (current, next) => next > current ? next : current);
+}
 
 public static class ProviderAdapterFactory
 {
     public static IModelProvider Create(ProviderAdapterConfig config, TimeSpan timeout)
+        => Create(config with { TimeoutPolicy = config.TimeoutPolicy ?? ProviderTimeoutPolicy.FromTotalTimeout(timeout) });
+
+    public static IModelProvider Create(ProviderAdapterConfig config)
     {
         var providerName = NormalizeProviderName(config);
         var vendor = NormalizeVendor(config.Vendor);
+        var timeoutPolicy = config.TimeoutPolicy ?? ProviderTimeoutPolicy.Default;
+        var httpClientTimeout = timeoutPolicy.HttpClientTimeout;
 
         return vendor switch
         {
@@ -30,42 +64,42 @@ public static class ProviderAdapterFactory
                 ProviderName = providerName,
                 BaseUrl = config.BaseUrl,
                 ApiKey = config.ApiKey,
-                Timeout = timeout
+                Timeout = httpClientTimeout
             }),
             "deepseek" => new DeepSeekModelProvider(new HttpClient(), new DeepSeekProviderOptions
             {
                 ProviderName = providerName,
                 BaseUrl = config.BaseUrl,
                 ApiKey = config.ApiKey,
-                Timeout = timeout
+                Timeout = httpClientTimeout
             }),
             "claude" => new ClaudeModelProvider(new HttpClient(), new ClaudeProviderOptions
             {
                 ProviderName = providerName,
                 BaseUrl = config.BaseUrl,
                 ApiKey = config.ApiKey,
-                Timeout = timeout
+                Timeout = httpClientTimeout
             }),
             "nvidia" or "nvidia-nim" => new NvidiaNimModelProvider(new HttpClient(), new NvidiaNimProviderOptions
             {
                 ProviderName = providerName,
                 BaseUrl = config.BaseUrl,
                 ApiKey = config.ApiKey,
-                Timeout = timeout
+                Timeout = httpClientTimeout
             }),
             "moark" => new MoarkModelProvider(new HttpClient(), new MoarkProviderOptions
             {
                 ProviderName = providerName,
                 BaseUrl = config.BaseUrl,
                 ApiKey = config.ApiKey,
-                Timeout = timeout
+                Timeout = httpClientTimeout
             }),
             "sub2api" => new Sub2ApiModelProvider(new HttpClient(), new Sub2ApiProviderOptions
             {
                 ProviderName = providerName,
                 BaseUrl = config.BaseUrl,
                 ApiKey = config.ApiKey,
-                Timeout = timeout
+                Timeout = httpClientTimeout
             }),
             _ => new OpenAiCompatibleModelProvider(new HttpClient(), new OpenAiCompatibleProviderOptions
             {
@@ -73,7 +107,7 @@ public static class ProviderAdapterFactory
                 PublicProviderName = config.Name,
                 BaseUrl = config.BaseUrl,
                 ApiKey = config.ApiKey,
-                Timeout = timeout
+                Timeout = httpClientTimeout
             })
         };
     }

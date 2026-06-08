@@ -90,7 +90,8 @@ public sealed partial class ProviderConfigService : IProviderConfigService
                 provider.ApiUrl,
                 provider.Model,
                 provider.Vendor,
-                UnprotectSecret(provider.EncryptedApiKey));
+                UnprotectSecret(provider.EncryptedApiKey),
+                ToTimeoutPolicy(provider.Timeouts));
         }
         finally
         {
@@ -119,7 +120,7 @@ public sealed partial class ProviderConfigService : IProviderConfigService
                 ? request.ApiKey.Trim()
                 : UnprotectSecret(existing?.EncryptedApiKey) ?? string.Empty;
 
-            return new ProviderAdapterConfig(id, name, apiUrl, model, vendor, apiKey);
+            return new ProviderAdapterConfig(id, name, apiUrl, model, vendor, apiKey, ToTimeoutPolicy(existing?.Timeouts));
         }
         finally
         {
@@ -154,7 +155,8 @@ public sealed partial class ProviderConfigService : IProviderConfigService
                 CreateAvatar(request.Name),
                 request.Active || existing?.Active == true,
                 existing?.SortOrder ?? NextSortOrder(document.Providers),
-                encryptedApiKey);
+                encryptedApiKey,
+                NormalizeTimeoutConfig(request.Timeouts ?? existing?.Timeouts));
 
             document.Providers.RemoveAll(item => string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase));
             if (provider.Active)
@@ -334,7 +336,8 @@ public sealed partial class ProviderConfigService : IProviderConfigService
                 "MC",
                 Active: true,
                 SortOrder: 0,
-                EncryptedApiKey: null)
+                EncryptedApiKey: null,
+                Timeouts: null)
         };
 
     private static IReadOnlyList<ProviderConfigView> ToViews(IEnumerable<ProviderConfig> providers)
@@ -352,7 +355,8 @@ public sealed partial class ProviderConfigService : IProviderConfigService
                 provider.Active,
                 provider.EncryptedApiKey is not null,
                 MaskSecret(provider.EncryptedApiKey),
-                provider.SortOrder))
+                provider.SortOrder,
+                ToTimeoutView(provider.Timeouts)))
             .ToArray();
 
     private static void ValidateProviderRequest(SaveProviderConfigRequest request)
@@ -402,6 +406,46 @@ public sealed partial class ProviderConfigService : IProviderConfigService
 
     private static string FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
+
+    private static ProviderTimeoutConfig? NormalizeTimeoutConfig(ProviderTimeoutConfig? config)
+    {
+        if (config is null)
+        {
+            return null;
+        }
+
+        var normalized = new ProviderTimeoutConfig(
+            NormalizeTimeoutSeconds(config.ConnectionTimeoutSeconds),
+            NormalizeTimeoutSeconds(config.FirstTokenTimeoutSeconds),
+            NormalizeTimeoutSeconds(config.TotalRequestTimeoutSeconds));
+        return normalized.ConnectionTimeoutSeconds is null
+            && normalized.FirstTokenTimeoutSeconds is null
+            && normalized.TotalRequestTimeoutSeconds is null
+            ? null
+            : normalized;
+    }
+
+    private static int? NormalizeTimeoutSeconds(int? seconds)
+        => seconds is > 0 ? seconds : null;
+
+    private static ProviderTimeoutPolicy ToTimeoutPolicy(ProviderTimeoutConfig? config)
+        => new(
+            ToTimeSpan(config?.ConnectionTimeoutSeconds),
+            ToTimeSpan(config?.FirstTokenTimeoutSeconds),
+            ToTimeSpan(config?.TotalRequestTimeoutSeconds));
+
+    private static ProviderTimeoutView ToTimeoutView(ProviderTimeoutConfig? config)
+    {
+        var policy = ToTimeoutPolicy(config);
+        return new ProviderTimeoutView(
+            (int)policy.EffectiveConnectionTimeout.TotalSeconds,
+            (int)policy.EffectiveFirstTokenTimeout.TotalSeconds,
+            (int)policy.EffectiveTotalRequestTimeout.TotalSeconds,
+            config is not null);
+    }
+
+    private static TimeSpan? ToTimeSpan(int? seconds)
+        => seconds is > 0 ? TimeSpan.FromSeconds(seconds.Value) : null;
 
     private static void NormalizeSortOrder(List<ProviderConfig> providers)
     {
@@ -476,13 +520,26 @@ public sealed partial class ProviderConfigService : IProviderConfigService
         string Avatar,
         bool Active,
         int SortOrder,
-        string? EncryptedApiKey);
+        string? EncryptedApiKey,
+        ProviderTimeoutConfig? Timeouts = null);
 
     [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, WriteIndented = true)]
     [JsonSerializable(typeof(ProviderConfigDocument))]
     [JsonSerializable(typeof(ProviderConfig))]
+    [JsonSerializable(typeof(ProviderTimeoutConfig))]
     private sealed partial class ProviderConfigJsonContext : JsonSerializerContext;
 }
+
+public sealed record ProviderTimeoutConfig(
+    int? ConnectionTimeoutSeconds,
+    int? FirstTokenTimeoutSeconds,
+    int? TotalRequestTimeoutSeconds);
+
+public sealed record ProviderTimeoutView(
+    int ConnectionTimeoutSeconds,
+    int FirstTokenTimeoutSeconds,
+    int TotalRequestTimeoutSeconds,
+    bool Customized);
 
 public sealed record ProviderConfigView(
     string Id,
@@ -496,7 +553,8 @@ public sealed record ProviderConfigView(
     bool Active,
     bool HasApiKey,
     string? ApiKeyPreview,
-    int SortOrder);
+    int SortOrder,
+    ProviderTimeoutView Timeouts);
 
 public sealed record ProviderRuntimeConfig(
     string Id,
@@ -504,7 +562,8 @@ public sealed record ProviderRuntimeConfig(
     string ApiUrl,
     string Model,
     string Vendor,
-    string? ApiKey);
+    string? ApiKey,
+    ProviderTimeoutPolicy TimeoutPolicy);
 
 public sealed record TestProviderConnectionRequest(
     string? Id,
@@ -523,7 +582,8 @@ public sealed record SaveProviderConfigRequest(
     string Model,
     string Vendor,
     string? ApiKey,
-    bool Active);
+    bool Active,
+    ProviderTimeoutConfig? Timeouts = null);
 
 public sealed record ReorderProvidersRequest(IReadOnlyList<string> ProviderIds);
 

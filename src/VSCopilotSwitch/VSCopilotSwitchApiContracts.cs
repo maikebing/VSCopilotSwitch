@@ -67,6 +67,8 @@ using VSCopilotSwitch.VsCodeConfig.Models;
 [JsonSerializable(typeof(IReadOnlyList<ModelComparisonResult>))]
 [JsonSerializable(typeof(ProviderConfigView))]
 [JsonSerializable(typeof(ProviderConfigView[]))]
+[JsonSerializable(typeof(ProviderTimeoutConfig))]
+[JsonSerializable(typeof(ProviderTimeoutView))]
 [JsonSerializable(typeof(ProviderConfigExportDocument))]
 [JsonSerializable(typeof(ProviderConfigExportItem))]
 [JsonSerializable(typeof(ProviderConfigExportItem[]))]

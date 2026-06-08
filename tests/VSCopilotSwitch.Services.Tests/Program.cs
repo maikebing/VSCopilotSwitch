@@ -10,6 +10,7 @@ using VSCopilotSwitch.Services;
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("SaveAsync does not return API key", SaveAsync_DoesNotReturnApiKey),
+    ("SaveAsync persists timeout policy", SaveAsync_PersistsTimeoutPolicy),
     ("ExportAsync excludes API keys by default", ExportAsync_ExcludesApiKeysByDefault),
     ("ActivateAsync keeps one active provider", ActivateAsync_KeepsOneActiveProvider),
     ("ReorderAsync is idempotent", ReorderAsync_IsIdempotent),
@@ -178,6 +179,10 @@ static async Task ActiveProviderModelProvider_ListModelsAsync_FallsBackToConfigu
 static async Task ActiveProviderModelProvider_CircuitBreaker_OpensAndRecovers()
 {
     var now = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+    var timeoutPolicy = new ProviderTimeoutPolicy(
+        TimeSpan.FromSeconds(11),
+        TimeSpan.FromSeconds(22),
+        TimeSpan.FromSeconds(33));
     var configService = new StubProviderConfigService([
         new ProviderConfigView(
             "flaky",
@@ -191,11 +196,19 @@ static async Task ActiveProviderModelProvider_CircuitBreaker_OpensAndRecovers()
             true,
             true,
             "sk-...test",
-            0)
-    ]);
+            0,
+            new ProviderTimeoutView(11, 22, 33, true))
+    ], timeoutPolicy);
     var upstream = new FlakyModelProvider();
-    var activeProvider = new ActiveProviderModelProvider(configService, _ => upstream, () => now);
+    ProviderRuntimeConfig? capturedConfig = null;
+    var activeProvider = new ActiveProviderModelProvider(configService, config =>
+    {
+        capturedConfig = config;
+        return upstream;
+    }, () => now);
     var request = new ChatRequest("gpt-4.1", [new ChatMessage("user", "ping")], stream: false);
+
+    Assert.Equal(TimeSpan.FromSeconds(11), (await configService.GetActiveRuntimeConfigAsync())?.TimeoutPolicy.EffectiveConnectionTimeout, "Stub 配置应暴露连接超时策略。");
 
     for (var attempt = 0; attempt < 3; attempt++)
     {
@@ -205,6 +218,7 @@ static async Task ActiveProviderModelProvider_CircuitBreaker_OpensAndRecovers()
     var openException = await Assert.ThrowsAsync<ProviderException>(() => activeProvider.ChatAsync(request), "达到阈值后应直接拒绝请求。");
     Assert.Equal(3, upstream.ChatAttempts, "熔断打开后不应继续调用上游。");
     Assert.Equal(ProviderErrorKind.Unavailable, openException.Kind, "熔断拒绝应映射为提供商不可用。");
+    Assert.Equal(timeoutPolicy, capturedConfig?.TimeoutPolicy, "运行时 Provider 工厂应收到当前供应商超时策略。");
 
     upstream.Fail = false;
     now = now.AddMinutes(2);

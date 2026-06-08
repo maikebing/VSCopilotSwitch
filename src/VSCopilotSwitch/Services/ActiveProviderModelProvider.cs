@@ -5,7 +5,6 @@ namespace VSCopilotSwitch.Services;
 
 public sealed class ActiveProviderModelProvider : IModelProvider
 {
-    private static readonly TimeSpan RuntimeTimeout = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan DefaultCircuitBreakDuration = TimeSpan.FromMinutes(1);
     private const int DefaultFailureThreshold = 3;
 
@@ -194,7 +193,8 @@ public sealed class ActiveProviderModelProvider : IModelProvider
             config.ApiUrl,
             config.Model,
             config.Vendor,
-            config.ApiKey!), RuntimeTimeout);
+            config.ApiKey!,
+            config.TimeoutPolicy));
 
     private static bool CanUseConfiguredModelFallback(ProviderException exception)
         => exception.Kind is ProviderErrorKind.Timeout
